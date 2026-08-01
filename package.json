@@ -1,0 +1,32 @@
+{
+  "name": "chbook.site",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "check-types": "turbo run check-types"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.5.4",
+    "postcss": "^8.5.25",
+    "prettier": "^3.7.4",
+    "tailwindcss": "^4.3.3",
+    "turbo": "^2.10.7",
+    "typescript": "5.9.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": "11.16.0"
+    }
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
