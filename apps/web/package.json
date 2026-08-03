@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@chbook/types": "*",
+    "@supabase/supabase-js": "^2.95.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
