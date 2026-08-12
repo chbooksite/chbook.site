@@ -845,6 +845,34 @@ export type Database = {
         Args: { p_church_id: string; p_lat: number; p_lng: number }
         Returns: boolean
       }
+      create_church_with_pastor: {
+        Args: {
+          p_address?: string
+          p_capacity?: number
+          p_country?: string
+          p_lat?: number
+          p_lng?: number
+          p_name: string
+          p_pastor_name: string
+          p_plan?: string
+        }
+        Returns: {
+          address: string | null
+          capacity: number | null
+          code: string
+          country: string | null
+          created_at: string | null
+          id: string
+          location: unknown
+          name: string
+          pastor_name: string | null
+          plan: string | null
+          slug: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          theme_color: string | null
+        }
+      }
       current_church_id: { Args: never; Returns: string }
       disablelongtransactions: { Args: never; Returns: string }
       dropgeometrycolumn:

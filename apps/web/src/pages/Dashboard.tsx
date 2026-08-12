@@ -1,8 +1,39 @@
+import { useEffect, useState } from 'react'
+import { Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
+import { supabase } from '../lib/supabase'
 
-// Placeholder del dashboard del pastor. Las métricas reales llegan en el Paso 5.
+interface Church {
+  name: string
+  code: string
+  plan: string | null
+  country: string | null
+}
+
+// Panel del pastor. Las métricas reales llegan en el Paso 5.
 export default function Dashboard() {
-  const { user, signOut } = useAuth()
+  const { user, signOut, membership, membershipLoading } = useAuth()
+  const [church, setChurch] = useState<Church | null>(null)
+
+  useEffect(() => {
+    if (!membership) return
+    supabase
+      .from('churches')
+      .select('name, code, plan, country')
+      .eq('id', membership.churchId)
+      .maybeSingle()
+      .then(({ data }) => setChurch(data))
+  }, [membership])
+
+  // Gate: con sesión pero sin iglesia → onboarding.
+  if (membershipLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-cream">
+        <p className="font-mono text-sm text-graysage">Cargando…</p>
+      </div>
+    )
+  }
+  if (!membership) return <Navigate to="/onboarding" replace />
 
   return (
     <div className="min-h-screen bg-cream">
@@ -16,9 +47,7 @@ export default function Dashboard() {
           <span className="font-serif text-lg text-sage-dark">ChBook</span>
         </div>
         <div className="flex items-center gap-4">
-          <span className="hidden font-mono text-xs text-graysage sm:inline">
-            {user?.email}
-          </span>
+          <span className="hidden font-mono text-xs text-graysage sm:inline">{user?.email}</span>
           <button
             type="button"
             onClick={signOut}
@@ -30,19 +59,27 @@ export default function Dashboard() {
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-12">
-        <h1 className="font-serif text-3xl text-charcoal">Bienvenido</h1>
-        <p className="mt-2 text-graysage">
-          Tu sesión está activa. Aquí irá el panel con las métricas de tu iglesia
-          (miembros activos, asistencia real) en el Paso 5.
-        </p>
+        <h1 className="font-serif text-3xl text-charcoal">
+          {church ? church.name : 'Bienvenido'}
+        </h1>
+        {church && (
+          <p className="mt-2 flex flex-wrap items-center gap-3 text-graysage">
+            <span className="font-mono text-sm text-sage-dark">{church.code}</span>
+            {church.plan && (
+              <span className="rounded-full bg-sage-water/15 px-2.5 py-0.5 text-xs font-medium capitalize text-sage-dark">
+                {church.plan.replace('_', ' ')}
+              </span>
+            )}
+            {church.country && <span className="text-sm">{church.country}</span>}
+          </p>
+        )}
 
         <div className="mt-8 rounded-2xl border border-clay-light/40 bg-white p-6">
           <p className="text-sm text-graysage">
-            Próximo paso del desarrollo:{' '}
-            <span className="font-medium text-sage-dark">
-              registro de tu iglesia (onboarding)
-            </span>
-            .
+            Tu iglesia está creada. El panel con las métricas reales (miembros
+            activos, asistencia) llega en el{' '}
+            <span className="font-medium text-sage-dark">Paso 5</span>. Lo próximo:
+            gestionar miembros y aprobar prospectos.
           </p>
         </div>
       </main>
