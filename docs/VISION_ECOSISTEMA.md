@@ -154,6 +154,12 @@ Lo que la visión ampliada añade o cambia respecto al esquema actual. **A decid
 | D7 | **Motor de asignación automática** | No existe | Disponibilidad, excepciones, asignaciones, equilibrio de carga (músicos y predicadores) — **extensión, fase posterior** |
 | D8 | **Notificaciones segmentadas** | `notifications` existe (target null=todos o 1 miembro) | Segmentar por **grupo/rol**, no solo "todos" o "uno" |
 | D9 | **Línea de tiempo en vivo** | `activity_tags` + `service_activities` ✅ | Ya cubierto; falta la UX de arrastrar duración |
+| D10 | **Cédula única global** | No existe | Columna `cedula` con **UNIQUE a nivel de plataforma** (llave anti-duplicados; ancla la regla D4). Opcional para dependientes/extranjeros. Ver `AUTENTICACION.md` T3/T4 |
+| D11 | **Auth de dos niveles** | Solo email/OAuth previsto | Nivel 1 miembro = cédula + PIN; Nivel 2 gestión = correo+contraseña+2FA. Flag `security_tier` separado de los roles eclesiásticos + logs de auditoría. Ver `AUTENTICACION.md` |
+| D12 | **Estados de membresía** | enum `prospect/active/inactive/archived` | Formalizar `retirado` (libera la cédula para traslado) distinto de `inactive` (métrica). Ver `AUTENTICACION.md` T7 |
+| D13 | **Métricas de participación** | vistas básicas | Definir **activo regular / esporádico (<1 mes) / inactivo (+6 meses)** para dashboard y perfiles públicos. Reconciliar con "alerta a 2 meses" previa. Ver `AUTENTICACION.md` T6 |
+
+> 📄 El detalle completo de autenticación vive en **`docs/AUTENTICACION.md`** (spec del Paso 2).
 
 ---
 
