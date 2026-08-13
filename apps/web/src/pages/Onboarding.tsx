@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
+import MapPicker, { type Coords } from '../components/MapPicker'
 
 const COUNTRIES = ['Colombia', 'Venezuela', 'México', 'USA/Europa', 'Otro']
 
@@ -20,8 +21,7 @@ export default function Onboarding() {
   const [country, setCountry] = useState(COUNTRIES[0])
   const [address, setAddress] = useState('')
   const [members, setMembers] = useState('')
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
-  const [gpsState, setGpsState] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [coords, setCoords] = useState<Coords | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,22 +37,6 @@ export default function Onboarding() {
     )
   }
   if (membership) return <Navigate to="/" replace />
-
-  const captureLocation = () => {
-    if (!navigator.geolocation) {
-      setGpsState('error')
-      return
-    }
-    setGpsState('loading')
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude })
-        setGpsState('idle')
-      },
-      () => setGpsState('error'),
-      { enableHighAccuracy: true, timeout: 10000 },
-    )
-  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -72,7 +56,14 @@ export default function Onboarding() {
     setSubmitting(false)
 
     if (error) {
-      setError(error.message)
+      // La iglesia pudo crearse aunque la respuesta se perdiera en la red
+      // ("0 B transferred"). Revalidamos la membresía: si ya existe, el gate
+      // de esta página redirige solo al dashboard.
+      await refreshMembership()
+      setError(
+        'No llegó la confirmación del servidor. Si tu iglesia ya aparece te ' +
+          'llevaremos al panel; si no, intenta de nuevo en un momento.',
+      )
       return
     }
     await refreshMembership()
@@ -152,21 +143,7 @@ export default function Onboarding() {
           {/* GPS del auditorio */}
           <div className="rounded-lg border border-graysage/20 bg-cream/40 p-3">
             <p className="mb-2 text-sm font-medium text-graysage">Ubicación del auditorio</p>
-            <button
-              type="button"
-              onClick={captureLocation}
-              className="rounded-lg border border-sage/40 px-3 py-1.5 text-sm text-sage-dark transition hover:bg-sage/10"
-            >
-              {gpsState === 'loading' ? 'Obteniendo…' : '📍 Usar mi ubicación actual'}
-            </button>
-            {coords && (
-              <p className="mt-2 font-mono text-xs text-sage-dark">
-                {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)} ✓
-              </p>
-            )}
-            {gpsState === 'error' && (
-              <p className="mt-2 text-xs text-clay">No se pudo obtener la ubicación. Puedes continuar y ajustarla después.</p>
-            )}
+            <MapPicker value={coords} onChange={setCoords} />
           </div>
 
           {/* Plan sugerido */}
