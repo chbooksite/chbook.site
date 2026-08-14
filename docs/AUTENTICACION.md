@@ -68,6 +68,8 @@ Aplica a **líderes, administradores y cualquiera que gestione** notificaciones,
 
 **T7 — Estados de membresía.** Formalizar `retirado` como estado que **libera la cédula** para traslado, distinto de `inactivo` (métrica) y `archived`. Revisar el enum `status` actual (`prospect/active/inactive/archived`).
 
+**T8 — Entrega de correo + política de confirmación (producción).** El correo integrado de Supabase es **solo pruebas** y está fuertemente rate-limited (en dev un 2º registro seguido no recibió el correo de confirmación). Antes de producción: (a) configurar **SMTP propio** (Resend/SendGrid/etc.); (b) **verificar que "Confirm email" se exige de verdad** en el panel de Auth — durante las pruebas se pudo entrar sin recibir el correo, hay que confirmar el ajuste (alinea con el requisito "correo verificado" del Nivel 2). Observado en dev el 2026-08-13.
+
 ---
 
 *Plan de construcción (mañana):* empezar por **Nivel 1** (cédula + PIN, opción T1-a) + React Router + rutas protegidas + bandeja de aprobación; dejar **Nivel 2** (correo+contraseña+2FA+auditoría) y **Google OAuth** como sub-pasos posteriores.
