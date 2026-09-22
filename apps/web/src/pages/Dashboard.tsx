@@ -11,19 +11,44 @@ interface Church {
   country: string | null
 }
 
-// Panel del pastor. Las métricas reales llegan en el Paso 5.
+interface Metrics {
+  total_members: number | null
+  active_members: number | null
+  active_pct: number | null
+  avg_attendance: number | null
+}
+
+// Tarjeta de métrica (KPI centrado en personas).
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-2xl border border-clay-light/40 bg-white p-5">
+      <p className="font-serif text-3xl text-sage-water">{value}</p>
+      <p className="mt-1 text-sm text-graysage">{label}</p>
+    </div>
+  )
+}
+
+// Panel del pastor con métricas reales (vista church_dashboard).
 export default function Dashboard() {
   const { membership, membershipLoading } = useAuth()
   const [church, setChurch] = useState<Church | null>(null)
+  const [metrics, setMetrics] = useState<Metrics | null>(null)
 
   useEffect(() => {
     if (!membership) return
+    const id = membership.churchId
     supabase
       .from('churches')
       .select('name, code, plan, country')
-      .eq('id', membership.churchId)
+      .eq('id', id)
       .maybeSingle()
       .then(({ data }) => setChurch(data))
+    supabase
+      .from('church_dashboard')
+      .select('total_members, active_members, active_pct, avg_attendance')
+      .eq('church_id', id)
+      .maybeSingle()
+      .then(({ data }) => setMetrics(data))
   }, [membership])
 
   // Gate: con sesión pero sin iglesia → onboarding.
@@ -56,10 +81,18 @@ export default function Dashboard() {
           </p>
         )}
 
-        <div className="mt-8 grid gap-4 sm:grid-cols-2">
+        {/* Métricas centradas en personas */}
+        <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <Stat label="Miembros" value={metrics?.total_members ?? 0} />
+          <Stat label="Activos" value={metrics?.active_members ?? 0} />
+          <Stat label="% Activos" value={`${metrics?.active_pct ?? 0}%`} />
+          <Stat label="Asistencia prom." value={metrics?.avg_attendance ?? 0} />
+        </div>
+
+        <div className="mt-4">
           <Link
             to="/miembros"
-            className="rounded-2xl border border-clay-light/40 bg-white p-6 transition hover:border-sage hover:shadow-sm"
+            className="block rounded-2xl border border-clay-light/40 bg-white p-6 transition hover:border-sage hover:shadow-sm"
           >
             <p className="font-serif text-lg text-sage-dark">Miembros</p>
             <p className="mt-1 text-sm text-graysage">
@@ -67,14 +100,6 @@ export default function Dashboard() {
               aprueba prospectos.
             </p>
           </Link>
-
-          <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
-            <p className="font-serif text-lg text-graysage/70">Métricas</p>
-            <p className="mt-1 text-sm text-graysage">
-              El panel con métricas reales (miembros activos, asistencia) llega en
-              el <span className="font-medium text-sage-dark">Paso 5</span>.
-            </p>
-          </div>
         </div>
       </main>
     </div>
