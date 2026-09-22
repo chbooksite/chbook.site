@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
+import AppHeader from '../components/AppHeader'
 
 interface Church {
   name: string
@@ -12,7 +13,7 @@ interface Church {
 
 // Panel del pastor. Las métricas reales llegan en el Paso 5.
 export default function Dashboard() {
-  const { user, signOut, membership, membershipLoading } = useAuth()
+  const { membership, membershipLoading } = useAuth()
   const [church, setChurch] = useState<Church | null>(null)
 
   useEffect(() => {
@@ -37,26 +38,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-cream">
-      <header className="flex items-center justify-between border-b border-clay-light/30 bg-white px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-charcoal">
-            <span className="font-serif text-lg text-gold">
-              Ch<span className="align-top text-[0.6rem]">+</span>
-            </span>
-          </div>
-          <span className="font-serif text-lg text-sage-dark">ChBook</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="hidden font-mono text-xs text-graysage sm:inline">{user?.email}</span>
-          <button
-            type="button"
-            onClick={signOut}
-            className="rounded-lg border border-graysage/25 px-3 py-1.5 text-sm text-graysage transition hover:bg-cream"
-          >
-            Salir
-          </button>
-        </div>
-      </header>
+      <AppHeader />
 
       <main className="mx-auto max-w-4xl px-6 py-12">
         <h1 className="font-serif text-3xl text-charcoal">
@@ -74,13 +56,25 @@ export default function Dashboard() {
           </p>
         )}
 
-        <div className="mt-8 rounded-2xl border border-clay-light/40 bg-white p-6">
-          <p className="text-sm text-graysage">
-            Tu iglesia está creada. El panel con las métricas reales (miembros
-            activos, asistencia) llega en el{' '}
-            <span className="font-medium text-sage-dark">Paso 5</span>. Lo próximo:
-            gestionar miembros y aprobar prospectos.
-          </p>
+        <div className="mt-8 grid gap-4 sm:grid-cols-2">
+          <Link
+            to="/miembros"
+            className="rounded-2xl border border-clay-light/40 bg-white p-6 transition hover:border-sage hover:shadow-sm"
+          >
+            <p className="font-serif text-lg text-sage-dark">Miembros</p>
+            <p className="mt-1 text-sm text-graysage">
+              Gestiona tu comunidad: agrega personas, asigna roles y equipos, y
+              aprueba prospectos.
+            </p>
+          </Link>
+
+          <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+            <p className="font-serif text-lg text-graysage/70">Métricas</p>
+            <p className="mt-1 text-sm text-graysage">
+              El panel con métricas reales (miembros activos, asistencia) llega en
+              el <span className="font-medium text-sage-dark">Paso 5</span>.
+            </p>
+          </div>
         </div>
       </main>
     </div>
