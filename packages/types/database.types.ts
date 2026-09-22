@@ -270,6 +270,139 @@ export type Database = {
           },
         ]
       }
+      member_roles: {
+        Row: {
+          member_id: string
+          role_id: string
+        }
+        Insert: {
+          member_id: string
+          role_id: string
+        }
+        Update: {
+          member_id?: string
+          role_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_roles_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "member_roles_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      member_teams: {
+        Row: {
+          is_leader: boolean | null
+          member_id: string
+          team_id: string
+        }
+        Insert: {
+          is_leader?: boolean | null
+          member_id: string
+          team_id: string
+        }
+        Update: {
+          is_leader?: boolean | null
+          member_id?: string
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_teams_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "member_teams_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roles: {
+        Row: {
+          church_id: string
+          created_at: string | null
+          id: string
+          is_system: boolean | null
+          key: string
+          name: string
+        }
+        Insert: {
+          church_id: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key: string
+          name: string
+        }
+        Update: {
+          church_id?: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roles_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      teams: {
+        Row: {
+          church_id: string
+          created_at: string | null
+          id: string
+          is_system: boolean | null
+          key: string
+          name: string
+        }
+        Insert: {
+          church_id: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key: string
+          name: string
+        }
+        Update: {
+          church_id?: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "teams_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       members: {
         Row: {
           birth_date: string | null
@@ -277,6 +410,7 @@ export type Database = {
           created_at: string | null
           email: string | null
           full_name: string
+          guardian_id: string | null
           id: string
           phone: string | null
           push_token: string | null
@@ -290,6 +424,7 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           full_name: string
+          guardian_id?: string | null
           id?: string
           phone?: string | null
           push_token?: string | null
@@ -303,6 +438,7 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           full_name?: string
+          guardian_id?: string | null
           id?: string
           phone?: string | null
           push_token?: string | null
@@ -311,6 +447,13 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "members_guardian_id_fkey"
+            columns: ["guardian_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "members_church_id_fkey"
             columns: ["church_id"]
@@ -874,6 +1017,7 @@ export type Database = {
         }
       }
       current_church_id: { Args: never; Returns: string }
+      seed_church_catalogs: { Args: { p_church_id: string }; Returns: undefined }
       disablelongtransactions: { Args: never; Returns: string }
       dropgeometrycolumn:
         | {
