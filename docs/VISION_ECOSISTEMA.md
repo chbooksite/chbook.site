@@ -158,8 +158,20 @@ Lo que la visión ampliada añade o cambia respecto al esquema actual. **A decid
 | D11 | **Auth de dos niveles** | Solo email/OAuth previsto | Nivel 1 miembro = cédula + PIN; Nivel 2 gestión = correo+contraseña+2FA. Flag `security_tier` separado de los roles eclesiásticos + logs de auditoría. Ver `AUTENTICACION.md` |
 | D12 | **Estados de membresía** | enum `prospect/active/inactive/archived` | Formalizar `retirado` (libera la cédula para traslado) distinto de `inactive` (métrica). Ver `AUTENTICACION.md` T7 |
 | D13 | **Métricas de participación** | vistas básicas | Definir **activo regular / esporádico (<1 mes) / inactivo (+6 meses)** para dashboard y perfiles públicos. Reconciliar con "alerta a 2 meses" previa. Ver `AUTENTICACION.md` T6 |
+| D14 | **Bautismo** | ✅ `members.is_baptized` + `baptism_date` | En muchas iglesias el bautismo es la **base para pertenecer a un equipo/servicio**. Dato por miembro; ancla reglas de elegibilidad (ver abajo) |
 
 > 📄 El detalle completo de autenticación vive en **`docs/AUTENTICACION.md`** (spec del Paso 2).
+
+### Reglas de elegibilidad (capa de dominio) — decidido 2026-09-28
+
+El sistema debe **entender la organización**, no solo guardar datos. Habrá reglas que condicionan roles/equipos entre sí y con el bautismo. Enfoque elegido: **reglas curadas con interruptores** (un catálogo acotado de reglas comunes que el pastor activa/desactiva en Ajustes), NO un motor 100% libre. Reglas identificadas:
+
+- **Predicador** solo si es líder o pastor *(ya implementada, hard-coded en el perfil)*.
+- **Bautizado** requerido para pertenecer a un equipo/servicio.
+- **Líder** debe pertenecer al menos a un equipo.
+- (ampliable con el tiempo).
+
+Estado: dato de bautismo (D14) ✅. Panel de reglas con interruptores + enforcement → pendiente (Capa B). Ver [[feedback-sistema-que-entiende]].
 
 ---
 

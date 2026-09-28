@@ -16,6 +16,7 @@ interface MemberRow {
   status: string | null
   email: string | null
   phone: string | null
+  isBaptized: boolean
   roleIds: string[]
   teams: { teamId: string; isLeader: boolean }[]
 }
@@ -28,6 +29,7 @@ type RawMember = {
   status: string | null
   email: string | null
   phone: string | null
+  is_baptized: boolean | null
   member_roles: { role_id: string }[] | null
   member_teams: { team_id: string; is_leader: boolean | null }[] | null
 }
@@ -60,7 +62,7 @@ export default function Members() {
       supabase.from('teams').select('id, key, name').order('name'),
       supabase
         .from('members')
-        .select('id, full_name, status, email, phone, member_roles(role_id), member_teams(team_id, is_leader)')
+        .select('id, full_name, status, email, phone, is_baptized, member_roles(role_id), member_teams(team_id, is_leader)')
         .order('full_name'),
     ])
     setRoles(rolesRes.data ?? [])
@@ -73,6 +75,7 @@ export default function Members() {
         status: m.status,
         email: m.email,
         phone: m.phone,
+        isBaptized: Boolean(m.is_baptized),
         roleIds: (m.member_roles ?? []).map((r) => r.role_id),
         teams: (m.member_teams ?? []).map((t) => ({
           teamId: t.team_id,
@@ -312,12 +315,19 @@ export default function Members() {
                 }`}
               >
                 <div className="min-w-40 flex-1">
-                  <Link
-                    to={`/miembros/${m.id}`}
-                    className="font-medium text-charcoal underline-offset-2 hover:text-sage-dark hover:underline"
-                  >
-                    {m.full_name}
-                  </Link>
+                  <span className="flex items-center gap-1.5">
+                    <Link
+                      to={`/miembros/${m.id}`}
+                      className="font-medium text-charcoal underline-offset-2 hover:text-sage-dark hover:underline"
+                    >
+                      {m.full_name}
+                    </Link>
+                    {m.isBaptized && (
+                      <span title="Bautizado" className="text-sage-water">
+                        ✝
+                      </span>
+                    )}
+                  </span>
                   {m.email && <p className="font-mono text-xs text-graysage">{m.email}</p>}
                 </div>
 

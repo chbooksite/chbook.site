@@ -17,6 +17,8 @@ type RawMember = {
   email: string | null
   phone: string | null
   birth_date: string | null
+  is_baptized: boolean | null
+  baptism_date: string | null
   member_roles: { role_id: string }[] | null
   member_teams: { team_id: string; is_leader: boolean | null }[] | null
 }
@@ -55,6 +57,8 @@ export default function MemberProfile() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [birthDate, setBirthDate] = useState('')
+  const [isBaptized, setIsBaptized] = useState(false)
+  const [baptismDate, setBaptismDate] = useState('')
   const [status, setStatus] = useState('active')
   const [roleIds, setRoleIds] = useState<string[]>([])
   const [teamMap, setTeamMap] = useState<Record<string, boolean>>({}) // teamId -> isLeader
@@ -71,7 +75,7 @@ export default function MemberProfile() {
       supabase.from('teams').select('id, key, name').order('name'),
       supabase
         .from('members')
-        .select('id, full_name, status, email, phone, birth_date, member_roles(role_id), member_teams(team_id, is_leader)')
+        .select('id, full_name, status, email, phone, birth_date, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
         .eq('id', id)
         .maybeSingle(),
     ])
@@ -88,6 +92,8 @@ export default function MemberProfile() {
     setEmail(m.email ?? '')
     setPhone(m.phone ?? '')
     setBirthDate(m.birth_date ?? '')
+    setIsBaptized(Boolean(m.is_baptized))
+    setBaptismDate(m.baptism_date ?? '')
     setStatus(m.status ?? 'active')
     const rIds = (m.member_roles ?? []).map((r) => r.role_id)
     const tMap: Record<string, boolean> = {}
@@ -183,6 +189,8 @@ export default function MemberProfile() {
         email: email.trim() || null,
         phone: phone.trim() || null,
         birth_date: birthDate || null,
+        is_baptized: isBaptized,
+        baptism_date: isBaptized ? baptismDate || null : null,
         status,
       })
       .eq('id', id)
@@ -283,6 +291,18 @@ export default function MemberProfile() {
                   <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Nacimiento</dt>
                   <dd className="mt-1 text-charcoal">{birthDate || '—'}</dd>
                 </div>
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Bautismo</dt>
+                  <dd className="mt-1">
+                    {isBaptized ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-sage-water/15 px-2.5 py-0.5 text-sm text-sage-dark">
+                        ✝ Bautizado{baptismDate ? ` · ${baptismDate}` : ''}
+                      </span>
+                    ) : (
+                      <span className="text-graysage">No bautizado</span>
+                    )}
+                  </dd>
+                </div>
               </dl>
             </div>
 
@@ -337,6 +357,29 @@ export default function MemberProfile() {
                 <div>
                   <label className="mb-1 block text-sm font-medium text-graysage">Fecha de nacimiento</label>
                   <input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} className={inputCls} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="flex items-center gap-2 text-sm font-medium text-graysage">
+                    <input
+                      type="checkbox"
+                      checked={isBaptized}
+                      onChange={(e) => setIsBaptized(e.target.checked)}
+                    />
+                    ✝ Miembro bautizado
+                  </label>
+                  {isBaptized && (
+                    <div className="mt-2">
+                      <label className="mb-1 block text-xs text-graysage/70">
+                        Fecha de bautismo <span className="text-graysage/50">(opcional)</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={baptismDate}
+                        onChange={(e) => setBaptismDate(e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

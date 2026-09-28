@@ -405,6 +405,7 @@ export type Database = {
       }
       members: {
         Row: {
+          baptism_date: string | null
           birth_date: string | null
           church_id: string | null
           created_at: string | null
@@ -412,6 +413,7 @@ export type Database = {
           full_name: string
           guardian_id: string | null
           id: string
+          is_baptized: boolean
           phone: string | null
           push_token: string | null
           role: string | null
@@ -419,6 +421,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          baptism_date?: string | null
           birth_date?: string | null
           church_id?: string | null
           created_at?: string | null
@@ -426,6 +429,7 @@ export type Database = {
           full_name: string
           guardian_id?: string | null
           id?: string
+          is_baptized?: boolean
           phone?: string | null
           push_token?: string | null
           role?: string | null
@@ -433,6 +437,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          baptism_date?: string | null
           birth_date?: string | null
           church_id?: string | null
           created_at?: string | null
@@ -440,6 +445,7 @@ export type Database = {
           full_name?: string
           guardian_id?: string | null
           id?: string
+          is_baptized?: boolean
           phone?: string | null
           push_token?: string | null
           role?: string | null
