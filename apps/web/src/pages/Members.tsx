@@ -3,6 +3,7 @@ import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
+import { DEFAULT_RULES, readRules, type ChurchRules } from '../lib/rules'
 
 interface Catalog {
   id: string
@@ -41,6 +42,7 @@ export default function Members() {
   const [roles, setRoles] = useState<Catalog[]>([])
   const [teams, setTeams] = useState<Catalog[]>([])
   const [members, setMembers] = useState<MemberRow[]>([])
+  const [rules, setRules] = useState<ChurchRules>(DEFAULT_RULES)
   const [loading, setLoading] = useState(true)
 
   // Formulario de alta
@@ -49,6 +51,7 @@ export default function Members() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [status, setStatus] = useState<'active' | 'prospect'>('active')
+  const [newBaptized, setNewBaptized] = useState(false)
   const [roleIds, setRoleIds] = useState<string[]>([])
   const [teamIds, setTeamIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
@@ -57,16 +60,18 @@ export default function Members() {
   const load = useCallback(async () => {
     if (!churchId) return
     setLoading(true)
-    const [rolesRes, teamsRes, membersRes] = await Promise.all([
+    const [rolesRes, teamsRes, membersRes, churchRes] = await Promise.all([
       supabase.from('roles').select('id, key, name').order('name'),
       supabase.from('teams').select('id, key, name').order('name'),
       supabase
         .from('members')
         .select('id, full_name, status, email, phone, is_baptized, member_roles(role_id), member_teams(team_id, is_leader)')
         .order('full_name'),
+      supabase.from('churches').select('settings').eq('id', churchId).maybeSingle(),
     ])
     setRoles(rolesRes.data ?? [])
     setTeams(teamsRes.data ?? [])
+    setRules(readRules(churchRes.data?.settings))
     const raw = (membersRes.data ?? []) as unknown as RawMember[]
     setMembers(
       raw.map((m) => ({
@@ -110,6 +115,7 @@ export default function Members() {
     setEmail('')
     setPhone('')
     setStatus('active')
+    setNewBaptized(false)
     setRoleIds([])
     setTeamIds([])
     setError(null)
@@ -121,6 +127,19 @@ export default function Members() {
     setSaving(true)
     setError(null)
 
+    // Regla: un líder debe pertenecer al menos a un equipo.
+    const leaderRole = roles.find((r) => r.key === 'lider')
+    if (
+      rules.leader_requires_team &&
+      leaderRole &&
+      roleIds.includes(leaderRole.id) &&
+      teamIds.length === 0
+    ) {
+      setError('Un líder debe pertenecer al menos a un equipo. Asigna un equipo o quita el rol Líder.')
+      setSaving(false)
+      return
+    }
+
     const { data: created, error: insErr } = await supabase
       .from('members')
       .insert({
@@ -128,6 +147,7 @@ export default function Members() {
         full_name: fullName.trim(),
         email: email.trim() || null,
         phone: phone.trim() || null,
+        is_baptized: newBaptized,
         status,
       })
       .select('id')
@@ -190,6 +210,15 @@ export default function Members() {
   const inputCls =
     'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
 
+  const selectedRoleKeys = roleIds
+    .map((rid) => roles.find((r) => r.id === rid)?.key)
+    .filter(Boolean) as string[]
+  const canPreachNew = ['lider', 'pastor_principal', 'pastor_afiliado'].some((k) =>
+    selectedRoleKeys.includes(k),
+  )
+  const rolesBlocked = rules.baptism_for_roles && !newBaptized
+  const teamsBlocked = rules.baptism_for_teams && !newBaptized
+
   return (
     <div className="min-h-screen bg-cream">
       <AppHeader />
@@ -243,47 +272,78 @@ export default function Members() {
               </div>
             </div>
 
+            <label className="flex items-center gap-2 text-sm font-medium text-graysage">
+              <input type="checkbox" checked={newBaptized} onChange={(e) => setNewBaptized(e.target.checked)} />
+              ✝ Miembro bautizado
+            </label>
+
             <div>
               <p className="mb-2 text-sm font-medium text-graysage">Roles</p>
               <div className="flex flex-wrap gap-2">
                 {roles
                   .filter((r) => r.key !== 'miembro')
-                  .map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => toggle(roleIds, setRoleIds, r.id)}
-                      className={`rounded-full border px-3 py-1 text-xs transition ${
-                        roleIds.includes(r.id)
-                          ? 'border-sage bg-sage text-cream'
-                          : 'border-graysage/25 text-graysage hover:border-sage'
-                      }`}
-                    >
-                      {r.name}
-                    </button>
-                  ))}
+                  .map((r) => {
+                    const on = roleIds.includes(r.id)
+                    const preacherBlocked =
+                      r.key === 'predicador' && rules.preacher_requires_leadership && !canPreachNew
+                    const disabled = !on && (rolesBlocked || preacherBlocked)
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => toggle(roleIds, setRoleIds, r.id)}
+                        title={
+                          rolesBlocked
+                            ? 'Marca al miembro como bautizado para asignar roles'
+                            : preacherBlocked
+                              ? 'Solo líderes o pastores pueden ser predicadores'
+                              : undefined
+                        }
+                        className={`rounded-full border px-3 py-1 text-xs transition ${
+                          on
+                            ? 'border-sage bg-sage text-cream'
+                            : 'border-graysage/25 text-graysage hover:border-sage'
+                        } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
+                      >
+                        {r.name}
+                      </button>
+                    )
+                  })}
               </div>
               <p className="mt-1 text-xs text-graysage/60">Todos llevan el rol base "Miembro" automáticamente.</p>
+              {rolesBlocked && (
+                <p className="mt-1 text-xs text-clay">✝ Debe estar bautizado para asignarle roles.</p>
+              )}
             </div>
 
             <div>
               <p className="mb-2 text-sm font-medium text-graysage">Equipos</p>
               <div className="flex flex-wrap gap-2">
-                {teams.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => toggle(teamIds, setTeamIds, t.id)}
-                    className={`rounded-full border px-3 py-1 text-xs transition ${
-                      teamIds.includes(t.id)
-                        ? 'border-clay bg-clay text-cream'
-                        : 'border-graysage/25 text-graysage hover:border-clay'
-                    }`}
-                  >
-                    {t.name}
-                  </button>
-                ))}
+                {teams.map((t) => {
+                  const on = teamIds.includes(t.id)
+                  const disabled = !on && teamsBlocked
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => toggle(teamIds, setTeamIds, t.id)}
+                      title={disabled ? 'Marca al miembro como bautizado para unirlo a un equipo' : undefined}
+                      className={`rounded-full border px-3 py-1 text-xs transition ${
+                        on
+                          ? 'border-clay bg-clay text-cream'
+                          : 'border-graysage/25 text-graysage hover:border-clay'
+                      } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
+                    >
+                      {t.name}
+                    </button>
+                  )
+                })}
               </div>
+              {teamsBlocked && (
+                <p className="mt-1 text-xs text-clay">✝ Debe estar bautizado para unirlo a un equipo.</p>
+              )}
             </div>
 
             {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}

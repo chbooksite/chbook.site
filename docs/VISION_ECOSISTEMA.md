@@ -171,7 +171,7 @@ El sistema debe **entender la organización**, no solo guardar datos. Habrá reg
 - **Líder** debe pertenecer al menos a un equipo.
 - (ampliable con el tiempo).
 
-Estado: dato de bautismo (D14) ✅. Panel de reglas con interruptores + enforcement → pendiente (Capa B). Ver [[feedback-sistema-que-entiende]].
+Estado: bautismo (D14) ✅. **Panel de reglas curadas con interruptores** (guardadas en `churches.settings.rules`) + enforcement en alta y perfil de miembro ✅ (2026-09-28). Reglas activas: bautizado→roles, bautizado→equipos, líder→equipo, predicador→liderazgo. Ampliable agregando entradas al catálogo `apps/web/src/lib/rules.ts`. Ver [[feedback-sistema-que-entiende]].
 
 ---
 

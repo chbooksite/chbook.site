@@ -173,6 +173,7 @@ export type Database = {
           name: string
           pastor_name: string | null
           plan: string | null
+          settings: Json
           slug: string
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
@@ -189,6 +190,7 @@ export type Database = {
           name: string
           pastor_name?: string | null
           plan?: string | null
+          settings?: Json
           slug: string
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
@@ -205,6 +207,7 @@ export type Database = {
           name?: string
           pastor_name?: string | null
           plan?: string | null
+          settings?: Json
           slug?: string
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
@@ -1016,6 +1019,7 @@ export type Database = {
           name: string
           pastor_name: string | null
           plan: string | null
+          settings: Json
           slug: string
           stripe_customer_id: string | null
           stripe_subscription_id: string | null

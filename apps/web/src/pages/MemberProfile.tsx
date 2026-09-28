@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
+import { DEFAULT_RULES, readRules, type ChurchRules } from '../lib/rules'
 
 interface Catalog {
   id: string
@@ -46,6 +47,7 @@ export default function MemberProfile() {
 
   const [roles, setRoles] = useState<Catalog[]>([])
   const [teams, setTeams] = useState<Catalog[]>([])
+  const [rules, setRules] = useState<ChurchRules>(DEFAULT_RULES)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -70,7 +72,7 @@ export default function MemberProfile() {
   const load = useCallback(async () => {
     if (!id || !membership) return
     setLoading(true)
-    const [rolesRes, teamsRes, memberRes] = await Promise.all([
+    const [rolesRes, teamsRes, memberRes, churchRes] = await Promise.all([
       supabase.from('roles').select('id, key, name').order('name'),
       supabase.from('teams').select('id, key, name').order('name'),
       supabase
@@ -78,9 +80,11 @@ export default function MemberProfile() {
         .select('id, full_name, status, email, phone, birth_date, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
         .eq('id', id)
         .maybeSingle(),
+      supabase.from('churches').select('settings').eq('id', membership.churchId).maybeSingle(),
     ])
     setRoles(rolesRes.data ?? [])
     setTeams(teamsRes.data ?? [])
+    setRules(readRules(churchRes.data?.settings))
 
     const m = memberRes.data as RawMember | null
     if (!m) {
@@ -122,13 +126,13 @@ export default function MemberProfile() {
     return PREACH_KEYS.some((k) => selectedKeys.includes(k))
   }, [roleIds, roles])
 
-  // Si deja de ser elegible, quitar "predicador" automáticamente.
+  // Si la regla está activa y deja de ser elegible, quitar "predicador".
   useEffect(() => {
     const preacher = roleByKey['predicador']
-    if (!canPreach && preacher && roleIds.includes(preacher.id)) {
+    if (rules.preacher_requires_leadership && !canPreach && preacher && roleIds.includes(preacher.id)) {
       setRoleIds((prev) => prev.filter((x) => x !== preacher.id))
     }
-  }, [canPreach, roleByKey, roleIds])
+  }, [canPreach, roleByKey, roleIds, rules])
 
   if (membershipLoading || loading) {
     return (
@@ -180,6 +184,19 @@ export default function MemberProfile() {
     if (!id) return
     setSaving(true)
     setError(null)
+
+    // Regla: un líder debe pertenecer al menos a un equipo.
+    const leaderRole = roleByKey['lider']
+    if (
+      rules.leader_requires_team &&
+      leaderRole &&
+      roleIds.includes(leaderRole.id) &&
+      Object.keys(teamMap).length === 0
+    ) {
+      setError('Un líder debe pertenecer al menos a un equipo. Asigna un equipo o quita el rol Líder.')
+      setSaving(false)
+      return
+    }
 
     // Datos base
     const { error: upErr } = await supabase
@@ -390,15 +407,24 @@ export default function MemberProfile() {
                 {roles
                   .filter((r) => r.key !== 'miembro')
                   .map((r) => {
-                    const disabled = r.key === 'predicador' && !canPreach
                     const on = roleIds.includes(r.id)
+                    const needsBaptism = rules.baptism_for_roles && !isBaptized
+                    const preacherBlocked =
+                      r.key === 'predicador' && rules.preacher_requires_leadership && !canPreach
+                    const blocked = needsBaptism || preacherBlocked
+                    const disabled = !on && blocked
+                    const title = needsBaptism
+                      ? 'Marca al miembro como bautizado para asignar roles'
+                      : preacherBlocked
+                        ? 'Solo líderes o pastores pueden ser predicadores'
+                        : undefined
                     return (
                       <button
                         key={r.id}
                         type="button"
                         disabled={disabled}
                         onClick={() => toggleRole(r.id)}
-                        title={disabled ? 'Solo líderes o pastores pueden ser predicadores' : undefined}
+                        title={title}
                         className={`rounded-full border px-3 py-1 text-xs transition ${
                           on
                             ? 'border-sage bg-sage text-cream'
@@ -411,6 +437,11 @@ export default function MemberProfile() {
                   })}
               </div>
               <p className="mt-1 text-xs text-graysage/60">El rol base "Miembro" siempre está activo.</p>
+              {rules.baptism_for_roles && !isBaptized && (
+                <p className="mt-2 text-xs text-clay">
+                  ✝ Este miembro debe estar bautizado para asignarle roles.
+                </p>
+              )}
             </div>
 
             <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
@@ -418,14 +449,17 @@ export default function MemberProfile() {
               <div className="space-y-2">
                 {teams.map((t) => {
                   const on = t.id in teamMap
+                  const disabled = !on && rules.baptism_for_teams && !isBaptized
                   return (
                     <div key={t.id} className="flex items-center gap-3">
                       <button
                         type="button"
+                        disabled={disabled}
                         onClick={() => toggleTeam(t.id)}
+                        title={disabled ? 'Marca al miembro como bautizado para unirlo a un equipo' : undefined}
                         className={`rounded-full border px-3 py-1 text-xs transition ${
                           on ? 'border-clay bg-clay text-cream' : 'border-graysage/25 text-graysage hover:border-clay'
-                        }`}
+                        } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
                       >
                         {t.name}
                       </button>
@@ -439,6 +473,11 @@ export default function MemberProfile() {
                   )
                 })}
               </div>
+              {rules.baptism_for_teams && !isBaptized && (
+                <p className="mt-2 text-xs text-clay">
+                  ✝ Este miembro debe estar bautizado para pertenecer a un equipo.
+                </p>
+              )}
             </div>
 
             {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
