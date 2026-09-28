@@ -6,6 +6,7 @@ import Onboarding from './pages/Onboarding'
 import Dashboard from './pages/Dashboard'
 import Members from './pages/Members'
 import MemberProfile from './pages/MemberProfile'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/miembros" element={<Members />} />
             <Route path="/miembros/:id" element={<MemberProfile />} />
+            <Route path="/ajustes" element={<Settings />} />
           </Route>
 
           {/* Cualquier otra ruta → al inicio */}

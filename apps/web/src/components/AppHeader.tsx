@@ -28,6 +28,9 @@ export default function AppHeader() {
           <NavLink to="/miembros" className={linkCls}>
             Miembros
           </NavLink>
+          <NavLink to="/ajustes" className={linkCls}>
+            Ajustes
+          </NavLink>
         </nav>
       </div>
       <div className="flex items-center gap-4">
