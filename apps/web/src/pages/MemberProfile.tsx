@@ -213,6 +213,19 @@ export default function MemberProfile() {
   const save = async (e: FormEvent) => {
     e.preventDefault()
     if (!id) return
+
+    // Salvaguarda: confirmar si se asignan roles/equipos a un miembro sin bautismo
+    // (por si algún interruptor de bautismo quedó desactivado).
+    if (!isBaptized && (roleIds.length > 0 || Object.keys(teamMap).length > 0)) {
+      if (
+        !window.confirm(
+          'Este miembro no está bautizado pero tiene roles o equipos asignados. ¿Guardar de todos modos?',
+        )
+      ) {
+        return
+      }
+    }
+
     setSaving(true)
     setError(null)
 

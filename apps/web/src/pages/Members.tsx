@@ -142,6 +142,19 @@ export default function Members() {
   const createMember = async (e: FormEvent) => {
     e.preventDefault()
     if (!churchId) return
+
+    // Salvaguarda: confirmar si se asignan roles/equipos a un miembro sin bautismo
+    // (por si algún interruptor de bautismo quedó desactivado).
+    if (!newBaptized && (roleIds.length > 0 || teamIds.length > 0)) {
+      if (
+        !window.confirm(
+          'Este miembro no está bautizado pero tiene roles o equipos asignados. ¿Crear de todos modos?',
+        )
+      ) {
+        return
+      }
+    }
+
     setSaving(true)
     setError(null)
 
