@@ -11,7 +11,7 @@ import {
   type ChurchRules,
   type Requires,
 } from '../lib/rules'
-import { IDENTITY_TONE_CLASS, memberIdentity } from '../lib/member'
+import { IDENTITY_TONE_CLASS, isBaptismInconsistent, memberIdentity } from '../lib/member'
 
 interface Catalog {
   id: string
@@ -338,6 +338,17 @@ export default function MemberProfile() {
                   </span>
                 ))
               })()}
+              {isBaptismInconsistent(
+                isBaptized,
+                roleIds.length,
+                Object.keys(teamMap).length,
+                rules.baptism_for_roles,
+                rules.baptism_for_teams,
+              ) && (
+                <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-600">
+                  No bautizado
+                </span>
+              )}
               {age && <span className="text-sm text-graysage">{age}</span>}
             </div>
           </div>
