@@ -3,12 +3,20 @@ import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
-import { DEFAULT_RULES, readRules, type ChurchRules } from '../lib/rules'
+import {
+  DEFAULT_RULES,
+  depsSatisfied,
+  readRequires,
+  readRules,
+  type ChurchRules,
+  type Requires,
+} from '../lib/rules'
 
 interface Catalog {
   id: string
   key: string
   name: string
+  requires: Requires
 }
 
 interface MemberRow {
@@ -61,16 +69,21 @@ export default function Members() {
     if (!churchId) return
     setLoading(true)
     const [rolesRes, teamsRes, membersRes, churchRes] = await Promise.all([
-      supabase.from('roles').select('id, key, name').order('name'),
-      supabase.from('teams').select('id, key, name').order('name'),
+      supabase.from('roles').select('id, key, name, requires').order('name'),
+      supabase.from('teams').select('id, key, name, requires').order('name'),
       supabase
         .from('members')
         .select('id, full_name, status, email, phone, is_baptized, member_roles(role_id), member_teams(team_id, is_leader)')
         .order('full_name'),
       supabase.from('churches').select('settings').eq('id', churchId).maybeSingle(),
     ])
-    setRoles(rolesRes.data ?? [])
-    setTeams(teamsRes.data ?? [])
+    const mapCat = (d: unknown[] | null): Catalog[] =>
+      (d ?? []).map((x) => {
+        const c = x as { id: string; key: string; name: string; requires: unknown }
+        return { id: c.id, key: c.key, name: c.name, requires: readRequires(c.requires) }
+      })
+    setRoles(mapCat(rolesRes.data))
+    setTeams(mapCat(teamsRes.data))
     setRules(readRules(churchRes.data?.settings))
     const raw = (membersRes.data ?? []) as unknown as RawMember[]
     setMembers(
@@ -106,6 +119,10 @@ export default function Members() {
 
   const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? '—'
   const teamName = (id: string) => teams.find((t) => t.id === id)?.name ?? '—'
+  const nameById = (id: string) =>
+    roles.find((r) => r.id === id)?.name ?? teams.find((t) => t.id === id)?.name ?? '—'
+  const depHint = (req: Requires) =>
+    `Requiere al menos uno de: ${[...req.roles, ...req.teams].map(nameById).join(', ')}`
 
   const toggle = (list: string[], setList: (v: string[]) => void, id: string) =>
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
@@ -286,7 +303,8 @@ export default function Members() {
                     const on = roleIds.includes(r.id)
                     const preacherBlocked =
                       r.key === 'predicador' && rules.preacher_requires_leadership && !canPreachNew
-                    const disabled = !on && (rolesBlocked || preacherBlocked)
+                    const depsOk = depsSatisfied(r.requires, roleIds, teamIds)
+                    const disabled = !on && (rolesBlocked || preacherBlocked || !depsOk)
                     return (
                       <button
                         key={r.id}
@@ -298,7 +316,9 @@ export default function Members() {
                             ? 'Marca al miembro como bautizado para asignar roles'
                             : preacherBlocked
                               ? 'Solo líderes o pastores pueden ser predicadores'
-                              : undefined
+                              : !depsOk
+                                ? depHint(r.requires)
+                                : undefined
                         }
                         className={`rounded-full border px-3 py-1 text-xs transition ${
                           on
@@ -322,14 +342,21 @@ export default function Members() {
               <div className="flex flex-wrap gap-2">
                 {teams.map((t) => {
                   const on = teamIds.includes(t.id)
-                  const disabled = !on && teamsBlocked
+                  const depsOk = depsSatisfied(t.requires, roleIds, teamIds)
+                  const disabled = !on && (teamsBlocked || !depsOk)
                   return (
                     <button
                       key={t.id}
                       type="button"
                       disabled={disabled}
                       onClick={() => toggle(teamIds, setTeamIds, t.id)}
-                      title={disabled ? 'Marca al miembro como bautizado para unirlo a un equipo' : undefined}
+                      title={
+                        !disabled
+                          ? undefined
+                          : teamsBlocked
+                            ? 'Marca al miembro como bautizado para unirlo a un equipo'
+                            : depHint(t.requires)
+                      }
                       className={`rounded-full border px-3 py-1 text-xs transition ${
                         on
                           ? 'border-clay bg-clay text-cream'

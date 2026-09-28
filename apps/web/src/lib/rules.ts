@@ -43,3 +43,20 @@ export function readRules(settings: unknown): ChurchRules {
   const s = (settings ?? {}) as { rules?: Partial<ChurchRules> }
   return { ...DEFAULT_RULES, ...(s.rules ?? {}) }
 }
+
+// Dependencias por ítem (rol/equipo): requiere AL MENOS UNO de los marcados.
+export interface Requires {
+  roles: string[]
+  teams: string[]
+}
+
+export function readRequires(requires: unknown): Requires {
+  const r = (requires ?? {}) as Partial<Requires>
+  return { roles: r.roles ?? [], teams: r.teams ?? [] }
+}
+
+// Semántica O: sin dependencias → permitido; con dependencias → basta una.
+export function depsSatisfied(req: Requires, roleIds: string[], teamIds: string[]): boolean {
+  if (req.roles.length === 0 && req.teams.length === 0) return true
+  return req.roles.some((r) => roleIds.includes(r)) || req.teams.some((t) => teamIds.includes(t))
+}

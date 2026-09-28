@@ -344,6 +344,7 @@ export type Database = {
           is_system: boolean | null
           key: string
           name: string
+          requires: Json
         }
         Insert: {
           church_id: string
@@ -352,6 +353,7 @@ export type Database = {
           is_system?: boolean | null
           key: string
           name: string
+          requires?: Json
         }
         Update: {
           church_id?: string
@@ -360,6 +362,7 @@ export type Database = {
           is_system?: boolean | null
           key?: string
           name?: string
+          requires?: Json
         }
         Relationships: [
           {
@@ -379,6 +382,7 @@ export type Database = {
           is_system: boolean | null
           key: string
           name: string
+          requires: Json
         }
         Insert: {
           church_id: string
@@ -387,6 +391,7 @@ export type Database = {
           is_system?: boolean | null
           key: string
           name: string
+          requires?: Json
         }
         Update: {
           church_id?: string
@@ -395,6 +400,7 @@ export type Database = {
           is_system?: boolean | null
           key?: string
           name?: string
+          requires?: Json
         }
         Relationships: [
           {

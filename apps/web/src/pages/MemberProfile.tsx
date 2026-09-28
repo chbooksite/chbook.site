@@ -3,12 +3,20 @@ import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
-import { DEFAULT_RULES, readRules, type ChurchRules } from '../lib/rules'
+import {
+  DEFAULT_RULES,
+  depsSatisfied,
+  readRequires,
+  readRules,
+  type ChurchRules,
+  type Requires,
+} from '../lib/rules'
 
 interface Catalog {
   id: string
   key: string
   name: string
+  requires: Requires
 }
 
 type RawMember = {
@@ -73,8 +81,8 @@ export default function MemberProfile() {
     if (!id || !membership) return
     setLoading(true)
     const [rolesRes, teamsRes, memberRes, churchRes] = await Promise.all([
-      supabase.from('roles').select('id, key, name').order('name'),
-      supabase.from('teams').select('id, key, name').order('name'),
+      supabase.from('roles').select('id, key, name, requires').order('name'),
+      supabase.from('teams').select('id, key, name, requires').order('name'),
       supabase
         .from('members')
         .select('id, full_name, status, email, phone, birth_date, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
@@ -82,8 +90,13 @@ export default function MemberProfile() {
         .maybeSingle(),
       supabase.from('churches').select('settings').eq('id', membership.churchId).maybeSingle(),
     ])
-    setRoles(rolesRes.data ?? [])
-    setTeams(teamsRes.data ?? [])
+    const mapCat = (d: unknown[] | null): Catalog[] =>
+      (d ?? []).map((x) => {
+        const c = x as { id: string; key: string; name: string; requires: unknown }
+        return { id: c.id, key: c.key, name: c.name, requires: readRequires(c.requires) }
+      })
+    setRoles(mapCat(rolesRes.data))
+    setTeams(mapCat(teamsRes.data))
     setRules(readRules(churchRes.data?.settings))
 
     const m = memberRes.data as RawMember | null
@@ -258,6 +271,10 @@ export default function MemberProfile() {
 
   const roleName = (rid: string) => roles.find((r) => r.id === rid)?.name ?? '—'
   const teamName = (tid: string) => teams.find((t) => t.id === tid)?.name ?? '—'
+  const nameById = (id: string) =>
+    roles.find((r) => r.id === id)?.name ?? teams.find((t) => t.id === id)?.name ?? '—'
+  const depHint = (req: Requires) =>
+    `Requiere al menos uno de: ${[...req.roles, ...req.teams].map(nameById).join(', ')}`
   const age = ageGroup(birthDate)
 
   const inputCls =
@@ -411,13 +428,16 @@ export default function MemberProfile() {
                     const needsBaptism = rules.baptism_for_roles && !isBaptized
                     const preacherBlocked =
                       r.key === 'predicador' && rules.preacher_requires_leadership && !canPreach
-                    const blocked = needsBaptism || preacherBlocked
+                    const depsOk = depsSatisfied(r.requires, roleIds, Object.keys(teamMap))
+                    const blocked = needsBaptism || preacherBlocked || !depsOk
                     const disabled = !on && blocked
                     const title = needsBaptism
                       ? 'Marca al miembro como bautizado para asignar roles'
                       : preacherBlocked
                         ? 'Solo líderes o pastores pueden ser predicadores'
-                        : undefined
+                        : !depsOk
+                          ? depHint(r.requires)
+                          : undefined
                     return (
                       <button
                         key={r.id}
@@ -449,14 +469,22 @@ export default function MemberProfile() {
               <div className="space-y-2">
                 {teams.map((t) => {
                   const on = t.id in teamMap
-                  const disabled = !on && rules.baptism_for_teams && !isBaptized
+                  const baptismBlocked = rules.baptism_for_teams && !isBaptized
+                  const depsOk = depsSatisfied(t.requires, roleIds, Object.keys(teamMap))
+                  const disabled = !on && (baptismBlocked || !depsOk)
                   return (
                     <div key={t.id} className="flex items-center gap-3">
                       <button
                         type="button"
                         disabled={disabled}
                         onClick={() => toggleTeam(t.id)}
-                        title={disabled ? 'Marca al miembro como bautizado para unirlo a un equipo' : undefined}
+                        title={
+                          !disabled
+                            ? undefined
+                            : baptismBlocked
+                              ? 'Marca al miembro como bautizado para unirlo a un equipo'
+                              : depHint(t.requires)
+                        }
                         className={`rounded-full border px-3 py-1 text-xs transition ${
                           on ? 'border-clay bg-clay text-cream' : 'border-graysage/25 text-graysage hover:border-clay'
                         } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}

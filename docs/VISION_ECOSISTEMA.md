@@ -171,7 +171,11 @@ El sistema debe **entender la organización**, no solo guardar datos. Habrá reg
 - **Líder** debe pertenecer al menos a un equipo.
 - (ampliable con el tiempo).
 
-Estado: bautismo (D14) ✅. **Panel de reglas curadas con interruptores** (guardadas en `churches.settings.rules`) + enforcement en alta y perfil de miembro ✅ (2026-09-28). Reglas activas: bautizado→roles, bautizado→equipos, líder→equipo, predicador→liderazgo. Ampliable agregando entradas al catálogo `apps/web/src/lib/rules.ts`. Ver [[feedback-sistema-que-entiende]].
+Estado: bautismo (D14) ✅. Dos mecanismos de elegibilidad, ambos con enforcement en alta y perfil (2026-09-28):
+1. **Reglas globales curadas** (interruptores en Ajustes, `churches.settings.rules`): bautizado→roles, bautizado→equipos, líder→equipo, predicador→liderazgo. Ampliable en `apps/web/src/lib/rules.ts`.
+2. **Dependencias por ítem** (`roles.requires` / `teams.requires` jsonb `{roles:[],teams:[]}`): cada rol/equipo puede requerir otros roles/equipos con **semántica O** (basta tener al menos uno). Se editan con casillas en Ajustes ("Dependencias"). Ej.: rol "Líder de célula" depende de "Líder".
+
+Ver [[feedback-sistema-que-entiende]].
 
 ---
 
