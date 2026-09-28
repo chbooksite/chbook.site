@@ -122,7 +122,7 @@ export default function Members() {
   const nameById = (id: string) =>
     roles.find((r) => r.id === id)?.name ?? teams.find((t) => t.id === id)?.name ?? '—'
   const depHint = (req: Requires) =>
-    `Requiere al menos uno de: ${[...req.roles, ...req.teams].map(nameById).join(', ')}`
+    `Requiere: ${[...req.roles, ...req.teams].map(nameById).join(', ')}`
 
   const toggle = (list: string[], setList: (v: string[]) => void, id: string) =>
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id])

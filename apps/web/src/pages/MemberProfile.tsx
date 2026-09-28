@@ -274,7 +274,7 @@ export default function MemberProfile() {
   const nameById = (id: string) =>
     roles.find((r) => r.id === id)?.name ?? teams.find((t) => t.id === id)?.name ?? '—'
   const depHint = (req: Requires) =>
-    `Requiere al menos uno de: ${[...req.roles, ...req.teams].map(nameById).join(', ')}`
+    `Requiere: ${[...req.roles, ...req.teams].map(nameById).join(', ')}`
   const age = ageGroup(birthDate)
 
   const inputCls =

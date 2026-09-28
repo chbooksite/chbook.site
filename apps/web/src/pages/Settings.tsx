@@ -165,7 +165,7 @@ function CatalogSection({
               {/* Resumen de dependencias cuando está colapsado */}
               {!expanded && deps.length > 0 && (
                 <p className="mt-1 text-xs text-graysage/70">
-                  Requiere al menos uno de: {deps.map(nameOf).join(', ')}
+                  Requiere: {deps.map(nameOf).join(', ')}
                 </p>
               )}
 
@@ -173,7 +173,7 @@ function CatalogSection({
               {expanded && (
                 <div className="mt-2 rounded-lg bg-cream/50 p-3">
                   <p className="mb-2 text-xs text-graysage">
-                    Para asignar «{it.name}», el miembro debe tener <b>al menos uno</b> de:
+                    Para asignar «{it.name}», el miembro debe tener <b>todos</b> estos:
                   </p>
                   <p className="text-[0.7rem] font-medium uppercase tracking-wide text-graysage/60">Roles</p>
                   <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1">
@@ -253,7 +253,6 @@ export default function Settings() {
 
   const load = useCallback(async () => {
     if (!churchId) return
-    setLoading(true)
     const [rolesRes, teamsRes, churchRes] = await Promise.all([
       supabase.from('roles').select('id, key, name, is_system, requires').order('is_system', { ascending: false }).order('name'),
       supabase.from('teams').select('id, key, name, is_system, requires').order('is_system', { ascending: false }).order('name'),
@@ -320,8 +319,9 @@ export default function Settings() {
   const toggleDepRole = async (item: Item, kind: keyof Requires, targetId: string) => {
     const arr = item.requires[kind]
     const nextArr = arr.includes(targetId) ? arr.filter((x) => x !== targetId) : [...arr, targetId]
-    await supabase.from('roles').update({ requires: { ...item.requires, [kind]: nextArr } }).eq('id', item.id)
-    await load()
+    const nextReq = { ...item.requires, [kind]: nextArr }
+    setRoles((prev) => prev.map((r) => (r.id === item.id ? { ...r, requires: nextReq } : r)))
+    await supabase.from('roles').update({ requires: nextReq }).eq('id', item.id)
   }
 
   // Equipos
@@ -343,8 +343,9 @@ export default function Settings() {
   const toggleDepTeam = async (item: Item, kind: keyof Requires, targetId: string) => {
     const arr = item.requires[kind]
     const nextArr = arr.includes(targetId) ? arr.filter((x) => x !== targetId) : [...arr, targetId]
-    await supabase.from('teams').update({ requires: { ...item.requires, [kind]: nextArr } }).eq('id', item.id)
-    await load()
+    const nextReq = { ...item.requires, [kind]: nextArr }
+    setTeams((prev) => prev.map((t) => (t.id === item.id ? { ...t, requires: nextReq } : t)))
+    await supabase.from('teams').update({ requires: nextReq }).eq('id', item.id)
   }
 
   return (

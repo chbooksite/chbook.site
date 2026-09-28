@@ -55,8 +55,7 @@ export function readRequires(requires: unknown): Requires {
   return { roles: r.roles ?? [], teams: r.teams ?? [] }
 }
 
-// Semántica O: sin dependencias → permitido; con dependencias → basta una.
+// Semántica Y: sin dependencias → permitido; con dependencias → debe tenerlas TODAS.
 export function depsSatisfied(req: Requires, roleIds: string[], teamIds: string[]): boolean {
-  if (req.roles.length === 0 && req.teams.length === 0) return true
-  return req.roles.some((r) => roleIds.includes(r)) || req.teams.some((t) => teamIds.includes(t))
+  return req.roles.every((r) => roleIds.includes(r)) && req.teams.every((t) => teamIds.includes(t))
 }
