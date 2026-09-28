@@ -200,7 +200,8 @@ export default function Members() {
   }
 
   const identityBadge = (m: MemberRow) => {
-    const id = memberIdentity(m.status, m.isBaptized, m.teams.length)
+    const id = memberIdentity(m.status, m.isBaptized, m.teams.length, m.roleIds.length)
+    if (!id) return null
     return (
       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${IDENTITY_TONE_CLASS[id.tone]}`}>
         {id.text}

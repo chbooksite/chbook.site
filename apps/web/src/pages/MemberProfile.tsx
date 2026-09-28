@@ -182,6 +182,23 @@ export default function MemberProfile() {
     })
   }
   const toggleLeader = (tid: string) => {
+    const makingLeader = !teamMap[tid]
+    if (makingLeader) {
+      // Ser líder de un equipo asigna automáticamente el rol "Líder".
+      const lider = roleByKey['lider']
+      if (lider && !roleIds.includes(lider.id)) {
+        const eligible =
+          (!rules.baptism_for_roles || isBaptized) &&
+          depsSatisfied(lider.requires, roleIds, Object.keys(teamMap))
+        if (!eligible) {
+          setError(
+            'Para ser líder de un equipo, el miembro debe poder tener el rol Líder (revisa bautismo o dependencias).',
+          )
+          return
+        }
+        setRoleIds((prev) => [...prev, lider.id])
+      }
+    }
     setTeamMap((prev) => ({ ...prev, [tid]: !prev[tid] }))
   }
 
@@ -292,12 +309,21 @@ export default function MemberProfile() {
             <h1 className="font-serif text-3xl text-charcoal">{fullName || 'Miembro'}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {(() => {
-                const id = memberIdentity(status, isBaptized, Object.keys(teamMap).length)
-                return (
-                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${IDENTITY_TONE_CLASS[id.tone]}`}>
-                    {id.text}
+                const id = memberIdentity(status, isBaptized, Object.keys(teamMap).length, roleIds.length)
+                if (id)
+                  return (
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${IDENTITY_TONE_CLASS[id.tone]}`}>
+                      {id.text}
+                    </span>
+                  )
+                return roleIds.map((rid) => (
+                  <span
+                    key={rid}
+                    className="rounded-full bg-sage-water/10 px-2.5 py-0.5 text-xs font-medium text-sage-dark"
+                  >
+                    {roleName(rid)}
                   </span>
-                )
+                ))
               })()}
               {age && <span className="text-sm text-graysage">{age}</span>}
             </div>

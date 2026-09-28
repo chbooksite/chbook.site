@@ -11,11 +11,16 @@ export interface Identity {
   tone: IdentityTone
 }
 
+// Devuelve la etiqueta calculada, o null cuando NO debe mostrarse.
+// La etiqueta "Miembro"/"Miembro activo" solo aplica a miembros SIN rol asignado
+// (los que tienen rol se identifican por su rol). Prospecto/Inactivo/Archivado
+// siempre se muestran (son estado de ingreso).
 export function memberIdentity(
   status: string | null,
   isBaptized: boolean,
   teamCount: number,
-): Identity {
+  roleCount: number,
+): Identity | null {
   switch (status) {
     case 'prospect':
       return { text: 'Prospecto', tone: 'prospect' }
@@ -24,6 +29,7 @@ export function memberIdentity(
     case 'archived':
       return { text: 'Archivado', tone: 'archived' }
     default:
+      if (roleCount > 0) return null
       return isBaptized && teamCount > 0
         ? { text: 'Miembro activo', tone: 'active' }
         : { text: 'Miembro', tone: 'member' }
