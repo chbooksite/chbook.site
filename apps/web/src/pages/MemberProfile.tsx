@@ -11,6 +11,7 @@ import {
   type ChurchRules,
   type Requires,
 } from '../lib/rules'
+import { IDENTITY_TONE_CLASS, memberIdentity } from '../lib/member'
 
 interface Catalog {
   id: string
@@ -230,9 +231,7 @@ export default function MemberProfile() {
       return
     }
 
-    // Asegurar rol base "miembro"
-    const base = roleByKey['miembro']
-    const finalRoleIds = Array.from(new Set([...(base ? [base.id] : []), ...roleIds]))
+    const finalRoleIds = roleIds
 
     // Diff de roles
     const rolesToAdd = finalRoleIds.filter((x) => !origRoleIds.includes(x))
@@ -291,7 +290,17 @@ export default function MemberProfile() {
         <div className="mt-4 flex items-start justify-between gap-4">
           <div>
             <h1 className="font-serif text-3xl text-charcoal">{fullName || 'Miembro'}</h1>
-            {age && <p className="mt-1 text-sm text-graysage">{age}</p>}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {(() => {
+                const id = memberIdentity(status, isBaptized, Object.keys(teamMap).length)
+                return (
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${IDENTITY_TONE_CLASS[id.tone]}`}>
+                    {id.text}
+                  </span>
+                )
+              })()}
+              {age && <span className="text-sm text-graysage">{age}</span>}
+            </div>
           </div>
           {!editing && (
             <button
@@ -309,10 +318,6 @@ export default function MemberProfile() {
           <div className="mt-6 space-y-6">
             <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
               <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Estado</dt>
-                  <dd className="mt-1 capitalize text-charcoal">{status}</dd>
-                </div>
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Correo</dt>
                   <dd className="mt-1 text-charcoal">{email || '—'}</dd>
@@ -456,7 +461,6 @@ export default function MemberProfile() {
                     )
                   })}
               </div>
-              <p className="mt-1 text-xs text-graysage/60">El rol base "Miembro" siempre está activo.</p>
               {rules.baptism_for_roles && !isBaptized && (
                 <p className="mt-2 text-xs text-clay">
                   ✝ Este miembro debe estar bautizado para asignarle roles.

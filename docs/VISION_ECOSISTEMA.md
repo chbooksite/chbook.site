@@ -48,7 +48,7 @@ La organización tiene **dos niveles**:
 
 **(b) Roles generales** (etiquetas transversales, multi-selección, ampliables):
 
-- **Miembro** — rol **base/inicial** que recibe toda persona al ser aprobada. Todos son miembros; los demás roles se suman encima.
+- **Miembro** — NO es un rol asignable, sino una **etiqueta calculada** de presentación: toda persona aprobada por el pastor es "Miembro"; pasa a **"Miembro activo"** si está bautizada y participa en al menos un equipo. Los demás roles se suman encima. (Implementado en `apps/web/src/lib/member.ts`; el rol 'miembro' fue eliminado del catálogo el 2026-09-28.)
 - **Pastor principal** — el perfil maestro/admin; se asigna al registrar la iglesia.
 - **Pastor afiliado** — pastores asociados. *Pastor principal + afiliado pueden agruparse como "Pastores".*
 - **Líder** — líder (incl. líder interno de un equipo).

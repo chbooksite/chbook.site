@@ -11,6 +11,7 @@ import {
   type ChurchRules,
   type Requires,
 } from '../lib/rules'
+import { IDENTITY_TONE_CLASS, memberIdentity } from '../lib/member'
 
 interface Catalog {
   id: string
@@ -176,15 +177,10 @@ export default function Members() {
       return
     }
 
-    // Todo miembro lleva el rol base "miembro" + los roles elegidos.
-    const baseRole = roles.find((r) => r.key === 'miembro')
-    const allRoleIds = Array.from(
-      new Set([...(baseRole ? [baseRole.id] : []), ...roleIds]),
-    )
-    if (allRoleIds.length) {
+    if (roleIds.length) {
       await supabase
         .from('member_roles')
-        .insert(allRoleIds.map((rid) => ({ member_id: created.id, role_id: rid })))
+        .insert(roleIds.map((rid) => ({ member_id: created.id, role_id: rid })))
     }
     if (teamIds.length) {
       await supabase
@@ -203,23 +199,11 @@ export default function Members() {
     load()
   }
 
-  const statusBadge = (s: string | null) => {
-    const map: Record<string, string> = {
-      active: 'bg-sage-water/15 text-sage-dark',
-      prospect: 'bg-gold/15 text-clay',
-      inactive: 'bg-graysage/15 text-graysage',
-      archived: 'bg-graysage/10 text-graysage/70',
-    }
-    const label: Record<string, string> = {
-      active: 'Activo',
-      prospect: 'Prospecto',
-      inactive: 'Inactivo',
-      archived: 'Archivado',
-    }
-    const k = s ?? 'active'
+  const identityBadge = (m: MemberRow) => {
+    const id = memberIdentity(m.status, m.isBaptized, m.teams.length)
     return (
-      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${map[k] ?? map.active}`}>
-        {label[k] ?? k}
+      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${IDENTITY_TONE_CLASS[id.tone]}`}>
+        {id.text}
       </span>
     )
   }
@@ -331,7 +315,6 @@ export default function Members() {
                     )
                   })}
               </div>
-              <p className="mt-1 text-xs text-graysage/60">Todos llevan el rol base "Miembro" automáticamente.</p>
               {rolesBlocked && (
                 <p className="mt-1 text-xs text-clay">✝ Debe estar bautizado para asignarle roles.</p>
               )}
@@ -433,7 +416,7 @@ export default function Members() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {statusBadge(m.status)}
+                  {identityBadge(m)}
                   {m.status === 'prospect' && (
                     <button
                       type="button"
