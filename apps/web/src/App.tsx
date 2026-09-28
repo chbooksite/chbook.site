@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
 import Dashboard from './pages/Dashboard'
 import Members from './pages/Members'
+import MemberProfile from './pages/MemberProfile'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/" element={<Dashboard />} />
             <Route path="/miembros" element={<Members />} />
+            <Route path="/miembros/:id" element={<MemberProfile />} />
           </Route>
 
           {/* Cualquier otra ruta → al inicio */}

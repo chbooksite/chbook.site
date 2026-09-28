@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
@@ -312,7 +312,12 @@ export default function Members() {
                 }`}
               >
                 <div className="min-w-40 flex-1">
-                  <p className="font-medium text-charcoal">{m.full_name}</p>
+                  <Link
+                    to={`/miembros/${m.id}`}
+                    className="font-medium text-charcoal underline-offset-2 hover:text-sage-dark hover:underline"
+                  >
+                    {m.full_name}
+                  </Link>
                   {m.email && <p className="font-mono text-xs text-graysage">{m.email}</p>}
                 </div>
 

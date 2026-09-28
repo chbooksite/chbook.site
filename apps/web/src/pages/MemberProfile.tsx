@@ -1,0 +1,424 @@
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { useAuth } from '../lib/auth-context'
+import { supabase } from '../lib/supabase'
+import AppHeader from '../components/AppHeader'
+
+interface Catalog {
+  id: string
+  key: string
+  name: string
+}
+
+type RawMember = {
+  id: string
+  full_name: string
+  status: string | null
+  email: string | null
+  phone: string | null
+  birth_date: string | null
+  member_roles: { role_id: string }[] | null
+  member_teams: { team_id: string; is_leader: boolean | null }[] | null
+}
+
+// Roles que habilitan poder ser "predicador".
+const PREACH_KEYS = ['lider', 'pastor_principal', 'pastor_afiliado']
+
+function ageGroup(birthDate: string | null): string | null {
+  if (!birthDate) return null
+  const b = new Date(birthDate)
+  if (Number.isNaN(b.getTime())) return null
+  const now = new Date()
+  let age = now.getFullYear() - b.getFullYear()
+  const m = now.getMonth() - b.getMonth()
+  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--
+  if (age < 13) return `Niño · ${age} años`
+  if (age < 18) return `Adolescente · ${age} años`
+  if (age < 60) return `Adulto · ${age} años`
+  return `Adulto mayor · ${age} años`
+}
+
+export default function MemberProfile() {
+  const { id } = useParams<{ id: string }>()
+  const { membership, membershipLoading } = useAuth()
+
+  const [roles, setRoles] = useState<Catalog[]>([])
+  const [teams, setTeams] = useState<Catalog[]>([])
+  const [loading, setLoading] = useState(true)
+  const [notFound, setNotFound] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Datos editables
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [birthDate, setBirthDate] = useState('')
+  const [status, setStatus] = useState('active')
+  const [roleIds, setRoleIds] = useState<string[]>([])
+  const [teamMap, setTeamMap] = useState<Record<string, boolean>>({}) // teamId -> isLeader
+
+  // Copia original para diferenciar al guardar
+  const [origRoleIds, setOrigRoleIds] = useState<string[]>([])
+  const [origTeamMap, setOrigTeamMap] = useState<Record<string, boolean>>({})
+
+  const load = useCallback(async () => {
+    if (!id || !membership) return
+    setLoading(true)
+    const [rolesRes, teamsRes, memberRes] = await Promise.all([
+      supabase.from('roles').select('id, key, name').order('name'),
+      supabase.from('teams').select('id, key, name').order('name'),
+      supabase
+        .from('members')
+        .select('id, full_name, status, email, phone, birth_date, member_roles(role_id), member_teams(team_id, is_leader)')
+        .eq('id', id)
+        .maybeSingle(),
+    ])
+    setRoles(rolesRes.data ?? [])
+    setTeams(teamsRes.data ?? [])
+
+    const m = memberRes.data as RawMember | null
+    if (!m) {
+      setNotFound(true)
+      setLoading(false)
+      return
+    }
+    setFullName(m.full_name)
+    setEmail(m.email ?? '')
+    setPhone(m.phone ?? '')
+    setBirthDate(m.birth_date ?? '')
+    setStatus(m.status ?? 'active')
+    const rIds = (m.member_roles ?? []).map((r) => r.role_id)
+    const tMap: Record<string, boolean> = {}
+    for (const t of m.member_teams ?? []) tMap[t.team_id] = Boolean(t.is_leader)
+    setRoleIds(rIds)
+    setTeamMap(tMap)
+    setOrigRoleIds(rIds)
+    setOrigTeamMap(tMap)
+    setLoading(false)
+  }, [id, membership])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const roleByKey = useMemo(() => {
+    const map: Record<string, Catalog> = {}
+    for (const r of roles) map[r.key] = r
+    return map
+  }, [roles])
+
+  const canPreach = useMemo(() => {
+    const selectedKeys = roleIds
+      .map((rid) => roles.find((r) => r.id === rid)?.key)
+      .filter(Boolean) as string[]
+    return PREACH_KEYS.some((k) => selectedKeys.includes(k))
+  }, [roleIds, roles])
+
+  // Si deja de ser elegible, quitar "predicador" automáticamente.
+  useEffect(() => {
+    const preacher = roleByKey['predicador']
+    if (!canPreach && preacher && roleIds.includes(preacher.id)) {
+      setRoleIds((prev) => prev.filter((x) => x !== preacher.id))
+    }
+  }, [canPreach, roleByKey, roleIds])
+
+  if (membershipLoading || loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-cream">
+        <p className="font-mono text-sm text-graysage">Cargando…</p>
+      </div>
+    )
+  }
+
+  if (notFound) {
+    return (
+      <div className="min-h-screen bg-cream">
+        <AppHeader />
+        <main className="mx-auto max-w-3xl px-6 py-16 text-center">
+          <p className="text-graysage">No se encontró ese miembro.</p>
+          <Link to="/miembros" className="mt-3 inline-block text-sm text-sage underline-offset-2 hover:underline">
+            ← Volver a miembros
+          </Link>
+        </main>
+      </div>
+    )
+  }
+
+  const toggleRole = (rid: string) => {
+    setRoleIds((prev) => (prev.includes(rid) ? prev.filter((x) => x !== rid) : [...prev, rid]))
+  }
+  const toggleTeam = (tid: string) => {
+    setTeamMap((prev) => {
+      const next = { ...prev }
+      if (tid in next) delete next[tid]
+      else next[tid] = false
+      return next
+    })
+  }
+  const toggleLeader = (tid: string) => {
+    setTeamMap((prev) => ({ ...prev, [tid]: !prev[tid] }))
+  }
+
+  const cancel = () => {
+    setRoleIds(origRoleIds)
+    setTeamMap(origTeamMap)
+    setError(null)
+    setEditing(false)
+    load()
+  }
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!id) return
+    setSaving(true)
+    setError(null)
+
+    // Datos base
+    const { error: upErr } = await supabase
+      .from('members')
+      .update({
+        full_name: fullName.trim(),
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+        birth_date: birthDate || null,
+        status,
+      })
+      .eq('id', id)
+    if (upErr) {
+      setError(upErr.message)
+      setSaving(false)
+      return
+    }
+
+    // Asegurar rol base "miembro"
+    const base = roleByKey['miembro']
+    const finalRoleIds = Array.from(new Set([...(base ? [base.id] : []), ...roleIds]))
+
+    // Diff de roles
+    const rolesToAdd = finalRoleIds.filter((x) => !origRoleIds.includes(x))
+    const rolesToRemove = origRoleIds.filter((x) => !finalRoleIds.includes(x))
+    if (rolesToRemove.length) {
+      await supabase.from('member_roles').delete().eq('member_id', id).in('role_id', rolesToRemove)
+    }
+    if (rolesToAdd.length) {
+      await supabase.from('member_roles').insert(rolesToAdd.map((rid) => ({ member_id: id, role_id: rid })))
+    }
+
+    // Diff de equipos
+    const selectedTeamIds = Object.keys(teamMap)
+    const origTeamIds = Object.keys(origTeamMap)
+    const teamsToRemove = origTeamIds.filter((t) => !(t in teamMap))
+    const teamsToAdd = selectedTeamIds.filter((t) => !(t in origTeamMap))
+    const teamsToUpdate = selectedTeamIds.filter(
+      (t) => t in origTeamMap && teamMap[t] !== origTeamMap[t],
+    )
+    if (teamsToRemove.length) {
+      await supabase.from('member_teams').delete().eq('member_id', id).in('team_id', teamsToRemove)
+    }
+    if (teamsToAdd.length) {
+      await supabase
+        .from('member_teams')
+        .insert(teamsToAdd.map((tid) => ({ member_id: id, team_id: tid, is_leader: teamMap[tid] })))
+    }
+    for (const tid of teamsToUpdate) {
+      await supabase.from('member_teams').update({ is_leader: teamMap[tid] }).eq('member_id', id).eq('team_id', tid)
+    }
+
+    setSaving(false)
+    setEditing(false)
+    load()
+  }
+
+  const roleName = (rid: string) => roles.find((r) => r.id === rid)?.name ?? '—'
+  const teamName = (tid: string) => teams.find((t) => t.id === tid)?.name ?? '—'
+  const age = ageGroup(birthDate)
+
+  const inputCls =
+    'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+
+  return (
+    <div className="min-h-screen bg-cream">
+      <AppHeader />
+      <main className="mx-auto max-w-3xl px-6 py-10">
+        <Link to="/miembros" className="text-sm text-sage underline-offset-2 hover:underline">
+          ← Miembros
+        </Link>
+
+        <div className="mt-4 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="font-serif text-3xl text-charcoal">{fullName || 'Miembro'}</h1>
+            {age && <p className="mt-1 text-sm text-graysage">{age}</p>}
+          </div>
+          {!editing && (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage"
+            >
+              Editar
+            </button>
+          )}
+        </div>
+
+        {!editing ? (
+          /* ---------- VISTA ---------- */
+          <div className="mt-6 space-y-6">
+            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+              <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Estado</dt>
+                  <dd className="mt-1 capitalize text-charcoal">{status}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Correo</dt>
+                  <dd className="mt-1 text-charcoal">{email || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Teléfono</dt>
+                  <dd className="mt-1 text-charcoal">{phone || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Nacimiento</dt>
+                  <dd className="mt-1 text-charcoal">{birthDate || '—'}</dd>
+                </div>
+              </dl>
+            </div>
+
+            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+              <p className="mb-3 text-sm font-medium text-graysage">Roles</p>
+              <div className="flex flex-wrap gap-2">
+                {roleIds.length === 0 && <span className="text-sm text-graysage/60">Sin roles.</span>}
+                {roleIds.map((rid) => (
+                  <span key={rid} className="rounded-full bg-sage-water/10 px-2.5 py-0.5 text-xs text-sage-dark">
+                    {roleName(rid)}
+                  </span>
+                ))}
+              </div>
+              <p className="mb-3 mt-5 text-sm font-medium text-graysage">Equipos</p>
+              <div className="flex flex-wrap gap-2">
+                {Object.keys(teamMap).length === 0 && <span className="text-sm text-graysage/60">Sin equipos.</span>}
+                {Object.entries(teamMap).map(([tid, leader]) => (
+                  <span key={tid} className="rounded-full bg-clay/10 px-2.5 py-0.5 text-xs text-clay">
+                    {teamName(tid)}
+                    {leader && ' ★ líder'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* ---------- EDICIÓN ---------- */
+          <form onSubmit={save} className="mt-6 space-y-6">
+            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-graysage">Nombre completo</label>
+                  <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-graysage">Estado</label>
+                  <select value={status} onChange={(e) => setStatus(e.target.value)} className={inputCls}>
+                    <option value="active">Activo</option>
+                    <option value="prospect">Prospecto</option>
+                    <option value="inactive">Inactivo</option>
+                    <option value="archived">Archivado</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-graysage">Correo</label>
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-graysage">Teléfono</label>
+                  <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-graysage">Fecha de nacimiento</label>
+                  <input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} className={inputCls} />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+              <p className="mb-2 text-sm font-medium text-graysage">Roles</p>
+              <div className="flex flex-wrap gap-2">
+                {roles
+                  .filter((r) => r.key !== 'miembro')
+                  .map((r) => {
+                    const disabled = r.key === 'predicador' && !canPreach
+                    const on = roleIds.includes(r.id)
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => toggleRole(r.id)}
+                        title={disabled ? 'Solo líderes o pastores pueden ser predicadores' : undefined}
+                        className={`rounded-full border px-3 py-1 text-xs transition ${
+                          on
+                            ? 'border-sage bg-sage text-cream'
+                            : 'border-graysage/25 text-graysage hover:border-sage'
+                        } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
+                      >
+                        {r.name}
+                      </button>
+                    )
+                  })}
+              </div>
+              <p className="mt-1 text-xs text-graysage/60">El rol base "Miembro" siempre está activo.</p>
+            </div>
+
+            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+              <p className="mb-2 text-sm font-medium text-graysage">Equipos</p>
+              <div className="space-y-2">
+                {teams.map((t) => {
+                  const on = t.id in teamMap
+                  return (
+                    <div key={t.id} className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => toggleTeam(t.id)}
+                        className={`rounded-full border px-3 py-1 text-xs transition ${
+                          on ? 'border-clay bg-clay text-cream' : 'border-graysage/25 text-graysage hover:border-clay'
+                        }`}
+                      >
+                        {t.name}
+                      </button>
+                      {on && (
+                        <label className="flex items-center gap-1.5 text-xs text-graysage">
+                          <input type="checkbox" checked={teamMap[t.id]} onChange={() => toggleLeader(t.id)} />
+                          Líder interno
+                        </label>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
+
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60"
+              >
+                {saving ? 'Guardando…' : 'Guardar cambios'}
+              </button>
+              <button
+                type="button"
+                onClick={cancel}
+                className="rounded-lg border border-graysage/25 px-4 py-2 text-sm text-graysage transition hover:bg-cream"
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        )}
+      </main>
+    </div>
+  )
+}
