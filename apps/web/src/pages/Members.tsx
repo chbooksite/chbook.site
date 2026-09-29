@@ -219,6 +219,18 @@ export default function Members() {
     load()
   }
 
+  const setMemberStatus = async (id: string, status: string) => {
+    await supabase.from('members').update({ status }).eq('id', id)
+    load()
+  }
+  const archiveFromList = (m: MemberRow) => {
+    if (
+      window.confirm(`¿Archivar a ${m.full_name}? Se ocultará de la lista, pero sus datos se conservan.`)
+    ) {
+      setMemberStatus(m.id, 'archived')
+    }
+  }
+
   const identityBadge = (m: MemberRow) => {
     const id = memberIdentity(m.status, m.isBaptized, m.teams.length, m.roleIds.length)
     if (!id) return null
@@ -524,6 +536,23 @@ export default function Members() {
                       className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs font-medium text-sage-dark transition hover:bg-sage/10"
                     >
                       Aprobar
+                    </button>
+                  )}
+                  {m.status === 'archived' ? (
+                    <button
+                      type="button"
+                      onClick={() => setMemberStatus(m.id, 'active')}
+                      className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs font-medium text-sage-dark transition hover:bg-sage/10"
+                    >
+                      Restaurar
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => archiveFromList(m)}
+                      className="rounded-lg border border-graysage/25 px-2.5 py-1 text-xs text-graysage transition hover:bg-cream"
+                    >
+                      Archivar
                     </button>
                   )}
                 </div>
