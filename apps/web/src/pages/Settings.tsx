@@ -3,6 +3,8 @@ import { Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
+import MapPicker, { type Coords } from '../components/MapPicker'
+import { parseWkbPoint, toWktPoint } from '../lib/geo'
 import {
   DEFAULT_RULES,
   RULE_LABELS,
@@ -11,6 +13,11 @@ import {
   type ChurchRules,
   type Requires,
 } from '../lib/rules'
+
+const COUNTRIES = ['Colombia', 'Venezuela', 'México', 'USA/Europa', 'Otro']
+
+const inputCls =
+  'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
 
 interface Option {
   id: string
@@ -243,6 +250,18 @@ export default function Settings() {
   const [teams, setTeams] = useState<Item[]>([])
   const [rules, setRules] = useState<ChurchRules>(DEFAULT_RULES)
   const [settingsRaw, setSettingsRaw] = useState<Record<string, unknown>>({})
+  const [church, setChurch] = useState({
+    name: '',
+    country: 'Venezuela',
+    address: '',
+    capacity: '',
+    code: '',
+    plan: '',
+  })
+  const setC = (k: keyof typeof church, v: string) => setChurch((p) => ({ ...p, [k]: v }))
+  const [cCoords, setCCoords] = useState<Coords | null>(null)
+  const [savingChurch, setSavingChurch] = useState(false)
+  const [churchMsg, setChurchMsg] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const parseItems = (data: unknown[] | null): Item[] =>
@@ -256,11 +275,27 @@ export default function Settings() {
     const [rolesRes, teamsRes, churchRes] = await Promise.all([
       supabase.from('roles').select('id, key, name, is_system, requires').order('is_system', { ascending: false }).order('name'),
       supabase.from('teams').select('id, key, name, is_system, requires').order('is_system', { ascending: false }).order('name'),
-      supabase.from('churches').select('settings').eq('id', churchId).maybeSingle(),
+      supabase
+        .from('churches')
+        .select('name, country, address, capacity, code, plan, location, settings')
+        .eq('id', churchId)
+        .maybeSingle(),
     ])
     setRoles(parseItems(rolesRes.data))
     setTeams(parseItems(teamsRes.data))
-    const settings = (churchRes.data?.settings ?? {}) as Record<string, unknown>
+    const c = churchRes.data
+    if (c) {
+      setChurch({
+        name: c.name ?? '',
+        country: c.country ?? '',
+        address: c.address ?? '',
+        capacity: c.capacity != null ? String(c.capacity) : '',
+        code: c.code ?? '',
+        plan: c.plan ?? '',
+      })
+      setCCoords(parseWkbPoint(c.location as string | null))
+    }
+    const settings = (c?.settings ?? {}) as Record<string, unknown>
     setSettingsRaw(settings)
     setRules(readRules(settings))
     setLoading(false)
@@ -274,6 +309,23 @@ export default function Settings() {
     const next = { ...rules, [key]: !rules[key] }
     setRules(next)
     await supabase.from('churches').update({ settings: { ...settingsRaw, rules: next } }).eq('id', churchId!)
+  }
+
+  const saveChurch = async () => {
+    setSavingChurch(true)
+    setChurchMsg(null)
+    const { error } = await supabase
+      .from('churches')
+      .update({
+        name: church.name.trim(),
+        country: church.country || null,
+        address: church.address.trim() || null,
+        capacity: church.capacity ? Number(church.capacity) : null,
+        ...(cCoords ? { location: toWktPoint(cCoords.lat, cCoords.lng) } : {}),
+      })
+      .eq('id', churchId!)
+    setSavingChurch(false)
+    setChurchMsg(error ? error.message : 'Guardado ✓')
   }
 
   if (membershipLoading || loading) {
@@ -358,6 +410,61 @@ export default function Settings() {
         </p>
 
         <div className="space-y-6">
+          <section className="rounded-2xl border border-clay-light/40 bg-white p-6">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="font-serif text-lg text-charcoal">Datos de la iglesia</h2>
+              <span className="font-mono text-xs text-graysage">
+                {church.code}
+                {church.plan ? ` · ${church.plan.replace('_', ' ')}` : ''}
+              </span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">Nombre</label>
+                <input value={church.name} onChange={(e) => setC('name', e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">País</label>
+                <select value={church.country} onChange={(e) => setC('country', e.target.value)} className={inputCls}>
+                  {COUNTRIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">Dirección</label>
+                <input value={church.address} onChange={(e) => setC('address', e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">Nº de miembros (estimado)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={church.capacity}
+                  onChange={(e) => setC('capacity', e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+            <div className="mt-4">
+              <p className="mb-2 text-sm font-medium text-graysage">Ubicación del auditorio</p>
+              <MapPicker value={cCoords} onChange={setCCoords} />
+            </div>
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={saveChurch}
+                disabled={savingChurch}
+                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60"
+              >
+                {savingChurch ? 'Guardando…' : 'Guardar cambios'}
+              </button>
+              {churchMsg && <span className="text-sm text-sage-dark">{churchMsg}</span>}
+            </div>
+          </section>
+
           <section className="rounded-2xl border border-clay-light/40 bg-white p-6">
             <h2 className="font-serif text-lg text-charcoal">Reglas de elegibilidad</h2>
             <p className="mb-4 text-sm text-graysage">
