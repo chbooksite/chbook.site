@@ -112,6 +112,19 @@ Estas clasificaciones **no limitan** roles ni equipos; se usan como recursos.
 
 ---
 
+### 1.7 Grupos familiares (futuro — no bloqueante, idea 2026-09-29)
+
+Ordenar a las personas por **grupo familiar** para facilitar el **seguimiento y pastoreo por familias** (un "plus" importante del producto).
+
+- Cada persona puede pertenecer a un **grupo familiar**. Los que tienen su propia app y perfil (papá, mamá, hijo mayor) son **miembros individuales** vinculados al mismo grupo.
+- Los que **no tienen móvil** (una hija menor, un anciano) entran como **dependientes** (`guardian_id`) dentro del perfil de su representante, y pertenecen al mismo grupo familiar (heredado del representante).
+- **Opcional, no obligatorio:** no debe crear trabas ni filtros en el registro. La UX debe ser **intuitiva y sencilla** para que la mayoría lo haga así (ej.: al registrarse, vincularse a un familiar ya existente crea/une el grupo; o un "código de familia").
+- **Valor:** ver una familia completa (miembros + dependientes), su asistencia y estado, para seguimiento pastoral.
+
+**Modelo tentativo:** tabla `families` (o `family_id` en `members`) por iglesia; los dependientes heredan la familia de su representante. Se enlaza con dependientes/`guardian_id` (§1.6). A definir cuando se construya. Ver [[feedback-sistema-que-entiende]].
+
+---
+
 ## 2. Pilar B — ACTIVIDADES
 
 ### 2.1 Calendario / definición de actividades
