@@ -11,13 +11,21 @@ import {
   type ChurchRules,
   type Requires,
 } from '../lib/rules'
-import { IDENTITY_TONE_CLASS, isBaptismInconsistent, memberIdentity } from '../lib/member'
+import {
+  ageFromBirth,
+  areaForAge,
+  IDENTITY_TONE_CLASS,
+  isBaptismInconsistent,
+  memberIdentity,
+} from '../lib/member'
 
 interface Catalog {
   id: string
   key: string
   name: string
   requires: Requires
+  participant_min_age: number | null
+  participant_max_age: number | null
 }
 
 type RawMember = {
@@ -83,7 +91,10 @@ export default function MemberProfile() {
     setLoading(true)
     const [rolesRes, teamsRes, memberRes, churchRes] = await Promise.all([
       supabase.from('roles').select('id, key, name, requires').order('name'),
-      supabase.from('teams').select('id, key, name, requires').order('name'),
+      supabase
+        .from('teams')
+        .select('id, key, name, requires, participant_min_age, participant_max_age')
+        .order('name'),
       supabase
         .from('members')
         .select('id, full_name, status, email, phone, birth_date, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
@@ -93,8 +104,22 @@ export default function MemberProfile() {
     ])
     const mapCat = (d: unknown[] | null): Catalog[] =>
       (d ?? []).map((x) => {
-        const c = x as { id: string; key: string; name: string; requires: unknown }
-        return { id: c.id, key: c.key, name: c.name, requires: readRequires(c.requires) }
+        const c = x as {
+          id: string
+          key: string
+          name: string
+          requires: unknown
+          participant_min_age?: number | null
+          participant_max_age?: number | null
+        }
+        return {
+          id: c.id,
+          key: c.key,
+          name: c.name,
+          requires: readRequires(c.requires),
+          participant_min_age: c.participant_min_age ?? null,
+          participant_max_age: c.participant_max_age ?? null,
+        }
       })
     setRoles(mapCat(rolesRes.data))
     setTeams(mapCat(teamsRes.data))
@@ -321,6 +346,10 @@ export default function MemberProfile() {
   const depHint = (req: Requires) =>
     `Requiere: ${[...req.roles, ...req.teams].map(nameById).join(', ')}`
   const age = ageGroup(birthDate)
+  const areaPorEdad = areaForAge(
+    ageFromBirth(birthDate),
+    teams.map((t) => ({ name: t.name, min: t.participant_min_age, max: t.participant_max_age })),
+  )
 
   const inputCls =
     'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
@@ -424,6 +453,20 @@ export default function MemberProfile() {
                       </span>
                     ) : (
                       <span className="text-graysage">No bautizado</span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">
+                    Área (por edad)
+                  </dt>
+                  <dd className="mt-1">
+                    {areaPorEdad ? (
+                      <span className="rounded-full bg-clay/10 px-2.5 py-0.5 text-sm text-clay">
+                        {areaPorEdad}
+                      </span>
+                    ) : (
+                      <span className="text-graysage">—</span>
                     )}
                   </dd>
                 </div>

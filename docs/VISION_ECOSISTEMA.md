@@ -89,6 +89,36 @@ La organización tiene **dos niveles**:
 
 ---
 
+### 1.6 Áreas por edad y participantes (modelo definido 2026-09-29)
+
+**Áreas por edad** — catálogo que organiza a TODA la iglesia por edad. Sembradas por defecto, con rangos y nombres **editables** por iglesia (rangos libres, contiguos):
+
+| Área | Rango por defecto |
+|---|---|
+| Maternal | 0–5 |
+| Niños | 6–12 |
+| Adolescentes | 13–17 |
+| Jóvenes | 18–28 |
+| Adultos | 29–59 |
+| Adultos mayores | 60+ |
+
+Son **ortogonales** a los roles y a los equipos de servicio (no los limitan): un miembro se cataloga por su edad Y además puede tener roles y servir en equipos.
+
+**Dos vínculos entre miembro y área/equipo:**
+- **Encargados / servidores:** `member_teams` (etiquetados, con `is_leader`). Gestionan el área.
+- **Participantes:** a quienes el área **atiende**, en orden inferior, **NO etiquetados**. Dos fuentes: **automáticos por edad** (la fecha de nacimiento cae en el rango del área) + **manuales**.
+
+**Importancia:**
+- Clave para la organización y para las **métricas** (segmentación por área).
+- Las iglesias suelen tener **cultos/servicios separados** por área (niños, adolescentes, jóvenes) → cada área funciona como una "pequeña iglesia": sus encargados **manejan listados** y **envían notificaciones** a su área.
+- Más adelante: **apps separadas** por área (extensiones del ecosistema).
+
+**Dependientes (niños):** se tratan como **personas dependientes**, siempre con un **representante** (`guardian_id`). Se agregan desde la app de un miembro (representante = ese miembro) o **manualmente**, pero indicando el **representante** en el perfil del dependiente. Ver [[feedback-sistema-que-entiende]].
+
+Equipos de **servicio** (sin edad, solo encargados): Multimedia, Danza, Música, Diáconos, Finanzas.
+
+---
+
 ## 2. Pilar B — ACTIVIDADES
 
 ### 2.1 Calendario / definición de actividades

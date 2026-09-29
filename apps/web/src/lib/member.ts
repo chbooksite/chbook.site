@@ -49,6 +49,34 @@ export function isBaptismInconsistent(
   return (requireRoles && roleCount > 0) || (requireTeams && teamCount > 0)
 }
 
+// Edad calculada a partir de la fecha de nacimiento.
+export function ageFromBirth(birthDate: string | null): number | null {
+  if (!birthDate) return null
+  const b = new Date(birthDate)
+  if (Number.isNaN(b.getTime())) return null
+  const now = new Date()
+  let age = now.getFullYear() - b.getFullYear()
+  const m = now.getMonth() - b.getMonth()
+  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--
+  return age
+}
+
+export interface AgeArea {
+  name: string
+  min: number | null
+  max: number | null
+}
+
+// Área (por edad) que corresponde a una edad, o null si no cae en ninguna.
+export function areaForAge(age: number | null, areas: AgeArea[]): string | null {
+  if (age == null) return null
+  for (const a of areas) {
+    if (a.min == null) continue // equipo de servicio (sin rango)
+    if (age >= a.min && (a.max == null || age <= a.max)) return a.name
+  }
+  return null
+}
+
 export const IDENTITY_TONE_CLASS: Record<IdentityTone, string> = {
   active: 'bg-sage-water/15 text-sage-dark',
   member: 'bg-sage/10 text-sage-dark',
