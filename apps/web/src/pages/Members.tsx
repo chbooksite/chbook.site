@@ -54,6 +54,13 @@ export default function Members() {
   const [rules, setRules] = useState<ChurchRules>(DEFAULT_RULES)
   const [loading, setLoading] = useState(true)
 
+  // Búsqueda y filtros
+  const [search, setSearch] = useState('')
+  const [fRole, setFRole] = useState('')
+  const [fTeam, setFTeam] = useState('')
+  const [fStatus, setFStatus] = useState('')
+  const [fBaptized, setFBaptized] = useState('')
+
   // Formulario de alta
   const [showForm, setShowForm] = useState(false)
   const [fullName, setFullName] = useState('')
@@ -234,6 +241,22 @@ export default function Members() {
   const rolesBlocked = rules.baptism_for_roles && !newBaptized
   const teamsBlocked = rules.baptism_for_teams && !newBaptized
 
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const filtered = members.filter((m) => {
+    if (search) {
+      const q = norm(search)
+      if (!norm(m.full_name).includes(q) && !(m.email && norm(m.email).includes(q))) return false
+    }
+    if (fStatus && (m.status ?? 'active') !== fStatus) return false
+    if (fRole && !m.roleIds.includes(fRole)) return false
+    if (fTeam && !m.teams.some((t) => t.teamId === fTeam)) return false
+    if (fBaptized === 'yes' && !m.isBaptized) return false
+    if (fBaptized === 'no' && m.isBaptized) return false
+    return true
+  })
+  const selectCls =
+    'rounded-lg border border-graysage/25 bg-cream/40 px-2.5 py-2 text-sm text-charcoal outline-none focus:border-sage'
+
   return (
     <div className="min-h-screen bg-cream">
       <AppHeader />
@@ -241,7 +264,11 @@ export default function Members() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="font-serif text-2xl text-charcoal">Miembros</h1>
-            <p className="text-sm text-graysage">{members.length} en tu iglesia</p>
+            <p className="text-sm text-graysage">
+              {filtered.length === members.length
+                ? `${members.length} en tu iglesia`
+                : `${filtered.length} de ${members.length}`}
+            </p>
           </div>
           <button
             type="button"
@@ -382,6 +409,46 @@ export default function Members() {
           </form>
         )}
 
+        {/* Búsqueda y filtros */}
+        {!loading && members.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-2">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por nombre o correo…"
+              className={`min-w-48 flex-1 ${inputCls}`}
+            />
+            <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className={selectCls}>
+              <option value="">Estado: todos</option>
+              <option value="active">Activos / Miembros</option>
+              <option value="prospect">Prospectos</option>
+              <option value="inactive">Inactivos</option>
+              <option value="archived">Archivados</option>
+            </select>
+            <select value={fRole} onChange={(e) => setFRole(e.target.value)} className={selectCls}>
+              <option value="">Rol: todos</option>
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            <select value={fTeam} onChange={(e) => setFTeam(e.target.value)} className={selectCls}>
+              <option value="">Equipo: todos</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <select value={fBaptized} onChange={(e) => setFBaptized(e.target.value)} className={selectCls}>
+              <option value="">Bautismo: todos</option>
+              <option value="yes">Bautizados</option>
+              <option value="no">No bautizados</option>
+            </select>
+          </div>
+        )}
+
         {/* Lista */}
         {loading ? (
           <p className="font-mono text-sm text-graysage">Cargando miembros…</p>
@@ -389,9 +456,13 @@ export default function Members() {
           <div className="rounded-2xl border border-dashed border-graysage/30 p-10 text-center">
             <p className="text-graysage">Aún no hay miembros. Agrega el primero con el botón de arriba.</p>
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-graysage/30 p-10 text-center">
+            <p className="text-graysage">Ningún miembro coincide con la búsqueda o los filtros.</p>
+          </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-clay-light/40 bg-white">
-            {members.map((m, i) => (
+            {filtered.map((m, i) => (
               <div
                 key={m.id}
                 className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4 ${
