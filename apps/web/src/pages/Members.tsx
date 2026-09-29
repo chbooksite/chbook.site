@@ -247,7 +247,11 @@ export default function Members() {
       const q = norm(search)
       if (!norm(m.full_name).includes(q) && !(m.email && norm(m.email).includes(q))) return false
     }
-    if (fStatus && (m.status ?? 'active') !== fStatus) return false
+    if (fStatus) {
+      if ((m.status ?? 'active') !== fStatus) return false
+    } else if (m.status === 'archived') {
+      return false // por defecto los archivados no aparecen
+    }
     if (fRole && !m.roleIds.includes(fRole)) return false
     if (fTeam && !m.teams.some((t) => t.teamId === fTeam)) return false
     if (fBaptized === 'yes' && !m.isBaptized) return false

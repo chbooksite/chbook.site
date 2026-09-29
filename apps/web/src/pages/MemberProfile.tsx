@@ -210,6 +210,22 @@ export default function MemberProfile() {
     load()
   }
 
+  const setStatusQuick = async (newStatus: string) => {
+    if (!id) return
+    await supabase.from('members').update({ status: newStatus }).eq('id', id)
+    load()
+  }
+
+  const archive = () => {
+    if (
+      window.confirm(
+        '¿Archivar este miembro? Dejará de contar y se ocultará de la lista, pero sus datos se conservan.',
+      )
+    ) {
+      setStatusQuick('archived')
+    }
+  }
+
   const save = async (e: FormEvent) => {
     e.preventDefault()
     if (!id) return
@@ -353,13 +369,32 @@ export default function MemberProfile() {
             </div>
           </div>
           {!editing && (
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage"
-            >
-              Editar
-            </button>
+            <div className="flex shrink-0 gap-2">
+              {status === 'archived' ? (
+                <button
+                  type="button"
+                  onClick={() => setStatusQuick('active')}
+                  className="rounded-lg border border-sage/40 px-3 py-2 text-sm text-sage-dark transition hover:bg-sage/10"
+                >
+                  Restaurar
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={archive}
+                  className="rounded-lg border border-graysage/25 px-3 py-2 text-sm text-graysage transition hover:bg-cream"
+                >
+                  Archivar
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage"
+              >
+                Editar
+              </button>
+            </div>
           )}
         </div>
 
