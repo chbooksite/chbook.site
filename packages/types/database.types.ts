@@ -382,8 +382,6 @@ export type Database = {
           is_system: boolean | null
           key: string
           name: string
-          participant_max_age: number | null
-          participant_min_age: number | null
           requires: Json
         }
         Insert: {
@@ -393,8 +391,6 @@ export type Database = {
           is_system?: boolean | null
           key: string
           name: string
-          participant_max_age?: number | null
-          participant_min_age?: number | null
           requires?: Json
         }
         Update: {
@@ -404,8 +400,6 @@ export type Database = {
           is_system?: boolean | null
           key?: string
           name?: string
-          participant_max_age?: number | null
-          participant_min_age?: number | null
           requires?: Json
         }
         Relationships: [
@@ -432,6 +426,7 @@ export type Database = {
           phone: string | null
           push_token: string | null
           role: string | null
+          sex: string | null
           status: string | null
           user_id: string | null
         }
@@ -448,6 +443,7 @@ export type Database = {
           phone?: string | null
           push_token?: string | null
           role?: string | null
+          sex?: string | null
           status?: string | null
           user_id?: string | null
         }
@@ -464,6 +460,7 @@ export type Database = {
           phone?: string | null
           push_token?: string | null
           role?: string | null
+          sex?: string | null
           status?: string | null
           user_id?: string | null
         }
@@ -821,6 +818,7 @@ export type Database = {
           phone: string | null
           push_token: string | null
           role: string | null
+          sex: string | null
           status: string | null
           user_id: string | null
         }
@@ -835,6 +833,7 @@ export type Database = {
           phone?: string | null
           push_token?: string | null
           role?: string | null
+          sex?: string | null
           status?: string | null
           user_id?: string | null
         }
@@ -849,6 +848,7 @@ export type Database = {
           phone?: string | null
           push_token?: string | null
           role?: string | null
+          sex?: string | null
           status?: string | null
           user_id?: string | null
         }

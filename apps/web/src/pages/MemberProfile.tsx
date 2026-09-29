@@ -12,8 +12,7 @@ import {
   type Requires,
 } from '../lib/rules'
 import {
-  ageFromBirth,
-  areaForAge,
+  ageRange,
   IDENTITY_TONE_CLASS,
   isBaptismInconsistent,
   memberIdentity,
@@ -24,8 +23,6 @@ interface Catalog {
   key: string
   name: string
   requires: Requires
-  participant_min_age: number | null
-  participant_max_age: number | null
 }
 
 type RawMember = {
@@ -35,6 +32,7 @@ type RawMember = {
   email: string | null
   phone: string | null
   birth_date: string | null
+  sex: string | null
   is_baptized: boolean | null
   baptism_date: string | null
   member_roles: { role_id: string }[] | null
@@ -76,6 +74,7 @@ export default function MemberProfile() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [birthDate, setBirthDate] = useState('')
+  const [sex, setSex] = useState('')
   const [isBaptized, setIsBaptized] = useState(false)
   const [baptismDate, setBaptismDate] = useState('')
   const [status, setStatus] = useState('active')
@@ -91,35 +90,18 @@ export default function MemberProfile() {
     setLoading(true)
     const [rolesRes, teamsRes, memberRes, churchRes] = await Promise.all([
       supabase.from('roles').select('id, key, name, requires').order('name'),
-      supabase
-        .from('teams')
-        .select('id, key, name, requires, participant_min_age, participant_max_age')
-        .order('name'),
+      supabase.from('teams').select('id, key, name, requires').order('name'),
       supabase
         .from('members')
-        .select('id, full_name, status, email, phone, birth_date, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
+        .select('id, full_name, status, email, phone, birth_date, sex, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
         .eq('id', id)
         .maybeSingle(),
       supabase.from('churches').select('settings').eq('id', membership.churchId).maybeSingle(),
     ])
     const mapCat = (d: unknown[] | null): Catalog[] =>
       (d ?? []).map((x) => {
-        const c = x as {
-          id: string
-          key: string
-          name: string
-          requires: unknown
-          participant_min_age?: number | null
-          participant_max_age?: number | null
-        }
-        return {
-          id: c.id,
-          key: c.key,
-          name: c.name,
-          requires: readRequires(c.requires),
-          participant_min_age: c.participant_min_age ?? null,
-          participant_max_age: c.participant_max_age ?? null,
-        }
+        const c = x as { id: string; key: string; name: string; requires: unknown }
+        return { id: c.id, key: c.key, name: c.name, requires: readRequires(c.requires) }
       })
     setRoles(mapCat(rolesRes.data))
     setTeams(mapCat(teamsRes.data))
@@ -135,6 +117,7 @@ export default function MemberProfile() {
     setEmail(m.email ?? '')
     setPhone(m.phone ?? '')
     setBirthDate(m.birth_date ?? '')
+    setSex(m.sex ?? '')
     setIsBaptized(Boolean(m.is_baptized))
     setBaptismDate(m.baptism_date ?? '')
     setStatus(m.status ?? 'active')
@@ -291,6 +274,7 @@ export default function MemberProfile() {
         email: email.trim() || null,
         phone: phone.trim() || null,
         birth_date: birthDate || null,
+        sex: sex || null,
         is_baptized: isBaptized,
         baptism_date: isBaptized ? baptismDate || null : null,
         status,
@@ -346,10 +330,7 @@ export default function MemberProfile() {
   const depHint = (req: Requires) =>
     `Requiere: ${[...req.roles, ...req.teams].map(nameById).join(', ')}`
   const age = ageGroup(birthDate)
-  const areaPorEdad = areaForAge(
-    ageFromBirth(birthDate),
-    teams.map((t) => ({ name: t.name, min: t.participant_min_age, max: t.participant_max_age })),
-  )
+  const rangoEdad = ageRange(birthDate)
 
   const inputCls =
     'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
@@ -458,17 +439,21 @@ export default function MemberProfile() {
                 </div>
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">
-                    Área (por edad)
+                    Rango de edad
                   </dt>
                   <dd className="mt-1">
-                    {areaPorEdad ? (
+                    {rangoEdad ? (
                       <span className="rounded-full bg-clay/10 px-2.5 py-0.5 text-sm text-clay">
-                        {areaPorEdad}
+                        {rangoEdad}
                       </span>
                     ) : (
                       <span className="text-graysage">—</span>
                     )}
                   </dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Sexo</dt>
+                  <dd className="mt-1 capitalize text-charcoal">{sex || '—'}</dd>
                 </div>
               </dl>
             </div>
@@ -524,6 +509,14 @@ export default function MemberProfile() {
                 <div>
                   <label className="mb-1 block text-sm font-medium text-graysage">Fecha de nacimiento</label>
                   <input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-graysage">Sexo</label>
+                  <select value={sex} onChange={(e) => setSex(e.target.value)} className={inputCls}>
+                    <option value="">—</option>
+                    <option value="masculino">Masculino</option>
+                    <option value="femenino">Femenino</option>
+                  </select>
                 </div>
                 <div className="sm:col-span-2">
                   <label className="flex items-center gap-2 text-sm font-medium text-graysage">

@@ -61,18 +61,22 @@ export function ageFromBirth(birthDate: string | null): number | null {
   return age
 }
 
-export interface AgeArea {
-  name: string
-  min: number | null
-  max: number | null
-}
+// Clasificación por rango de edad — un recurso del miembro (como el sexo) para
+// usar en métricas, filtros y funciones posteriores. No son equipos.
+export const AGE_RANGES: { name: string; min: number; max: number | null }[] = [
+  { name: 'Maternal', min: 0, max: 5 },
+  { name: 'Niños', min: 6, max: 12 },
+  { name: 'Adolescentes', min: 13, max: 17 },
+  { name: 'Jóvenes', min: 18, max: 28 },
+  { name: 'Adultos', min: 29, max: 59 },
+  { name: 'Adultos mayores', min: 60, max: null },
+]
 
-// Área (por edad) que corresponde a una edad, o null si no cae en ninguna.
-export function areaForAge(age: number | null, areas: AgeArea[]): string | null {
+export function ageRange(birthDate: string | null): string | null {
+  const age = ageFromBirth(birthDate)
   if (age == null) return null
-  for (const a of areas) {
-    if (a.min == null) continue // equipo de servicio (sin rango)
-    if (age >= a.min && (a.max == null || age <= a.max)) return a.name
+  for (const r of AGE_RANGES) {
+    if (age >= r.min && (r.max == null || age <= r.max)) return r.name
   }
   return null
 }

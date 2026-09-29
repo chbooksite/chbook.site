@@ -67,6 +67,7 @@ export default function Members() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [status, setStatus] = useState<'active' | 'prospect'>('active')
+  const [newSex, setNewSex] = useState('')
   const [newBaptized, setNewBaptized] = useState(false)
   const [roleIds, setRoleIds] = useState<string[]>([])
   const [teamIds, setTeamIds] = useState<string[]>([])
@@ -140,6 +141,7 @@ export default function Members() {
     setEmail('')
     setPhone('')
     setStatus('active')
+    setNewSex('')
     setNewBaptized(false)
     setRoleIds([])
     setTeamIds([])
@@ -185,6 +187,7 @@ export default function Members() {
         full_name: fullName.trim(),
         email: email.trim() || null,
         phone: phone.trim() || null,
+        sex: newSex || null,
         is_baptized: newBaptized,
         status,
       })
@@ -327,6 +330,16 @@ export default function Members() {
                   Teléfono <span className="text-graysage/60">(opcional)</span>
                 </label>
                 <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">
+                  Sexo <span className="text-graysage/60">(opcional)</span>
+                </label>
+                <select value={newSex} onChange={(e) => setNewSex(e.target.value)} className={inputCls}>
+                  <option value="">—</option>
+                  <option value="masculino">Masculino</option>
+                  <option value="femenino">Femenino</option>
+                </select>
               </div>
             </div>
 
