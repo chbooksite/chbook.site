@@ -33,10 +33,17 @@ type RawMember = {
   phone: string | null
   birth_date: string | null
   sex: string | null
+  guardian_id: string | null
   is_baptized: boolean | null
   baptism_date: string | null
   member_roles: { role_id: string }[] | null
   member_teams: { team_id: string; is_leader: boolean | null }[] | null
+}
+
+interface Dependent {
+  id: string
+  full_name: string
+  birth_date: string | null
 }
 
 // Roles que habilitan poder ser "predicador".
@@ -69,6 +76,17 @@ export default function MemberProfile() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Dependientes y representante
+  const [guardianId, setGuardianId] = useState<string | null>(null)
+  const [guardianName, setGuardianName] = useState<string | null>(null)
+  const [dependents, setDependents] = useState<Dependent[]>([])
+  const [showDepForm, setShowDepForm] = useState(false)
+  const [depName, setDepName] = useState('')
+  const [depBirth, setDepBirth] = useState('')
+  const [depSex, setDepSex] = useState('')
+  const [depSaving, setDepSaving] = useState(false)
+  const [depError, setDepError] = useState<string | null>(null)
+
   // Datos editables
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -93,7 +111,7 @@ export default function MemberProfile() {
       supabase.from('teams').select('id, key, name, requires').order('name'),
       supabase
         .from('members')
-        .select('id, full_name, status, email, phone, birth_date, sex, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
+        .select('id, full_name, status, email, phone, birth_date, sex, guardian_id, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
         .eq('id', id)
         .maybeSingle(),
       supabase.from('churches').select('settings').eq('id', membership.churchId).maybeSingle(),
@@ -128,6 +146,21 @@ export default function MemberProfile() {
     setTeamMap(tMap)
     setOrigRoleIds(rIds)
     setOrigTeamMap(tMap)
+
+    setGuardianId(m.guardian_id ?? null)
+    if (m.guardian_id) {
+      const { data: g } = await supabase.from('members').select('full_name').eq('id', m.guardian_id).maybeSingle()
+      setGuardianName(g?.full_name ?? null)
+    } else {
+      setGuardianName(null)
+    }
+    const { data: deps } = await supabase
+      .from('members')
+      .select('id, full_name, birth_date')
+      .eq('guardian_id', id)
+      .order('full_name')
+    setDependents((deps ?? []) as Dependent[])
+
     setLoading(false)
   }, [id, membership])
 
@@ -232,6 +265,31 @@ export default function MemberProfile() {
     ) {
       setStatusQuick('archived')
     }
+  }
+
+  const addDependent = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!membership || !id) return
+    setDepSaving(true)
+    setDepError(null)
+    const { error } = await supabase.from('members').insert({
+      church_id: membership.churchId,
+      full_name: depName.trim(),
+      birth_date: depBirth || null,
+      sex: depSex || null,
+      guardian_id: id,
+      status: 'active',
+    })
+    setDepSaving(false)
+    if (error) {
+      setDepError(error.message)
+      return
+    }
+    setDepName('')
+    setDepBirth('')
+    setDepSex('')
+    setShowDepForm(false)
+    load()
   }
 
   const save = async (e: FormEvent) => {
@@ -455,6 +513,21 @@ export default function MemberProfile() {
                   <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Sexo</dt>
                   <dd className="mt-1 capitalize text-charcoal">{sex || '—'}</dd>
                 </div>
+                {guardianId && (
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">
+                      Representante
+                    </dt>
+                    <dd className="mt-1">
+                      <Link
+                        to={`/miembros/${guardianId}`}
+                        className="text-sage underline-offset-2 hover:underline"
+                      >
+                        {guardianName ?? 'Ver representante'}
+                      </Link>
+                    </dd>
+                  </div>
+                )}
               </dl>
             </div>
 
@@ -478,6 +551,73 @@ export default function MemberProfile() {
                   </span>
                 ))}
               </div>
+            </div>
+
+            {/* Dependientes a cargo de este miembro */}
+            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm font-medium text-graysage">Dependientes</p>
+                <button
+                  type="button"
+                  onClick={() => setShowDepForm((v) => !v)}
+                  className="text-xs font-medium text-sage-dark hover:underline"
+                >
+                  {showDepForm ? 'Cancelar' : '+ Agregar dependiente'}
+                </button>
+              </div>
+
+              {showDepForm && (
+                <form onSubmit={addDependent} className="mb-4 grid gap-3 rounded-lg bg-cream/50 p-3 sm:grid-cols-2">
+                  <input
+                    required
+                    value={depName}
+                    onChange={(e) => setDepName(e.target.value)}
+                    placeholder="Nombre completo"
+                    className={inputCls}
+                  />
+                  <input
+                    type="date"
+                    value={depBirth}
+                    onChange={(e) => setDepBirth(e.target.value)}
+                    className={inputCls}
+                  />
+                  <select value={depSex} onChange={(e) => setDepSex(e.target.value)} className={inputCls}>
+                    <option value="">Sexo —</option>
+                    <option value="masculino">Masculino</option>
+                    <option value="femenino">Femenino</option>
+                  </select>
+                  <div className="sm:col-span-2">
+                    {depError && <p className="mb-2 text-xs text-clay">{depError}</p>}
+                    <button
+                      type="submit"
+                      disabled={depSaving}
+                      className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60"
+                    >
+                      {depSaving ? 'Guardando…' : 'Guardar dependiente'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {dependents.length === 0 ? (
+                <p className="text-sm text-graysage/60">
+                  Sin dependientes. Agrega niños o adultos sin móvil a cargo de esta persona.
+                </p>
+              ) : (
+                <ul className="divide-y divide-clay-light/25">
+                  {dependents.map((d) => (
+                    <li key={d.id} className="flex items-center justify-between py-2">
+                      <Link
+                        to={`/miembros/${d.id}`}
+                        className="text-sm font-medium text-charcoal underline-offset-2 hover:text-sage-dark hover:underline"
+                      >
+                        {d.full_name}
+                      </Link>
+                      <span className="text-xs text-graysage">{ageRange(d.birth_date) ?? '—'}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         ) : (
