@@ -12,7 +12,11 @@ import {
   type Requires,
 } from '../lib/rules'
 import {
+  AGE_RANGES,
+  ageFromBirth,
+  ageTone,
   COARSE_AGE,
+  displayAgeRange,
   IDENTITY_TONE_CLASS,
   isBaptismInconsistent,
   memberIdentity,
@@ -33,6 +37,10 @@ interface MemberRow {
   email: string | null
   phone: string | null
   isBaptized: boolean
+  birthDate: string | null
+  ageGroupVal: string | null
+  guardianId: string | null
+  createdAt: string | null
   roleIds: string[]
   teams: { teamId: string; isLeader: boolean }[]
 }
@@ -56,6 +64,10 @@ type RawMember = {
   email: string | null
   phone: string | null
   is_baptized: boolean | null
+  birth_date: string | null
+  age_group: string | null
+  guardian_id: string | null
+  created_at: string | null
   member_roles: { role_id: string }[] | null
   member_teams: { team_id: string; is_leader: boolean | null }[] | null
 }
@@ -76,6 +88,9 @@ export default function Members() {
   const [fTeam, setFTeam] = useState('')
   const [fStatus, setFStatus] = useState('')
   const [fBaptized, setFBaptized] = useState('')
+  const [fAge, setFAge] = useState('')
+  const [sortBy, setSortBy] = useState('name')
+  const [expandedDeps, setExpandedDeps] = useState<Set<string>>(new Set())
 
   // Formulario de alta
   const [showForm, setShowForm] = useState(false)
@@ -104,7 +119,7 @@ export default function Members() {
       supabase.from('teams').select('id, key, name, requires').order('name'),
       supabase
         .from('members')
-        .select('id, full_name, status, email, phone, is_baptized, member_roles(role_id), member_teams(team_id, is_leader)')
+        .select('id, full_name, status, email, phone, is_baptized, birth_date, age_group, guardian_id, created_at, member_roles(role_id), member_teams(team_id, is_leader)')
         .order('full_name'),
       supabase.from('churches').select('settings').eq('id', churchId).maybeSingle(),
     ])
@@ -125,6 +140,10 @@ export default function Members() {
         email: m.email,
         phone: m.phone,
         isBaptized: Boolean(m.is_baptized),
+        birthDate: m.birth_date,
+        ageGroupVal: m.age_group,
+        guardianId: m.guardian_id,
+        createdAt: m.created_at,
         roleIds: (m.member_roles ?? []).map((r) => r.role_id),
         teams: (m.member_teams ?? []).map((t) => ({
           teamId: t.team_id,
@@ -340,6 +359,18 @@ export default function Members() {
   const teamsBlocked = rules.baptism_for_teams && !newBaptized
 
   const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const memberRange = (m: MemberRow) => displayAgeRange(m.birthDate, m.ageGroupVal)
+  const AGE_MID: Record<string, number> = {
+    Maternal: 3, Niños: 9, Niño: 9, Adolescentes: 15, Jóvenes: 23, Joven: 23,
+    Adultos: 44, Adulto: 44, 'Adultos mayores': 70,
+  }
+  const sortAge = (m: MemberRow): number => {
+    const a = ageFromBirth(m.birthDate)
+    if (a != null) return a
+    if (m.ageGroupVal && AGE_MID[m.ageGroupVal] != null) return AGE_MID[m.ageGroupVal]
+    return 999
+  }
+
   const filtered = members.filter((m) => {
     if (search) {
       const q = norm(search)
@@ -354,8 +385,28 @@ export default function Members() {
     if (fTeam && !m.teams.some((t) => t.teamId === fTeam)) return false
     if (fBaptized === 'yes' && !m.isBaptized) return false
     if (fBaptized === 'no' && m.isBaptized) return false
+    if (fAge && memberRange(m) !== fAge) return false
     return true
   })
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'age') return sortAge(a) - sortAge(b)
+    if (sortBy === 'created') return (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
+    return a.full_name.localeCompare(b.full_name)
+  })
+
+  // Dependientes agrupados por representante (para la sublista desplegable).
+  const depsByGuardian: Record<string, MemberRow[]> = {}
+  for (const m of members) {
+    if (m.guardianId) (depsByGuardian[m.guardianId] ??= []).push(m)
+  }
+  const toggleDeps = (id: string) =>
+    setExpandedDeps((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
   const selectCls =
     'rounded-lg border border-graysage/25 bg-cream/40 px-2.5 py-2 text-sm text-charcoal outline-none focus:border-sage'
 
@@ -367,9 +418,9 @@ export default function Members() {
           <div>
             <h1 className="font-serif text-2xl text-charcoal">Miembros</h1>
             <p className="text-sm text-graysage">
-              {filtered.length === members.length
+              {sorted.length === members.length
                 ? `${members.length} en tu iglesia`
-                : `${filtered.length} de ${members.length}`}
+                : `${sorted.length} de ${members.length}`}
             </p>
           </div>
           <button
@@ -655,6 +706,19 @@ export default function Members() {
               <option value="yes">Bautizados</option>
               <option value="no">No bautizados</option>
             </select>
+            <select value={fAge} onChange={(e) => setFAge(e.target.value)} className={selectCls}>
+              <option value="">Edad: todas</option>
+              {AGE_RANGES.map((r) => (
+                <option key={r.name} value={r.name}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className={selectCls}>
+              <option value="name">Orden: nombre</option>
+              <option value="age">Orden: edad</option>
+              <option value="created">Orden: ingreso</option>
+            </select>
           </div>
         )}
 
@@ -665,92 +729,128 @@ export default function Members() {
           <div className="rounded-2xl border border-dashed border-graysage/30 p-10 text-center">
             <p className="text-graysage">Aún no hay miembros. Agrega el primero con el botón de arriba.</p>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-graysage/30 p-10 text-center">
             <p className="text-graysage">Ningún miembro coincide con la búsqueda o los filtros.</p>
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-clay-light/40 bg-white">
-            {filtered.map((m, i) => (
-              <div
-                key={m.id}
-                className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4 ${
-                  i > 0 ? 'border-t border-clay-light/25' : ''
-                }`}
-              >
-                <div className="min-w-40 flex-1">
-                  <span className="flex items-center gap-1.5">
-                    <Link
-                      to={`/miembros/${m.id}`}
-                      className="font-medium text-charcoal underline-offset-2 hover:text-sage-dark hover:underline"
-                    >
-                      {m.full_name}
-                    </Link>
-                    {m.isBaptized && (
-                      <span title="Bautizado" className="text-sage-water">
-                        ✝
+            {sorted.map((m, i) => {
+              const deps = depsByGuardian[m.id] ?? []
+              const expanded = expandedDeps.has(m.id)
+              const range = memberRange(m)
+              return (
+                <div key={m.id} className={i > 0 ? 'border-t border-clay-light/25' : ''}>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
+                    <div className="min-w-40 flex-1">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <Link
+                          to={`/miembros/${m.id}`}
+                          className="font-medium text-charcoal underline-offset-2 hover:text-sage-dark hover:underline"
+                        >
+                          {m.full_name}
+                        </Link>
+                        {m.isBaptized && (
+                          <span title="Bautizado" className="text-sage-water">
+                            ✝
+                          </span>
+                        )}
+                        {deps.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleDeps(m.id)}
+                            className="text-xs text-graysage hover:text-sage-dark"
+                          >
+                            {expanded ? '▾' : '▸'} {deps.length} dep.
+                          </button>
+                        )}
+                      </span>
+                      {m.email && <p className="font-mono text-xs text-graysage">{m.email}</p>}
+                    </div>
+
+                    {range && (
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ageTone(range)}`}>
+                        {range}
                       </span>
                     )}
-                  </span>
-                  {m.email && <p className="font-mono text-xs text-graysage">{m.email}</p>}
-                </div>
 
-                <div className="flex flex-wrap gap-1">
-                  {m.roleIds.map((id) => (
-                    <span key={id} className="rounded bg-sage-water/10 px-1.5 py-0.5 text-xs text-sage-dark">
-                      {roleName(id)}
-                    </span>
-                  ))}
-                  {m.teams.map((t) => (
-                    <span key={t.teamId} className="rounded bg-clay/10 px-1.5 py-0.5 text-xs text-clay">
-                      {teamName(t.teamId)}
-                      {t.isLeader && ' ★'}
-                    </span>
-                  ))}
-                </div>
+                    <div className="flex flex-wrap gap-1">
+                      {m.roleIds.map((id) => (
+                        <span key={id} className="rounded bg-sage-water/10 px-1.5 py-0.5 text-xs text-sage-dark">
+                          {roleName(id)}
+                        </span>
+                      ))}
+                      {m.teams.map((t) => (
+                        <span key={t.teamId} className="rounded bg-clay/10 px-1.5 py-0.5 text-xs text-clay">
+                          {teamName(t.teamId)}
+                          {t.isLeader && ' ★'}
+                        </span>
+                      ))}
+                    </div>
 
-                <div className="flex items-center gap-3">
-                  {identityBadge(m)}
-                  {isBaptismInconsistent(
-                    m.isBaptized,
-                    m.roleIds.length,
-                    m.teams.length,
-                    rules.baptism_for_roles,
-                    rules.baptism_for_teams,
-                  ) && (
-                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600">
-                      No bautizado
-                    </span>
-                  )}
-                  {m.status === 'prospect' && (
-                    <button
-                      type="button"
-                      onClick={() => approve(m.id)}
-                      className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs font-medium text-sage-dark transition hover:bg-sage/10"
-                    >
-                      Aprobar
-                    </button>
-                  )}
-                  {m.status === 'archived' ? (
-                    <button
-                      type="button"
-                      onClick={() => setMemberStatus(m.id, 'active')}
-                      className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs font-medium text-sage-dark transition hover:bg-sage/10"
-                    >
-                      Restaurar
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => archiveFromList(m)}
-                      className="rounded-lg border border-graysage/25 px-2.5 py-1 text-xs text-graysage transition hover:bg-cream"
-                    >
-                      Archivar
-                    </button>
+                    <div className="flex items-center gap-3">
+                      {identityBadge(m)}
+                      {isBaptismInconsistent(
+                        m.isBaptized,
+                        m.roleIds.length,
+                        m.teams.length,
+                        rules.baptism_for_roles,
+                        rules.baptism_for_teams,
+                      ) && (
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600">
+                          No bautizado
+                        </span>
+                      )}
+                      {m.status === 'prospect' && (
+                        <button
+                          type="button"
+                          onClick={() => approve(m.id)}
+                          className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs font-medium text-sage-dark transition hover:bg-sage/10"
+                        >
+                          Aprobar
+                        </button>
+                      )}
+                      {m.status === 'archived' ? (
+                        <button
+                          type="button"
+                          onClick={() => setMemberStatus(m.id, 'active')}
+                          className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs font-medium text-sage-dark transition hover:bg-sage/10"
+                        >
+                          Restaurar
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => archiveFromList(m)}
+                          className="rounded-lg border border-graysage/25 px-2.5 py-1 text-xs text-graysage transition hover:bg-cream"
+                        >
+                          Archivar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {expanded && deps.length > 0 && (
+                    <ul className="border-t border-clay-light/20 bg-cream/40 py-1">
+                      {deps.map((d) => (
+                        <li
+                          key={d.id}
+                          className="flex items-center justify-between py-1 pl-10 pr-5 text-sm"
+                        >
+                          <Link
+                            to={`/miembros/${d.id}`}
+                            className="text-charcoal underline-offset-2 hover:text-sage-dark hover:underline"
+                          >
+                            ↳ {d.full_name}
+                          </Link>
+                          <span className="text-xs text-graysage">{memberRange(d) ?? '—'}</span>
+                        </li>
+                      ))}
+                    </ul>
                   )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </main>

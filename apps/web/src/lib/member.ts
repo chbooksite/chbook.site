@@ -105,6 +105,23 @@ export function displayAgeRange(birthDate: string | null, ageGroup: string | nul
   return ageGroup || null
 }
 
+// Color por rango de edad, para distinguir de un vistazo.
+export const AGE_TONE: Record<string, string> = {
+  Maternal: 'bg-pink-100 text-pink-700',
+  Niños: 'bg-amber-100 text-amber-700',
+  Niño: 'bg-amber-100 text-amber-700',
+  Adolescentes: 'bg-lime-100 text-lime-700',
+  Jóvenes: 'bg-sky-100 text-sky-700',
+  Joven: 'bg-sky-100 text-sky-700',
+  Adultos: 'bg-indigo-100 text-indigo-700',
+  Adulto: 'bg-indigo-100 text-indigo-700',
+  'Adultos mayores': 'bg-stone-200 text-stone-700',
+}
+
+export function ageTone(range: string | null): string {
+  return (range && AGE_TONE[range]) || 'bg-graysage/15 text-graysage'
+}
+
 export const IDENTITY_TONE_CLASS: Record<IdentityTone, string> = {
   active: 'bg-sage-water/15 text-sage-dark',
   member: 'bg-sage/10 text-sage-dark',
