@@ -78,6 +78,7 @@ export default function Members() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [status, setStatus] = useState<'active' | 'prospect'>('active')
+  const [newBirth, setNewBirth] = useState('')
   const [newSex, setNewSex] = useState('')
   const [newBaptized, setNewBaptized] = useState(false)
   const [roleIds, setRoleIds] = useState<string[]>([])
@@ -155,6 +156,7 @@ export default function Members() {
     setEmail('')
     setPhone('')
     setStatus('active')
+    setNewBirth('')
     setNewSex('')
     setNewBaptized(false)
     setRoleIds([])
@@ -194,6 +196,7 @@ export default function Members() {
         cedula: newCedula.trim() || null,
         email: email.trim() || null,
         phone: phone.trim() || null,
+        birth_date: newBirth || null,
         sex: newSex || null,
         is_baptized: newBaptized,
         status,
@@ -397,6 +400,12 @@ export default function Members() {
                   Teléfono <span className="text-graysage/60">(opcional)</span>
                 </label>
                 <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">
+                  Fecha de nacimiento <span className="text-graysage/60">(opcional)</span>
+                </label>
+                <input type="date" value={newBirth} onChange={(e) => setNewBirth(e.target.value)} className={inputCls} />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-graysage">
