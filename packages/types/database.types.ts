@@ -416,6 +416,7 @@ export type Database = {
         Row: {
           baptism_date: string | null
           birth_date: string | null
+          cedula: string | null
           church_id: string | null
           created_at: string | null
           email: string | null
@@ -433,6 +434,7 @@ export type Database = {
         Insert: {
           baptism_date?: string | null
           birth_date?: string | null
+          cedula?: string | null
           church_id?: string | null
           created_at?: string | null
           email?: string | null
@@ -450,6 +452,7 @@ export type Database = {
         Update: {
           baptism_date?: string | null
           birth_date?: string | null
+          cedula?: string | null
           church_id?: string | null
           created_at?: string | null
           email?: string | null
@@ -810,6 +813,7 @@ export type Database = {
         Row: {
           age_group: string | null
           birth_date: string | null
+          cedula: string | null
           church_id: string | null
           created_at: string | null
           email: string | null
@@ -825,6 +829,7 @@ export type Database = {
         Insert: {
           age_group?: never
           birth_date?: string | null
+          cedula?: string | null
           church_id?: string | null
           created_at?: string | null
           email?: string | null
@@ -840,6 +845,7 @@ export type Database = {
         Update: {
           age_group?: never
           birth_date?: string | null
+          cedula?: string | null
           church_id?: string | null
           created_at?: string | null
           email?: string | null

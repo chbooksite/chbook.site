@@ -26,6 +26,8 @@ export function memberIdentity(
       return { text: 'Prospecto', tone: 'prospect' }
     case 'inactive':
       return { text: 'Inactivo', tone: 'inactive' }
+    case 'cambio_membresia':
+      return { text: 'Cambio de membresía', tone: 'inactive' }
     case 'archived':
       return { text: 'Archivado', tone: 'archived' }
     default:

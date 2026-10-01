@@ -29,6 +29,7 @@ type RawMember = {
   id: string
   full_name: string
   status: string | null
+  cedula: string | null
   email: string | null
   phone: string | null
   birth_date: string | null
@@ -89,6 +90,7 @@ export default function MemberProfile() {
 
   // Datos editables
   const [fullName, setFullName] = useState('')
+  const [cedula, setCedula] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [birthDate, setBirthDate] = useState('')
@@ -111,7 +113,7 @@ export default function MemberProfile() {
       supabase.from('teams').select('id, key, name, requires').order('name'),
       supabase
         .from('members')
-        .select('id, full_name, status, email, phone, birth_date, sex, guardian_id, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
+        .select('id, full_name, status, cedula, email, phone, birth_date, sex, guardian_id, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
         .eq('id', id)
         .maybeSingle(),
       supabase.from('churches').select('settings').eq('id', membership.churchId).maybeSingle(),
@@ -132,6 +134,7 @@ export default function MemberProfile() {
       return
     }
     setFullName(m.full_name)
+    setCedula(m.cedula ?? '')
     setEmail(m.email ?? '')
     setPhone(m.phone ?? '')
     setBirthDate(m.birth_date ?? '')
@@ -329,6 +332,7 @@ export default function MemberProfile() {
       .from('members')
       .update({
         full_name: fullName.trim(),
+        cedula: cedula.trim() || null,
         email: email.trim() || null,
         phone: phone.trim() || null,
         birth_date: birthDate || null,
@@ -471,6 +475,10 @@ export default function MemberProfile() {
           <div className="mt-6 space-y-6">
             <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
               <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Cédula</dt>
+                  <dd className="mt-1 font-mono text-charcoal">{cedula || '—'}</dd>
+                </div>
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Correo</dt>
                   <dd className="mt-1 text-charcoal">{email || '—'}</dd>
@@ -630,11 +638,16 @@ export default function MemberProfile() {
                   <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className={inputCls} />
                 </div>
                 <div>
+                  <label className="mb-1 block text-sm font-medium text-graysage">Cédula / identificación</label>
+                  <input value={cedula} onChange={(e) => setCedula(e.target.value)} className={inputCls} />
+                </div>
+                <div>
                   <label className="mb-1 block text-sm font-medium text-graysage">Estado</label>
                   <select value={status} onChange={(e) => setStatus(e.target.value)} className={inputCls}>
                     <option value="active">Activo</option>
                     <option value="prospect">Prospecto</option>
                     <option value="inactive">Inactivo</option>
+                    <option value="cambio_membresia">Cambio de membresía</option>
                     <option value="archived">Archivado</option>
                   </select>
                 </div>

@@ -31,6 +31,16 @@ interface MemberRow {
   teams: { teamId: string; isLeader: boolean }[]
 }
 
+interface DupMatch {
+  id: string
+  full_name: string
+  cedula: string | null
+  birth_date: string | null
+  phone: string | null
+  email: string | null
+  status: string | null
+}
+
 // Forma cruda de la fila de member con sus embeds (los tipos de embed de
 // supabase-js son difíciles de inferir; lo casteamos de forma controlada).
 type RawMember = {
@@ -64,6 +74,7 @@ export default function Members() {
   // Formulario de alta
   const [showForm, setShowForm] = useState(false)
   const [fullName, setFullName] = useState('')
+  const [newCedula, setNewCedula] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [status, setStatus] = useState<'active' | 'prospect'>('active')
@@ -73,6 +84,8 @@ export default function Members() {
   const [teamIds, setTeamIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [dupMatches, setDupMatches] = useState<DupMatch[]>([])
+  const [cedulaBlock, setCedulaBlock] = useState<DupMatch | null>(null)
 
   const load = useCallback(async () => {
     if (!churchId) return
@@ -138,6 +151,7 @@ export default function Members() {
 
   const resetForm = () => {
     setFullName('')
+    setNewCedula('')
     setEmail('')
     setPhone('')
     setStatus('active')
@@ -146,45 +160,38 @@ export default function Members() {
     setRoleIds([])
     setTeamIds([])
     setError(null)
+    setDupMatches([])
+    setCedulaBlock(null)
   }
 
-  const createMember = async (e: FormEvent) => {
-    e.preventDefault()
+  const findDuplicates = async (): Promise<DupMatch[]> => {
+    const ced = newCedula.trim()
+    const ph = phone.trim()
+    const em = email.trim()
+    const name = fullName.trim()
+    const conds: string[] = []
+    if (ced) conds.push(`cedula.eq.${ced}`)
+    if (ph) conds.push(`phone.eq.${ph}`)
+    if (em) conds.push(`email.eq.${em}`)
+    if (name) conds.push(`full_name.ilike.${name}`)
+    if (!conds.length) return []
+    const { data } = await supabase
+      .from('members')
+      .select('id, full_name, cedula, birth_date, phone, email, status')
+      .or(conds.join(','))
+    return (data ?? []) as DupMatch[]
+  }
+
+  const doInsert = async () => {
     if (!churchId) return
-
-    // Salvaguarda: confirmar si se asignan roles/equipos a un miembro sin bautismo
-    // (por si algún interruptor de bautismo quedó desactivado).
-    if (!newBaptized && (roleIds.length > 0 || teamIds.length > 0)) {
-      if (
-        !window.confirm(
-          'Este miembro no está bautizado pero tiene roles o equipos asignados. ¿Crear de todos modos?',
-        )
-      ) {
-        return
-      }
-    }
-
     setSaving(true)
     setError(null)
-
-    // Regla: un líder debe pertenecer al menos a un equipo.
-    const leaderRole = roles.find((r) => r.key === 'lider')
-    if (
-      rules.leader_requires_team &&
-      leaderRole &&
-      roleIds.includes(leaderRole.id) &&
-      teamIds.length === 0
-    ) {
-      setError('Un líder debe pertenecer al menos a un equipo. Asigna un equipo o quita el rol Líder.')
-      setSaving(false)
-      return
-    }
-
     const { data: created, error: insErr } = await supabase
       .from('members')
       .insert({
         church_id: churchId,
         full_name: fullName.trim(),
+        cedula: newCedula.trim() || null,
         email: email.trim() || null,
         phone: phone.trim() || null,
         sex: newSex || null,
@@ -195,26 +202,82 @@ export default function Members() {
       .single()
 
     if (insErr || !created) {
-      setError(insErr?.message ?? 'No se pudo crear el miembro.')
+      setError(
+        insErr?.message?.includes('members_church_cedula_uniq')
+          ? 'Ya existe un miembro con esa cédula en tu iglesia.'
+          : (insErr?.message ?? 'No se pudo crear el miembro.'),
+      )
       setSaving(false)
       return
     }
 
     if (roleIds.length) {
-      await supabase
-        .from('member_roles')
-        .insert(roleIds.map((rid) => ({ member_id: created.id, role_id: rid })))
+      await supabase.from('member_roles').insert(roleIds.map((rid) => ({ member_id: created.id, role_id: rid })))
     }
     if (teamIds.length) {
-      await supabase
-        .from('member_teams')
-        .insert(teamIds.map((tid) => ({ member_id: created.id, team_id: tid })))
+      await supabase.from('member_teams').insert(teamIds.map((tid) => ({ member_id: created.id, team_id: tid })))
     }
 
     resetForm()
     setShowForm(false)
     setSaving(false)
     load()
+  }
+
+  // Confirma bautismo (si aplica) y crea.
+  const finalize = () => {
+    if (!newBaptized && (roleIds.length > 0 || teamIds.length > 0)) {
+      if (
+        !window.confirm(
+          'Este miembro no está bautizado pero tiene roles o equipos asignados. ¿Crear de todos modos?',
+        )
+      ) {
+        return
+      }
+    }
+    setDupMatches([])
+    setCedulaBlock(null)
+    doInsert()
+  }
+
+  const createMember = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!churchId) return
+    setError(null)
+    setDupMatches([])
+    setCedulaBlock(null)
+
+    // Debe llenarse al menos un dato de identidad/contacto.
+    if (!newCedula.trim() && !phone.trim() && !email.trim()) {
+      setError('Llena al menos uno: cédula, teléfono o correo.')
+      return
+    }
+
+    // Regla: un líder debe pertenecer al menos a un equipo.
+    const leaderRole = roles.find((r) => r.key === 'lider')
+    if (
+      rules.leader_requires_team &&
+      leaderRole &&
+      roleIds.includes(leaderRole.id) &&
+      teamIds.length === 0
+    ) {
+      setError('Un líder debe pertenecer al menos a un equipo. Asigna un equipo o quita el rol Líder.')
+      return
+    }
+
+    // Detección de duplicados (dentro de tu iglesia).
+    const matches = await findDuplicates()
+    const ced = newCedula.trim()
+    const cedMatch = ced ? matches.find((m) => (m.cedula ?? '').trim() === ced) : undefined
+    if (cedMatch) {
+      setCedulaBlock(cedMatch)
+      return
+    }
+    if (matches.length) {
+      setDupMatches(matches)
+      return
+    }
+    finalize()
   }
 
   const approve = async (id: string) => {
@@ -311,6 +374,10 @@ export default function Members() {
               <div>
                 <label className="mb-1 block text-sm font-medium text-graysage">Nombre completo</label>
                 <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">Cédula / identificación</label>
+                <input value={newCedula} onChange={(e) => setNewCedula(e.target.value)} className={inputCls} />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-graysage">Estado</label>
@@ -425,6 +492,66 @@ export default function Members() {
                 <p className="mt-1 text-xs text-clay">✝ Debe estar bautizado para unirlo a un equipo.</p>
               )}
             </div>
+
+            <p className="text-xs text-graysage/70">
+              Llena al menos uno: cédula, teléfono o correo.
+            </p>
+
+            {cedulaBlock && (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm">
+                <p className="font-medium text-red-700">Cédula duplicada</p>
+                <p className="mt-1 text-red-600">
+                  Ya existe un miembro con esa cédula:{' '}
+                  <Link to={`/miembros/${cedulaBlock.id}`} className="font-medium underline">
+                    {cedulaBlock.full_name}
+                  </Link>
+                  . No se puede duplicar; cambia la cédula o abre ese miembro.
+                </p>
+              </div>
+            )}
+
+            {dupMatches.length > 0 && (
+              <div className="rounded-lg border border-gold/40 bg-gold/10 p-3 text-sm">
+                <p className="font-medium text-clay">Posibles duplicados</p>
+                <p className="mt-1 text-graysage">
+                  Hay miembros con datos parecidos. Revisa antes de crear:
+                </p>
+                <ul className="mt-2 divide-y divide-clay-light/30">
+                  {dupMatches.map((d) => (
+                    <li key={d.id} className="py-2">
+                      <Link
+                        to={`/miembros/${d.id}`}
+                        className="font-medium text-charcoal underline-offset-2 hover:underline"
+                      >
+                        {d.full_name}
+                      </Link>
+                      <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-graysage">
+                        {d.cedula && <span>cédula: {d.cedula}</span>}
+                        {d.birth_date && <span>nac: {d.birth_date}</span>}
+                        {d.phone && <span>tel: {d.phone}</span>}
+                        {d.email && <span>correo: {d.email}</span>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={finalize}
+                    className="rounded-lg bg-clay px-3 py-1.5 text-xs font-medium text-cream transition hover:bg-clay/80"
+                  >
+                    Es otra persona, crear de todos modos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDupMatches([])}
+                    className="rounded-lg border border-graysage/25 px-3 py-1.5 text-xs text-graysage transition hover:bg-cream"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
 
             {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
 
