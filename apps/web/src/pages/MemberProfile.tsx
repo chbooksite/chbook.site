@@ -13,9 +13,12 @@ import {
 } from '../lib/rules'
 import {
   ageRange,
+  COARSE_AGE,
+  displayAgeRange,
   IDENTITY_TONE_CLASS,
   isBaptismInconsistent,
   memberIdentity,
+  resolveAgeGroup,
 } from '../lib/member'
 
 interface Catalog {
@@ -33,6 +36,7 @@ type RawMember = {
   email: string | null
   phone: string | null
   birth_date: string | null
+  age_group: string | null
   sex: string | null
   guardian_id: string | null
   is_baptized: boolean | null
@@ -50,7 +54,7 @@ interface Dependent {
 // Roles que habilitan poder ser "predicador".
 const PREACH_KEYS = ['lider', 'pastor_principal', 'pastor_afiliado']
 
-function ageGroup(birthDate: string | null): string | null {
+function ageGroupLabel(birthDate: string | null): string | null {
   if (!birthDate) return null
   const b = new Date(birthDate)
   if (Number.isNaN(b.getTime())) return null
@@ -94,6 +98,9 @@ export default function MemberProfile() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [birthDate, setBirthDate] = useState('')
+  const [ageGroup, setAgeGroup] = useState('')
+  const [ageInput, setAgeInput] = useState('')
+  const [category, setCategory] = useState('')
   const [sex, setSex] = useState('')
   const [isBaptized, setIsBaptized] = useState(false)
   const [baptismDate, setBaptismDate] = useState('')
@@ -113,7 +120,7 @@ export default function MemberProfile() {
       supabase.from('teams').select('id, key, name, requires').order('name'),
       supabase
         .from('members')
-        .select('id, full_name, status, cedula, email, phone, birth_date, sex, guardian_id, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
+        .select('id, full_name, status, cedula, email, phone, birth_date, age_group, sex, guardian_id, is_baptized, baptism_date, member_roles(role_id), member_teams(team_id, is_leader)')
         .eq('id', id)
         .maybeSingle(),
       supabase.from('churches').select('settings').eq('id', membership.churchId).maybeSingle(),
@@ -138,6 +145,9 @@ export default function MemberProfile() {
     setEmail(m.email ?? '')
     setPhone(m.phone ?? '')
     setBirthDate(m.birth_date ?? '')
+    setAgeGroup(m.age_group ?? '')
+    setAgeInput('')
+    setCategory('')
     setSex(m.sex ?? '')
     setIsBaptized(Boolean(m.is_baptized))
     setBaptismDate(m.baptism_date ?? '')
@@ -336,6 +346,7 @@ export default function MemberProfile() {
         email: email.trim() || null,
         phone: phone.trim() || null,
         birth_date: birthDate || null,
+        age_group: birthDate ? null : resolveAgeGroup(ageInput, category) || ageGroup || null,
         sex: sex || null,
         is_baptized: isBaptized,
         baptism_date: isBaptized ? baptismDate || null : null,
@@ -391,8 +402,8 @@ export default function MemberProfile() {
     roles.find((r) => r.id === id)?.name ?? teams.find((t) => t.id === id)?.name ?? '—'
   const depHint = (req: Requires) =>
     `Requiere: ${[...req.roles, ...req.teams].map(nameById).join(', ')}`
-  const age = ageGroup(birthDate)
-  const rangoEdad = ageRange(birthDate)
+  const age = ageGroupLabel(birthDate)
+  const rangoEdad = displayAgeRange(birthDate, ageGroup)
 
   const inputCls =
     'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
@@ -664,12 +675,41 @@ export default function MemberProfile() {
                   <input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} className={inputCls} />
                 </div>
                 <div>
+                  <label className="mb-1 block text-sm font-medium text-graysage">
+                    Edad <span className="text-graysage/60">(si no hay fecha)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={ageInput}
+                    onChange={(e) => setAgeInput(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-graysage">Categoría de edad</label>
+                  <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
+                    <option value="">—</option>
+                    {COARSE_AGE.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="mb-1 block text-sm font-medium text-graysage">Sexo</label>
                   <select value={sex} onChange={(e) => setSex(e.target.value)} className={inputCls}>
                     <option value="">—</option>
                     <option value="masculino">Masculino</option>
                     <option value="femenino">Femenino</option>
                   </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-xs text-graysage/70">
+                    Clasificación de edad actual: <b>{rangoEdad ?? '—'}</b>. Sin fecha de nacimiento,
+                    puedes fijarla con la edad o la categoría.
+                  </p>
                 </div>
                 <div className="sm:col-span-2">
                   <label className="flex items-center gap-2 text-sm font-medium text-graysage">

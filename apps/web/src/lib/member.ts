@@ -77,10 +77,32 @@ export const AGE_RANGES: { name: string; min: number; max: number | null }[] = [
 export function ageRange(birthDate: string | null): string | null {
   const age = ageFromBirth(birthDate)
   if (age == null) return null
+  return ageRangeFromAge(age)
+}
+
+// Rango a partir de una edad (número).
+export function ageRangeFromAge(age: number): string | null {
   for (const r of AGE_RANGES) {
     if (age >= r.min && (r.max == null || age <= r.max)) return r.name
   }
   return null
+}
+
+// Categorías gruesas para cuando no hay fecha ni edad exacta.
+export const COARSE_AGE = ['Niño', 'Joven', 'Adulto'] as const
+
+// Clasificación a GUARDAR cuando no hay fecha de nacimiento (desde edad o categoría).
+export function resolveAgeGroup(ageInput: string, category: string): string | null {
+  const n = Number(ageInput)
+  if (ageInput.trim() !== '' && !Number.isNaN(n)) return ageRangeFromAge(n)
+  if (category) return category
+  return null
+}
+
+// Clasificación a MOSTRAR: fecha de nacimiento (precisa) o el age_group guardado.
+export function displayAgeRange(birthDate: string | null, ageGroup: string | null): string | null {
+  if (birthDate) return ageRange(birthDate)
+  return ageGroup || null
 }
 
 export const IDENTITY_TONE_CLASS: Record<IdentityTone, string> = {

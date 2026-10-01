@@ -414,6 +414,7 @@ export type Database = {
       }
       members: {
         Row: {
+          age_group: string | null
           baptism_date: string | null
           birth_date: string | null
           cedula: string | null
@@ -432,6 +433,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          age_group?: string | null
           baptism_date?: string | null
           birth_date?: string | null
           cedula?: string | null
@@ -450,6 +452,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          age_group?: string | null
           baptism_date?: string | null
           birth_date?: string | null
           cedula?: string | null

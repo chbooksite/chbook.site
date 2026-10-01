@@ -11,7 +11,13 @@ import {
   type ChurchRules,
   type Requires,
 } from '../lib/rules'
-import { IDENTITY_TONE_CLASS, isBaptismInconsistent, memberIdentity } from '../lib/member'
+import {
+  COARSE_AGE,
+  IDENTITY_TONE_CLASS,
+  isBaptismInconsistent,
+  memberIdentity,
+  resolveAgeGroup,
+} from '../lib/member'
 
 interface Catalog {
   id: string
@@ -79,6 +85,8 @@ export default function Members() {
   const [phone, setPhone] = useState('')
   const [status, setStatus] = useState<'active' | 'prospect'>('active')
   const [newBirth, setNewBirth] = useState('')
+  const [newAge, setNewAge] = useState('')
+  const [newCategory, setNewCategory] = useState('')
   const [newSex, setNewSex] = useState('')
   const [newBaptized, setNewBaptized] = useState(false)
   const [roleIds, setRoleIds] = useState<string[]>([])
@@ -157,6 +165,8 @@ export default function Members() {
     setPhone('')
     setStatus('active')
     setNewBirth('')
+    setNewAge('')
+    setNewCategory('')
     setNewSex('')
     setNewBaptized(false)
     setRoleIds([])
@@ -197,6 +207,7 @@ export default function Members() {
         email: email.trim() || null,
         phone: phone.trim() || null,
         birth_date: newBirth || null,
+        age_group: newBirth ? null : resolveAgeGroup(newAge, newCategory),
         sex: newSex || null,
         is_baptized: newBaptized,
         status,
@@ -253,6 +264,12 @@ export default function Members() {
     // Debe llenarse al menos un dato de identidad/contacto.
     if (!newCedula.trim() && !phone.trim() && !email.trim()) {
       setError('Llena al menos uno: cédula, teléfono o correo.')
+      return
+    }
+
+    // Debe indicarse la edad de alguna forma.
+    if (!newBirth && !newAge.trim() && !newCategory) {
+      setError('Indica la edad: fecha de nacimiento, edad, o categoría (niño/joven/adulto).')
       return
     }
 
@@ -403,9 +420,36 @@ export default function Members() {
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-graysage">
-                  Fecha de nacimiento <span className="text-graysage/60">(opcional)</span>
+                  Fecha de nacimiento
                 </label>
                 <input type="date" value={newBirth} onChange={(e) => setNewBirth(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">Edad</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={newAge}
+                  onChange={(e) => setNewAge(e.target.value)}
+                  className={inputCls}
+                  placeholder="Si no hay fecha"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">Categoría de edad</label>
+                <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className={inputCls}>
+                  <option value="">—</option>
+                  {COARSE_AGE.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <p className="text-xs text-graysage/70">
+                  Edad obligatoria: indica fecha de nacimiento, edad o categoría (basta una).
+                </p>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-graysage">
