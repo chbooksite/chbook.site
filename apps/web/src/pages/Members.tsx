@@ -72,6 +72,39 @@ type RawMember = {
   member_teams: { team_id: string; is_leader: boolean | null }[] | null
 }
 
+function FilterRow({
+  label,
+  options,
+  selected,
+  onToggle,
+}: {
+  label: string
+  options: { value: string; label: string }[]
+  selected: string[]
+  onToggle: (v: string) => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="w-16 shrink-0 text-xs font-medium text-graysage">{label}</span>
+      {options.map((o) => {
+        const on = selected.includes(o.value)
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onToggle(o.value)}
+            className={`rounded-full border px-2.5 py-0.5 text-xs transition ${
+              on ? 'border-sage bg-sage text-cream' : 'border-graysage/25 text-graysage hover:border-sage'
+            }`}
+          >
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function Members() {
   const { membership, membershipLoading } = useAuth()
   const churchId = membership?.churchId
@@ -84,13 +117,15 @@ export default function Members() {
 
   // Búsqueda y filtros
   const [search, setSearch] = useState('')
-  const [fRole, setFRole] = useState('')
-  const [fTeam, setFTeam] = useState('')
-  const [fStatus, setFStatus] = useState('')
-  const [fBaptized, setFBaptized] = useState('')
-  const [fAge, setFAge] = useState('')
+  const [fRoles, setFRoles] = useState<string[]>([])
+  const [fTeams, setFTeams] = useState<string[]>([])
+  const [fStatuses, setFStatuses] = useState<string[]>([])
+  const [fBaptized, setFBaptized] = useState<string[]>([])
+  const [fAges, setFAges] = useState<string[]>([])
   const [sortBy, setSortBy] = useState('name')
   const [expandedDeps, setExpandedDeps] = useState<Set<string>>(new Set())
+  const toggleArr = (arr: string[], setArr: (v: string[]) => void, v: string) =>
+    setArr(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
 
   // Formulario de alta
   const [showForm, setShowForm] = useState(false)
@@ -376,16 +411,18 @@ export default function Members() {
       const q = norm(search)
       if (!norm(m.full_name).includes(q) && !(m.email && norm(m.email).includes(q))) return false
     }
-    if (fStatus) {
-      if ((m.status ?? 'active') !== fStatus) return false
+    if (fStatuses.length) {
+      if (!fStatuses.includes(m.status ?? 'active')) return false
     } else if (m.status === 'archived') {
       return false // por defecto los archivados no aparecen
     }
-    if (fRole && !m.roleIds.includes(fRole)) return false
-    if (fTeam && !m.teams.some((t) => t.teamId === fTeam)) return false
-    if (fBaptized === 'yes' && !m.isBaptized) return false
-    if (fBaptized === 'no' && m.isBaptized) return false
-    if (fAge && memberRange(m) !== fAge) return false
+    if (fRoles.length && !fRoles.some((r) => m.roleIds.includes(r))) return false
+    if (fTeams.length && !fTeams.some((t) => m.teams.some((mt) => mt.teamId === t))) return false
+    if (fBaptized.length === 1) {
+      if (fBaptized[0] === 'yes' && !m.isBaptized) return false
+      if (fBaptized[0] === 'no' && m.isBaptized) return false
+    }
+    if (fAges.length && !fAges.includes(memberRange(m) ?? '')) return false
     return true
   })
   const sorted = [...filtered].sort((a, b) => {
@@ -669,56 +706,61 @@ export default function Members() {
           </form>
         )}
 
-        {/* Búsqueda y filtros */}
+        {/* Búsqueda y filtros (multi-selección) */}
         {!loading && members.length > 0 && (
-          <div className="mb-4 flex flex-wrap gap-2">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por nombre o correo…"
-              className={`min-w-48 flex-1 ${inputCls}`}
+          <div className="mb-4 space-y-2 rounded-xl border border-clay-light/30 bg-white/60 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar por nombre o correo…"
+                className={`min-w-48 flex-1 ${inputCls}`}
+              />
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className={selectCls}>
+                <option value="name">Orden: nombre</option>
+                <option value="age">Orden: edad</option>
+                <option value="created">Orden: ingreso</option>
+              </select>
+            </div>
+            <FilterRow
+              label="Edad"
+              options={AGE_RANGES.map((r) => ({ value: r.name, label: r.name }))}
+              selected={fAges}
+              onToggle={(v) => toggleArr(fAges, setFAges, v)}
             />
-            <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className={selectCls}>
-              <option value="">Estado: todos</option>
-              <option value="active">Activos / Miembros</option>
-              <option value="prospect">Prospectos</option>
-              <option value="inactive">Inactivos</option>
-              <option value="archived">Archivados</option>
-            </select>
-            <select value={fRole} onChange={(e) => setFRole(e.target.value)} className={selectCls}>
-              <option value="">Rol: todos</option>
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-            <select value={fTeam} onChange={(e) => setFTeam(e.target.value)} className={selectCls}>
-              <option value="">Equipo: todos</option>
-              {teams.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-            <select value={fBaptized} onChange={(e) => setFBaptized(e.target.value)} className={selectCls}>
-              <option value="">Bautismo: todos</option>
-              <option value="yes">Bautizados</option>
-              <option value="no">No bautizados</option>
-            </select>
-            <select value={fAge} onChange={(e) => setFAge(e.target.value)} className={selectCls}>
-              <option value="">Edad: todas</option>
-              {AGE_RANGES.map((r) => (
-                <option key={r.name} value={r.name}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className={selectCls}>
-              <option value="name">Orden: nombre</option>
-              <option value="age">Orden: edad</option>
-              <option value="created">Orden: ingreso</option>
-            </select>
+            <FilterRow
+              label="Roles"
+              options={roles.map((r) => ({ value: r.id, label: r.name }))}
+              selected={fRoles}
+              onToggle={(v) => toggleArr(fRoles, setFRoles, v)}
+            />
+            <FilterRow
+              label="Equipos"
+              options={teams.map((t) => ({ value: t.id, label: t.name }))}
+              selected={fTeams}
+              onToggle={(v) => toggleArr(fTeams, setFTeams, v)}
+            />
+            <FilterRow
+              label="Estado"
+              options={[
+                { value: 'active', label: 'Activos' },
+                { value: 'prospect', label: 'Prospectos' },
+                { value: 'inactive', label: 'Inactivos' },
+                { value: 'cambio_membresia', label: 'Cambio membresía' },
+                { value: 'archived', label: 'Archivados' },
+              ]}
+              selected={fStatuses}
+              onToggle={(v) => toggleArr(fStatuses, setFStatuses, v)}
+            />
+            <FilterRow
+              label="Bautismo"
+              options={[
+                { value: 'yes', label: 'Bautizados' },
+                { value: 'no', label: 'No bautizados' },
+              ]}
+              selected={fBaptized}
+              onToggle={(v) => toggleArr(fBaptized, setFBaptized, v)}
+            />
           </div>
         )}
 

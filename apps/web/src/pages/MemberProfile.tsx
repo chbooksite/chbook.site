@@ -518,15 +518,7 @@ export default function MemberProfile() {
                   <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">
                     Rango de edad
                   </dt>
-                  <dd className="mt-1">
-                    {rangoEdad ? (
-                      <span className="rounded-full bg-clay/10 px-2.5 py-0.5 text-sm text-clay">
-                        {rangoEdad}
-                      </span>
-                    ) : (
-                      <span className="text-graysage">—</span>
-                    )}
-                  </dd>
+                  <dd className="mt-1 text-charcoal">{rangoEdad ?? '—'}</dd>
                 </div>
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Sexo</dt>
