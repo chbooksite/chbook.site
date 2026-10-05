@@ -441,7 +441,11 @@ export default function MemberProfile() {
                   No bautizado
                 </span>
               )}
-              {age && <span className="text-sm text-graysage">{age}</span>}
+              {(age || rangoEdad) && (
+                <span className="text-sm text-graysage">
+                  {[age, rangoEdad].filter(Boolean).join(' · ')}
+                </span>
+              )}
             </div>
           </div>
           {!editing && (
