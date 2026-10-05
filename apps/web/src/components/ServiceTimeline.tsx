@@ -86,7 +86,7 @@ export default function ServiceTimeline({
         el.style.transform = `translateX(${dx}px)`
         void el.offsetWidth
         requestAnimationFrame(() => {
-          el.style.transition = 'transform 180ms ease'
+          el.style.transition = 'transform 360ms ease'
           el.style.transform = ''
         })
       })
