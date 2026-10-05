@@ -78,6 +78,7 @@ export interface Segment {
   pinned: boolean // fijada: no se mueve al arrastrar/reordenar
   level: number // 1 = principal; 2 y 3 = barras paralelas (simultáneas)
   color: string | null // color propio; si null usa el del tipo/catálogo
+  startOffset: number // minutos desde el inicio del servicio (solo niveles 2/3; puede ser negativo)
 }
 
 // 'HH:MM' (o null) → minutos desde medianoche, o null.
@@ -114,6 +115,7 @@ export interface TemplateSegment {
   pinned: boolean
   level: number
   color: string | null
+  startOffset: number
 }
 export interface ActivityTemplate {
   name: string // etiqueta de la plantilla
@@ -139,6 +141,7 @@ export function readActivityTemplates(settings: unknown): ActivityTemplate[] {
             pinned: !!s.pinned,
             level: typeof s.level === 'number' ? s.level : 1,
             color: typeof s.color === 'string' ? s.color : null,
+            startOffset: typeof s.startOffset === 'number' ? s.startOffset : 0,
           }))
         : [],
     }))

@@ -82,7 +82,7 @@ const DEFAULT_TIMELINE: { name: string; min: number; tag: string }[] = [
 function defaultSegments(tags: Tag[]): Seg[] {
   return DEFAULT_TIMELINE.map((d) => {
     const t = tags.find((x) => x.name.toLowerCase() === d.tag.toLowerCase())
-    return withKey({ tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignees: [], pinned: false, level: 1, color: null })
+    return withKey({ tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignees: [], pinned: false, level: 1, color: null, startOffset: 0 })
   })
 }
 
@@ -206,7 +206,7 @@ export default function ActivityForm({
       return prev.map((s) => (s._k === k ? { ...s, level, ...(level !== 1 && empty ? { durationMin: def } : {}) } : s))
     })
   const addSegmentFromTag = (t: Tag) => {
-    const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false, level: 1, color: null })
+    const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false, level: 1, color: null, startOffset: 0 })
     setSegments((prev) => [...prev, seg])
     setSelectedKey(seg._k)
   }
@@ -283,7 +283,7 @@ export default function ActivityForm({
       name: nm,
       typeId: typeId || null,
       teamIds: partTeams.map((t) => t.teamId),
-      segments: segments.map((s) => ({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees, pinned: s.pinned, level: s.level, color: s.color })),
+      segments: segments.map((s) => ({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees, pinned: s.pinned, level: s.level, color: s.color, startOffset: s.startOffset })),
     }
     persistTemplates([...tpls.filter((t) => t.name !== nm), entry])
     setTemplateName('')
@@ -291,7 +291,7 @@ export default function ActivityForm({
   const applyTemplate = (t: ActivityTemplate) => {
     if (t.typeId) setTypeId(t.typeId)
     setPartTeams(teamsOf(t.teamIds))
-    setSegments(t.segments.map((s) => withKey({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees ?? [], pinned: !!s.pinned, level: s.level ?? 1, color: s.color ?? null })))
+    setSegments(t.segments.map((s) => withKey({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees ?? [], pinned: !!s.pinned, level: s.level ?? 1, color: s.color ?? null, startOffset: s.startOffset ?? 0 })))
     setSelectedKey(null)
   }
   const deleteTemplate = (nm: string) => persistTemplates(tpls.filter((t) => t.name !== nm))
@@ -350,6 +350,7 @@ export default function ActivityForm({
           pinned: s.pinned,
           level: s.level,
           color: s.color,
+          start_offset: s.startOffset,
         })),
       )
       if (err) return fail(err.message)
@@ -502,6 +503,7 @@ export default function ActivityForm({
                     return reorderWithinLevel(base, level, key, toIdx)
                   })
                 }
+                onPatchSeg={(key, patch) => setSegments((prev) => prev.map((s) => (s._k === key ? { ...s, ...patch } : s)))}
                 onDelete={(key) => { removeSeg(key); if (selectedKey === key) setSelectedKey(null) }}
                 onBarBottom={setCardTop}
               />

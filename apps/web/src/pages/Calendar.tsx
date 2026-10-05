@@ -133,6 +133,7 @@ export default function Calendar() {
         pinned: !!row.pinned,
         level: row.level ?? 1,
         color: row.color ?? null,
+        startOffset: row.start_offset ?? 0,
       })
       ssMap.set(row.schedule_id, arr)
     }

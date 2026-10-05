@@ -709,6 +709,7 @@ export type Database = {
           role_id: string | null
           schedule_id: string
           sort_order: number
+          start_offset: number
           tag_id: string | null
           team_id: string | null
         }
@@ -726,6 +727,7 @@ export type Database = {
           role_id?: string | null
           schedule_id: string
           sort_order?: number
+          start_offset?: number
           tag_id?: string | null
           team_id?: string | null
         }
@@ -743,6 +745,7 @@ export type Database = {
           role_id?: string | null
           schedule_id?: string
           sort_order?: number
+          start_offset?: number
           tag_id?: string | null
           team_id?: string | null
         }
