@@ -383,6 +383,7 @@ export default function ActivityForm({
                 selectedKey={selectedKey}
                 onSelect={(i) => setSelectedKey(segments[i]._k)}
                 onDuration={(i, min) => setSegments((prev) => prev.map((s, idx) => (idx === i ? { ...s, durationMin: min } : s)))}
+                onReorder={(from, to) => setSegments((prev) => reorderRespectingPins(prev, from, to))}
               />
             </div>
 
