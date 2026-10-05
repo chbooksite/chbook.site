@@ -119,15 +119,18 @@ export default function ServiceTimeline({
     overTrash.current = over
     setTrashing(over)
     if (over) return
+    // Posición destino ESTABLE: se mide contra las demás actividades (sin
+    // incluir la que se arrastra), así el punto de inserción no oscila.
     const cm = cursorMin(e.clientX)
+    const others = segs.filter((s, i) => keyOf(s, i) !== d.key)
     let acc = 0
-    let to = segs.length - 1
-    for (let i = 0; i < segs.length; i++) {
-      const dur = segs[i].durationMin ?? 0
-      if (cm < acc + dur / 2) { to = i; break }
+    let ins = others.length
+    for (let i = 0; i < others.length; i++) {
+      const dur = others[i].durationMin ?? 0
+      if (cm < acc + dur / 2) { ins = i; break }
       acc += dur
     }
-    if (to !== idx) onReorder(d.level, d.key, to)
+    onReorder(d.level, d.key, ins)
   }
   const onUp = () => {
     const d = drag.current

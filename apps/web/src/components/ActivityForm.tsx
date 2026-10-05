@@ -106,6 +106,7 @@ function reorderWithinLevel(arr: Seg[], level: number, key: string, toIdx: numbe
   const from = sub.findIndex((s) => s._k === key)
   if (from < 0) return arr
   const reordered = reorderRespectingPins(sub, from, toIdx)
+  if (sub.every((s, i) => s._k === reordered[i]._k)) return arr // sin cambios → no re-render
   const copy = [...arr]
   positions.forEach((gi, k) => (copy[gi] = reordered[k]))
   return copy
