@@ -494,6 +494,7 @@ export default function ActivityForm({
                 onSelect={(key, frac) => selectSeg(key, frac)}
                 onResize={(key, minThis, nextKey, minNext) => setSegments((prev) => prev.map((s) => (s._k === key ? { ...s, durationMin: minThis } : nextKey && s._k === nextKey ? { ...s, durationMin: minNext } : s)))}
                 onReorder={(level, key, toIdx) => setSegments((prev) => reorderWithinLevel(prev, level, key, toIdx))}
+                onDelete={(key) => { removeSeg(key); if (selectedKey === key) setSelectedKey(null) }}
                 onBarBottom={setCardTop}
               />
 
@@ -506,6 +507,7 @@ export default function ActivityForm({
                   <input value={selected.name} onChange={(e) => patchSeg(selected._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-serif text-base text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
                   <input type="number" min={1} value={selected.durationMin ?? ''} onChange={(e) => patchSeg(selected._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
                   <span className="text-xs text-graysage">min</span>
+                  <button type="button" onClick={() => { removeSeg(selected._k); setSelectedKey(null) }} className="px-1 text-graysage hover:text-clay" title="Eliminar actividad">🗑</button>
                   <button type="button" onClick={() => setSelectedKey(null)} className="px-1 text-graysage hover:text-charcoal" title="Cerrar">✕</button>
                 </div>
 
@@ -606,10 +608,10 @@ export default function ActivityForm({
                         <div className="absolute right-0 top-6 z-10 w-40 overflow-hidden rounded-lg border border-graysage/20 bg-white py-1 shadow-lg">
                           <button type="button" onClick={() => { patchSeg(s._k, { pinned: !s.pinned }); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">{s.pinned ? 'Dejar de fijar' : 'Fijar (no mover)'}</button>
                           <button type="button" onClick={() => { setSelectedKey(s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">Encargados</button>
-                          <button type="button" onClick={() => { removeSeg(s._k); if (selectedKey === s._k) setSelectedKey(null); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-clay hover:bg-cream">Eliminar</button>
                         </div>
                       )}
                     </div>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); removeSeg(s._k); if (selectedKey === s._k) setSelectedKey(null) }} className="px-1 text-graysage hover:text-clay" title="Eliminar">🗑</button>
                   </div>
                 </div>
               ))}

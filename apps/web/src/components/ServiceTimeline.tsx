@@ -14,6 +14,7 @@ export default function ServiceTimeline({
   colorOf,
   onResize,
   onReorder,
+  onDelete,
   onSelect,
   onBarBottom,
   selectedKey,
@@ -25,6 +26,7 @@ export default function ServiceTimeline({
   colorOf: (s: Segment) => string
   onResize: (key: string, minThis: number, nextKey: string | null, minNext: number) => void
   onReorder: (level: number, key: string, toIdx: number) => void
+  onDelete?: (key: string) => void
   onSelect?: (key: string, originFrac?: number) => void
   onBarBottom?: (px: number) => void
   selectedKey?: string | null
@@ -37,8 +39,11 @@ export default function ServiceTimeline({
   const ovRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ mode: 'resize' | 'reorder'; key: string; level: number } | null>(null)
   const navDrag = useRef(false)
+  const overTrash = useRef(false)
   const [zoom, setZoom] = useState(1)
   const [win, setWin] = useState({ left: 0, width: 100 })
+  const [dragActive, setDragActive] = useState(false)
+  const [trashing, setTrashing] = useState(false)
 
   const lvl = (s: Segment) => s.level ?? 1
   const levelSegs = (L: number) => segments.filter((s) => lvl(s) === L)
@@ -76,6 +81,7 @@ export default function ServiceTimeline({
     onSelect?.(key, frac)
     if (pinned) return
     drag.current = { mode: 'reorder', key, level }
+    setDragActive(true)
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   }
   const onMove = (e: RPointerEvent) => {
@@ -96,6 +102,11 @@ export default function ServiceTimeline({
       }
       return
     }
+    // Arrastrar hacia el fondo de la pantalla = eliminar.
+    const over = e.clientY > window.innerHeight - 90
+    overTrash.current = over
+    setTrashing(over)
+    if (over) return
     const cm = cursorMin(e.clientX)
     let acc = 0
     let to = segs.length - 1
@@ -107,7 +118,12 @@ export default function ServiceTimeline({
     if (to !== idx) onReorder(d.level, d.key, to)
   }
   const onUp = () => {
+    const d = drag.current
+    if (d?.mode === 'reorder' && overTrash.current) onDelete?.(d.key)
     drag.current = null
+    overTrash.current = false
+    setDragActive(false)
+    setTrashing(false)
   }
 
   const scrollToFrac = (frac: number, behavior: ScrollBehavior = 'auto') => {
@@ -141,7 +157,7 @@ export default function ServiceTimeline({
     const sumL = sumOf(L)
     const rem = scale - sumL
     return (
-      <div className={`flex ${h} w-full overflow-hidden rounded-lg border border-graysage/20 bg-cream/50 ${L > 1 && !mini ? 'mt-1' : ''}`}>
+      <div className={`flex ${h} w-full overflow-hidden rounded-lg border border-graysage/20 bg-cream/50 ${L > 1 && !mini ? 'mt-3' : ''}`}>
         {segs.map((s, i) => {
           const w = ((s.durationMin ?? 0) / scale) * 100
           const k = keyOf(s, i)
@@ -215,6 +231,13 @@ export default function ServiceTimeline({
         Nivel 1: {sum1} min{totalMin != null ? ` · servicio ${totalMin} min` : ''}
         {totalMin != null && totalMin - sum1 < 0 ? ` · ⚠ excede ${sum1 - totalMin} min` : ''}
       </p>
+
+      {/* zona para eliminar al arrastrar al fondo */}
+      {dragActive && (
+        <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex h-16 items-center justify-center text-sm font-medium transition ${trashing ? 'bg-clay/90 text-cream' : 'bg-charcoal/70 text-cream/80'}`}>
+          🗑 {trashing ? 'Suelta para eliminar' : 'Arrastra aquí para eliminar'}
+        </div>
+      )}
     </div>
   )
 }
