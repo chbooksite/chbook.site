@@ -12,6 +12,7 @@ import {
   type Requires,
 } from '../lib/rules'
 import {
+  ageFromBirth,
   ageRange,
   COARSE_AGE,
   displayAgeRange,
@@ -54,18 +55,10 @@ interface Dependent {
 // Roles que habilitan poder ser "predicador".
 const PREACH_KEYS = ['lider', 'pastor_principal', 'pastor_afiliado']
 
+// Edad en años (sin categoría, para no contradecir el rango de edad).
 function ageGroupLabel(birthDate: string | null): string | null {
-  if (!birthDate) return null
-  const b = new Date(birthDate)
-  if (Number.isNaN(b.getTime())) return null
-  const now = new Date()
-  let age = now.getFullYear() - b.getFullYear()
-  const m = now.getMonth() - b.getMonth()
-  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--
-  if (age < 13) return `Niño · ${age} años`
-  if (age < 18) return `Adolescente · ${age} años`
-  if (age < 60) return `Adulto · ${age} años`
-  return `Adulto mayor · ${age} años`
+  const a = ageFromBirth(birthDate)
+  return a == null ? null : `${a} años`
 }
 
 export default function MemberProfile() {
