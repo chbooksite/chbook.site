@@ -153,6 +153,7 @@ export default function ActivityForm({
     editing ? editingTeams : teams.filter((t) => t.key && DEFAULT_TEAM_KEYS.includes(t.key)).map((t) => ({ teamId: t.id, delegate: false, memberIds: [] })),
   )
   const [tpls, setTpls] = useState<ActivityTemplate[]>(templates)
+  const [templateName, setTemplateName] = useState('')
   const [segments, setSegments] = useState<Seg[]>(editing ? editingSegments.map(withKey) : defaultSegments(tags))
   const [newTagName, setNewTagName] = useState('')
   const [listOpen, setListOpen] = useState(false)
@@ -252,7 +253,7 @@ export default function ActivityForm({
     onTemplatesChange(next)
   }
   const saveTemplate = () => {
-    const nm = window.prompt('Nombre de la plantilla (equipos + línea de tiempo):', name || '')?.trim()
+    const nm = templateName.trim()
     if (!nm) return
     const entry: ActivityTemplate = {
       name: nm,
@@ -261,6 +262,7 @@ export default function ActivityForm({
       segments: segments.map((s) => ({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees, pinned: s.pinned })),
     }
     persistTemplates([...tpls.filter((t) => t.name !== nm), entry])
+    setTemplateName('')
   }
   const applyTemplate = (t: ActivityTemplate) => {
     if (t.typeId) setTypeId(t.typeId)
@@ -365,7 +367,16 @@ export default function ActivityForm({
               <button type="button" onClick={() => deleteTemplate(t.name)} title="Eliminar plantilla" className="text-graysage/60 hover:text-clay">✕</button>
             </span>
           ))}
-          <button type="button" onClick={saveTemplate} className="ml-auto rounded-lg border border-sage/40 px-2.5 py-1 text-xs text-sage-dark hover:bg-sage/10">Guardar como plantilla</button>
+          <div className="ml-auto flex items-center gap-1.5">
+            <input
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), saveTemplate())}
+              placeholder="Nombra este esquema de planificación"
+              className="w-56 rounded-lg border border-graysage/25 bg-white px-2.5 py-1 text-xs outline-none focus:border-sage"
+            />
+            <button type="button" onClick={saveTemplate} disabled={!templateName.trim()} className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs text-sage-dark hover:bg-sage/10 disabled:opacity-50">Guardar como plantilla</button>
+          </div>
         </div>
 
         <div className="space-y-5">
