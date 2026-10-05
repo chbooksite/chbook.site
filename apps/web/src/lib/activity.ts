@@ -77,6 +77,7 @@ export interface Segment {
   assignees: Assignee[] // uno o varios encargados
   pinned: boolean // fijada: no se mueve al arrastrar/reordenar
   level: number // 1 = principal; 2 y 3 = barras paralelas (simultáneas)
+  color: string | null // color propio; si null usa el del tipo/catálogo
 }
 
 // 'HH:MM' (o null) → minutos desde medianoche, o null.
@@ -112,6 +113,7 @@ export interface TemplateSegment {
   assignees: Assignee[]
   pinned: boolean
   level: number
+  color: string | null
 }
 export interface ActivityTemplate {
   name: string // etiqueta de la plantilla
@@ -136,6 +138,7 @@ export function readActivityTemplates(settings: unknown): ActivityTemplate[] {
             assignees: readAssignees(s.assignees),
             pinned: !!s.pinned,
             level: typeof s.level === 'number' ? s.level : 1,
+            color: typeof s.color === 'string' ? s.color : null,
           }))
         : [],
     }))

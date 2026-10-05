@@ -698,6 +698,7 @@ export type Database = {
         Row: {
           assignees: Json
           church_id: string
+          color: string | null
           created_at: string | null
           duration_min: number | null
           id: string
@@ -714,6 +715,7 @@ export type Database = {
         Insert: {
           assignees?: Json
           church_id: string
+          color?: string | null
           created_at?: string | null
           duration_min?: number | null
           id?: string
@@ -730,6 +732,7 @@ export type Database = {
         Update: {
           assignees?: Json
           church_id?: string
+          color?: string | null
           created_at?: string | null
           duration_min?: number | null
           id?: string

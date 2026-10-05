@@ -82,7 +82,7 @@ const DEFAULT_TIMELINE: { name: string; min: number; tag: string }[] = [
 function defaultSegments(tags: Tag[]): Seg[] {
   return DEFAULT_TIMELINE.map((d) => {
     const t = tags.find((x) => x.name.toLowerCase() === d.tag.toLowerCase())
-    return withKey({ tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignees: [], pinned: false, level: 1 })
+    return withKey({ tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignees: [], pinned: false, level: 1, color: null })
   })
 }
 
@@ -205,11 +205,11 @@ export default function ActivityForm({
       return prev.map((s) => (s._k === k ? { ...s, level, ...(level !== 1 && empty ? { durationMin: def } : {}) } : s))
     })
   const addSegmentFromTag = (t: Tag) => {
-    const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false, level: 1 })
+    const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false, level: 1, color: null })
     setSegments((prev) => [...prev, seg])
     setSelectedKey(seg._k)
   }
-  const segColor = (s: Segment) => tags.find((t) => t.id === s.tagId)?.color ?? '#94a3b8'
+  const segColor = (s: Segment) => s.color ?? tags.find((t) => t.id === s.tagId)?.color ?? '#94a3b8'
 
   // encargados
   const membersOf = (a: Assignee): Opt[] => (a.kind === 'team' ? membersByTeam.get(a.id) : membersByRole.get(a.id)) ?? []
@@ -282,7 +282,7 @@ export default function ActivityForm({
       name: nm,
       typeId: typeId || null,
       teamIds: partTeams.map((t) => t.teamId),
-      segments: segments.map((s) => ({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees, pinned: s.pinned, level: s.level })),
+      segments: segments.map((s) => ({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees, pinned: s.pinned, level: s.level, color: s.color })),
     }
     persistTemplates([...tpls.filter((t) => t.name !== nm), entry])
     setTemplateName('')
@@ -290,7 +290,7 @@ export default function ActivityForm({
   const applyTemplate = (t: ActivityTemplate) => {
     if (t.typeId) setTypeId(t.typeId)
     setPartTeams(teamsOf(t.teamIds))
-    setSegments(t.segments.map((s) => withKey({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees ?? [], pinned: !!s.pinned, level: s.level ?? 1 })))
+    setSegments(t.segments.map((s) => withKey({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees ?? [], pinned: !!s.pinned, level: s.level ?? 1, color: s.color ?? null })))
     setSelectedKey(null)
   }
   const deleteTemplate = (nm: string) => persistTemplates(tpls.filter((t) => t.name !== nm))
@@ -348,6 +348,7 @@ export default function ActivityForm({
           assignees: s.assignees as never,
           pinned: s.pinned,
           level: s.level,
+          color: s.color,
         })),
       )
       if (err) return fail(err.message)
@@ -502,13 +503,21 @@ export default function ActivityForm({
             {selected && (
               <PopCard key={selected._k} originPct={originPct} top={cardTop + 4} color={segColor(selected)}>
               <div className="p-3">
-                <div className="flex items-center gap-2">
-                  <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ backgroundColor: segColor(selected) }} />
+                <div className="flex items-start gap-2">
+                  <input
+                    type="color"
+                    value={segColor(selected)}
+                    onChange={(e) => patchSeg(selected._k, { color: e.target.value })}
+                    className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border border-graysage/25"
+                    title="Color de la actividad"
+                  />
                   <input value={selected.name} onChange={(e) => patchSeg(selected._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-serif text-base text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
+                  <button type="button" onClick={() => setSelectedKey(null)} className="ml-1 px-2 text-lg leading-none text-graysage hover:text-charcoal" title="Cerrar">✕</button>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
                   <input type="number" min={1} value={selected.durationMin ?? ''} onChange={(e) => patchSeg(selected._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
                   <span className="text-xs text-graysage">min</span>
-                  <button type="button" onClick={() => { removeSeg(selected._k); setSelectedKey(null) }} className="px-1 text-graysage hover:text-clay" title="Eliminar actividad">🗑</button>
-                  <button type="button" onClick={() => setSelectedKey(null)} className="px-1 text-graysage hover:text-charcoal" title="Cerrar">✕</button>
+                  <button type="button" onClick={() => { removeSeg(selected._k); setSelectedKey(null) }} className="ml-auto rounded-lg px-2.5 py-1 text-xl text-graysage transition hover:bg-clay/10 hover:text-clay" title="Eliminar actividad">🗑</button>
                 </div>
 
                 <div className="mt-2 flex items-center gap-2">
