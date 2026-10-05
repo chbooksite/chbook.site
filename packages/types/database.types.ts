@@ -702,6 +702,7 @@ export type Database = {
           id: string
           member_ids: string[] | null
           name: string
+          pinned: boolean | null
           role_id: string | null
           schedule_id: string
           sort_order: number
@@ -715,6 +716,7 @@ export type Database = {
           id?: string
           member_ids?: string[] | null
           name: string
+          pinned?: boolean | null
           role_id?: string | null
           schedule_id: string
           sort_order?: number
@@ -728,6 +730,7 @@ export type Database = {
           id?: string
           member_ids?: string[] | null
           name?: string
+          pinned?: boolean | null
           role_id?: string | null
           schedule_id?: string
           sort_order?: number

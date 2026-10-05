@@ -62,6 +62,23 @@ export interface Segment {
   assignTeamId: string | null // un equipo participante
   assignRoleId: string | null // o un rol específico
   memberIds: string[]
+  pinned: boolean // fijada: no se mueve al arrastrar/reordenar
+}
+
+// 'HH:MM' (o null) → minutos desde medianoche, o null.
+export function clockToMin(time: string | null): number | null {
+  if (!time) return null
+  const [h, m] = time.split(':').map(Number)
+  if (Number.isNaN(h)) return null
+  return h * 60 + (m || 0)
+}
+
+// minutos desde medianoche → 'H:MM'
+export function minToClock(total: number): string {
+  const t = ((total % 1440) + 1440) % 1440
+  const h = Math.floor(t / 60)
+  const m = t % 60
+  return `${h}:${String(m).padStart(2, '0')}`
 }
 
 // Minutos entre inicio y fin del servicio (null si falta alguno o no es válido).

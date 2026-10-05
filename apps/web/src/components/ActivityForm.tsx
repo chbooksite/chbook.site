@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { supabase } from '../lib/supabase'
-import ServiceTimeline from './ServiceTimeline'
 import type { AgeRangeDef } from '../lib/member'
 import {
   WEEKDAYS,
+  clockToMin,
+  minToClock,
   serviceMinutes,
   type ActivityType,
   type Audience,
@@ -19,16 +20,19 @@ interface Opt {
   id: string
   name: string
 }
+type Seg = Segment & { _k: string }
 
 const inputCls =
   'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+const PX_PER_MIN = 2.2
 
 function chipCls(active: boolean): string {
   return `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-sage text-cream' : 'bg-cream text-graysage hover:bg-sage/10'}`
 }
+const mkKey = () => Math.random().toString(36).slice(2)
+const withKey = (s: Segment): Seg => ({ ...s, _k: mkKey() })
 
-// Línea de tiempo por defecto al crear una actividad nueva, para que el concepto
-// se entienda de entrada. Se vincula al catálogo (color) cuando el nombre calza.
+// Línea de tiempo por defecto al crear, para que el concepto se entienda de entrada.
 const DEFAULT_TIMELINE: { name: string; min: number; tag: string }[] = [
   { name: 'Inicio', min: 5, tag: 'Bienvenida' },
   { name: 'Alabanza', min: 25, tag: 'Alabanza' },
@@ -37,11 +41,24 @@ const DEFAULT_TIMELINE: { name: string; min: number; tag: string }[] = [
   { name: 'Anuncios', min: 5, tag: 'Anuncios' },
   { name: 'Despedida', min: 5, tag: 'Despedida' },
 ]
-function defaultSegments(tags: Tag[]): Segment[] {
+function defaultSegments(tags: Tag[]): Seg[] {
   return DEFAULT_TIMELINE.map((d) => {
     const t = tags.find((x) => x.name.toLowerCase() === d.tag.toLowerCase())
-    return { tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignTeamId: null, assignRoleId: null, memberIds: [] }
+    return withKey({ tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignTeamId: null, assignRoleId: null, memberIds: [], pinned: false })
   })
+}
+
+// Reordena respetando los bloques fijados (que conservan su posición absoluta).
+function reorderRespectingPins(arr: Seg[], from: number, to: number): Seg[] {
+  const moved = [...arr]
+  const [m] = moved.splice(from, 1)
+  moved.splice(Math.max(0, Math.min(moved.length, to)), 0, m)
+  const pinAt = new Map(arr.map((s, i) => [i, s]).filter(([, s]) => (s as Seg).pinned) as [number, Seg][])
+  const rest = moved.filter((s) => !s.pinned)
+  const out: Seg[] = []
+  let ri = 0
+  for (let i = 0; i < arr.length; i++) out.push(pinAt.get(i) ?? rest[ri++])
+  return out
 }
 
 export default function ActivityForm({
@@ -77,8 +94,8 @@ export default function ActivityForm({
 }) {
   const typeById = new Map(types.map((t) => [t.id, t]))
   const teamName = (id: string) => teams.find((t) => t.id === id)?.name ?? '—'
+  const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? 'Rol'
 
-  // ---- Campos del servicio ----
   const [name, setName] = useState(editing?.name ?? '')
   const [typeId, setTypeId] = useState(editing?.typeId ?? '')
   const [weekday, setWeekday] = useState(editing?.weekday ?? 0)
@@ -90,47 +107,33 @@ export default function ActivityForm({
   const [audIds, setAudIds] = useState<string[]>(editing?.audience.ids ?? [])
   const [audKeys, setAudKeys] = useState<string[]>(editing?.audience.keys ?? [])
 
-  // ---- Capa 1: equipos participantes ----
   const [partTeams, setPartTeams] = useState<ScheduleTeam[]>(editingTeams)
-
-  // ---- Capa 2: línea de tiempo ----
-  const [segments, setSegments] = useState<Segment[]>(editing ? editingSegments : defaultSegments(tags))
+  const [segments, setSegments] = useState<Seg[]>(editing ? editingSegments.map(withKey) : defaultSegments(tags))
   const [newTagName, setNewTagName] = useState('')
+  const [menuKey, setMenuKey] = useState<string | null>(null)
+  const [assignKey, setAssignKey] = useState<string | null>(null)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const toggleArr = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
   const total = serviceMinutes(startTime || null, endTime || null)
+  const startMin = clockToMin(startTime || null)
 
-  // ----- Capa 1 handlers -----
+  // Capa 1
   const addTeam = (teamId: string) => {
     if (!teamId || partTeams.some((t) => t.teamId === teamId)) return
     setPartTeams([...partTeams, { teamId, delegate: false, memberIds: [] }])
   }
-  const patchTeam = (teamId: string, p: Partial<ScheduleTeam>) =>
-    setPartTeams((prev) => prev.map((t) => (t.teamId === teamId ? { ...t, ...p } : t)))
+  const patchTeam = (teamId: string, p: Partial<ScheduleTeam>) => setPartTeams((prev) => prev.map((t) => (t.teamId === teamId ? { ...t, ...p } : t)))
   const removeTeam = (teamId: string) => setPartTeams((prev) => prev.filter((t) => t.teamId !== teamId))
 
-  // ----- Capa 2 handlers -----
+  // Capa 2
+  const patchSeg = (k: string, p: Partial<Seg>) => setSegments((prev) => prev.map((s) => (s._k === k ? { ...s, ...p } : s)))
+  const removeSeg = (k: string) => setSegments((prev) => prev.filter((s) => s._k !== k))
   const addSegmentFromTag = (t: Tag) =>
-    setSegments((prev) => [
-      ...prev,
-      { tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignTeamId: null, assignRoleId: null, memberIds: [] },
-    ])
-  const patchSeg = (i: number, p: Partial<Segment>) =>
-    setSegments((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...p } : s)))
-  const removeSeg = (i: number) => setSegments((prev) => prev.filter((_, idx) => idx !== i))
-  const moveSeg = (i: number, dir: -1 | 1) => {
-    const j = i + dir
-    if (j < 0 || j >= segments.length) return
-    setSegments((prev) => {
-      const next = [...prev]
-      ;[next[i], next[j]] = [next[j], next[i]]
-      return next
-    })
-  }
-  const segColor = (s: Segment) => tags.find((t) => t.id === s.tagId)?.color ?? '#94a3b8'
+    setSegments((prev) => [...prev, withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignTeamId: null, assignRoleId: null, memberIds: [], pinned: false })])
+  const segColor = (s: Seg) => tags.find((t) => t.id === s.tagId)?.color ?? '#94a3b8'
 
   const createTag = async () => {
     const nm = newTagName.trim()
@@ -150,7 +153,50 @@ export default function ActivityForm({
     addSegmentFromTag(tag)
   }
 
-  // ----- Guardar -----
+  const legend = (s: Seg): string => {
+    if (s.assignTeamId) return teamName(s.assignTeamId)
+    if (s.assignRoleId) {
+      const rn = roleName(s.assignRoleId)
+      if (s.memberIds.length) {
+        const names = s.memberIds.map((id) => (membersByRole.get(s.assignRoleId!) ?? []).find((m) => m.id === id)?.name).filter(Boolean)
+        return names.length ? `${rn}: ${names.join(', ')}` : rn
+      }
+      return rn
+    }
+    return 'Sin encargado'
+  }
+
+  // Arrastre vertical
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const dragKey = useRef<string | null>(null)
+  const [dragging, setDragging] = useState<string | null>(null)
+  const onDragStart = (k: string) => (e: RPointerEvent) => {
+    dragKey.current = k
+    setDragging(k)
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const onDragMove = (e: RPointerEvent) => {
+    if (!dragKey.current || !listRef.current) return
+    const kids = Array.from(listRef.current.children) as HTMLElement[]
+    let target = kids.length - 1
+    for (let i = 0; i < kids.length; i++) {
+      const r = kids[i].getBoundingClientRect()
+      if (e.clientY < r.top + r.height / 2) {
+        target = i
+        break
+      }
+    }
+    setSegments((prev) => {
+      const from = prev.findIndex((s) => s._k === dragKey.current)
+      if (from < 0 || from === target || prev[from].pinned) return prev
+      return reorderRespectingPins(prev, from, target)
+    })
+  }
+  const onDragEnd = () => {
+    dragKey.current = null
+    setDragging(null)
+  }
+
   const save = async () => {
     if (!name.trim()) {
       setError('Ponle un nombre a la actividad.')
@@ -158,14 +204,8 @@ export default function ActivityForm({
     }
     setSaving(true)
     setError(null)
-
     const audience: Audience =
-      audScope === 'all'
-        ? { scope: 'all' }
-        : audScope === 'ages'
-          ? { scope: 'ages', keys: audKeys }
-          : { scope: audScope, ids: audIds }
-
+      audScope === 'all' ? { scope: 'all' } : audScope === 'ages' ? { scope: 'ages', keys: audKeys } : { scope: audScope, ids: audIds }
     const payload = {
       church_id: churchId,
       name: name.trim(),
@@ -189,17 +229,10 @@ export default function ActivityForm({
       scheduleId = data.id
     }
 
-    // Reemplazar capa 1 y capa 2
     await supabase.from('schedule_teams').delete().eq('schedule_id', scheduleId)
     if (partTeams.length) {
       const { error: err } = await supabase.from('schedule_teams').insert(
-        partTeams.map((t) => ({
-          church_id: churchId,
-          schedule_id: scheduleId,
-          team_id: t.teamId,
-          delegate: t.delegate,
-          member_ids: t.delegate ? [] : t.memberIds,
-        })),
+        partTeams.map((t) => ({ church_id: churchId, schedule_id: scheduleId, team_id: t.teamId, delegate: t.delegate, member_ids: t.delegate ? [] : t.memberIds })),
       )
       if (err) return fail(err.message)
     }
@@ -217,6 +250,7 @@ export default function ActivityForm({
           team_id: s.assignTeamId,
           role_id: s.assignRoleId,
           member_ids: s.assignRoleId ? s.memberIds : [],
+          pinned: s.pinned,
         })),
       )
       if (err) return fail(err.message)
@@ -233,13 +267,16 @@ export default function ActivityForm({
 
   const availableTeams = teams.filter((t) => !partTeams.some((p) => p.teamId === t.id))
 
+  // Tiempos de cada divisoria (acumulado desde el inicio)
+  let acc = 0
+  const boundary = (offset: number) => (startMin != null ? minToClock(startMin + offset) : `${offset}′`)
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8" onClick={onClose}>
       <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-4 font-serif text-lg text-charcoal">{editing ? 'Editar actividad' : 'Nueva actividad'}</h3>
 
         <div className="space-y-5">
-          {/* ---- Datos básicos (orden pedido) ---- */}
           <div>
             <label className="mb-1 block text-sm font-medium text-graysage">Nombre</label>
             <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Culto de oración" autoFocus />
@@ -295,24 +332,12 @@ export default function ActivityForm({
               <option value="roles">Roles específicos</option>
               <option value="ages">Rangos de edad</option>
             </select>
-            {audScope === 'teams' && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {teams.map((t) => (<button key={t.id} type="button" onClick={() => setAudIds(toggleArr(audIds, t.id))} className={chipCls(audIds.includes(t.id))}>{t.name}</button>))}
-              </div>
-            )}
-            {audScope === 'roles' && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {roles.map((r) => (<button key={r.id} type="button" onClick={() => setAudIds(toggleArr(audIds, r.id))} className={chipCls(audIds.includes(r.id))}>{r.name}</button>))}
-              </div>
-            )}
-            {audScope === 'ages' && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {ageRanges.filter((r) => r.enabled).map((r) => (<button key={r.key} type="button" onClick={() => setAudKeys(toggleArr(audKeys, r.key))} className={chipCls(audKeys.includes(r.key))}>{r.name}</button>))}
-              </div>
-            )}
+            {audScope === 'teams' && (<div className="mt-2 flex flex-wrap gap-2">{teams.map((t) => (<button key={t.id} type="button" onClick={() => setAudIds(toggleArr(audIds, t.id))} className={chipCls(audIds.includes(t.id))}>{t.name}</button>))}</div>)}
+            {audScope === 'roles' && (<div className="mt-2 flex flex-wrap gap-2">{roles.map((r) => (<button key={r.id} type="button" onClick={() => setAudIds(toggleArr(audIds, r.id))} className={chipCls(audIds.includes(r.id))}>{r.name}</button>))}</div>)}
+            {audScope === 'ages' && (<div className="mt-2 flex flex-wrap gap-2">{ageRanges.filter((r) => r.enabled).map((r) => (<button key={r.key} type="button" onClick={() => setAudKeys(toggleArr(audKeys, r.key))} className={chipCls(audKeys.includes(r.key))}>{r.name}</button>))}</div>)}
           </div>
 
-          {/* ---- Capa 1: equipos participantes ---- */}
+          {/* Capa 1: equipos participantes */}
           <div className="rounded-xl bg-cream/50 p-4">
             <p className="text-sm font-medium text-charcoal">Equipos participantes</p>
             <p className="mb-3 text-xs text-graysage">Equipos disponibles durante todo el servicio. Elige miembros o deja que su líder los asigne.</p>
@@ -331,9 +356,7 @@ export default function ActivityForm({
                   {!pt.delegate && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {members.length === 0 && <span className="text-xs text-graysage/50">Sin miembros en este equipo.</span>}
-                      {members.map((m) => (
-                        <button key={m.id} type="button" onClick={() => patchTeam(pt.teamId, { memberIds: toggleArr(pt.memberIds, m.id) })} className={chipCls(pt.memberIds.includes(m.id))}>{m.name}</button>
-                      ))}
+                      {members.map((m) => (<button key={m.id} type="button" onClick={() => patchTeam(pt.teamId, { memberIds: toggleArr(pt.memberIds, m.id) })} className={chipCls(pt.memberIds.includes(m.id))}>{m.name}</button>))}
                     </div>
                   )}
                 </div>
@@ -347,80 +370,118 @@ export default function ActivityForm({
             )}
           </div>
 
-          {/* ---- Capa 2: línea de tiempo ---- */}
+          {/* Capa 2: línea de tiempo vertical e interactiva */}
           <div className="rounded-xl bg-cream/50 p-4">
-            <p className="text-sm font-medium text-charcoal">Línea de tiempo del servicio</p>
-            <p className="mb-3 text-xs text-graysage">Actividades en orden, sin solaparse. Arrastra el borde de cada barra para ajustar la duración.</p>
+            <div className="mb-1 flex items-baseline justify-between">
+              <p className="text-sm font-medium text-charcoal">Línea de tiempo del servicio</p>
+              <span className="text-xs text-graysage">
+                {segments.reduce((a, s) => a + (s.durationMin ?? 0), 0)} min{total != null ? ` / ${total}` : ''}
+              </span>
+            </div>
+            <p className="mb-3 text-xs text-graysage">Arrastra ⠿ para reordenar · usa ⋮ para fijar, asignar encargado o eliminar.</p>
 
-            <div className="mb-3">
-              <ServiceTimeline segments={segments} totalMin={total} colorOf={segColor} onDuration={(i, min) => patchSeg(i, { durationMin: min })} />
+            <div ref={listRef} className="touch-none">
+              {segments.map((s) => {
+                const top = acc
+                acc += s.durationMin ?? 0
+                const h = Math.max(56, (s.durationMin ?? 0) * PX_PER_MIN)
+                const roleMembers = s.assignRoleId ? membersByRole.get(s.assignRoleId) ?? [] : []
+                return (
+                  <div key={s._k} className="relative pl-14">
+                    {/* hora de la divisoria */}
+                    <span className="absolute left-0 top-0 -translate-y-1/2 font-mono text-[0.7rem] text-graysage">{boundary(top)}</span>
+                    {/* carril de color */}
+                    <span className="absolute left-12 top-0 h-full w-0.5" style={{ backgroundColor: segColor(s) }} />
+                    <div
+                      style={{ minHeight: h, borderLeftColor: segColor(s) }}
+                      className={`relative mb-2 rounded-lg border border-l-4 bg-white p-2.5 transition ${dragging === s._k ? 'opacity-60 ring-2 ring-sage/40' : 'border-graysage/15'}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        {s.pinned ? (
+                          <span title="Fijada" className="mt-1 text-sm text-sage-dark">📌</span>
+                        ) : (
+                          <span onPointerDown={onDragStart(s._k)} onPointerMove={onDragMove} onPointerUp={onDragEnd} title="Arrastrar" className="mt-0.5 cursor-grab touch-none select-none px-1 text-graysage active:cursor-grabbing">⠿</span>
+                        )}
+                        <input value={s.name} onChange={(e) => patchSeg(s._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
+                        <div className="flex items-center gap-1">
+                          <input type="number" min={1} value={s.durationMin ?? ''} onChange={(e) => patchSeg(s._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-14 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
+                          <span className="text-[0.7rem] text-graysage">min</span>
+                        </div>
+                        <div className="relative">
+                          <button type="button" onClick={() => setMenuKey(menuKey === s._k ? null : s._k)} className="px-1 text-graysage hover:text-charcoal" title="Opciones">⋮</button>
+                          {menuKey === s._k && (
+                            <div className="absolute right-0 top-6 z-10 w-44 overflow-hidden rounded-lg border border-graysage/20 bg-white py-1 shadow-lg">
+                              <button type="button" onClick={() => { patchSeg(s._k, { pinned: !s.pinned }); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">
+                                {s.pinned ? 'Dejar de fijar' : 'Fijar (no mover)'}
+                              </button>
+                              <button type="button" onClick={() => { setAssignKey(assignKey === s._k ? null : s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">
+                                Asignar encargado
+                              </button>
+                              <button type="button" onClick={() => { removeSeg(s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-clay hover:bg-cream">
+                                Eliminar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* leyenda del encargado */}
+                      <button type="button" onClick={() => setAssignKey(assignKey === s._k ? null : s._k)} className={`mt-1 ml-6 inline-block rounded-full px-2 py-0.5 text-[0.7rem] ${s.assignTeamId || s.assignRoleId ? 'bg-sage-water/10 text-sage-dark' : 'bg-graysage/10 text-graysage/70'}`}>
+                        {legend(s)}
+                      </button>
+
+                      {/* editor de encargado */}
+                      {assignKey === s._k && (
+                        <div className="mt-2 ml-6 rounded-lg bg-cream/60 p-2">
+                          <select
+                            value={s.assignTeamId ? `team:${s.assignTeamId}` : s.assignRoleId ? `role:${s.assignRoleId}` : ''}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              if (v.startsWith('team:')) patchSeg(s._k, { assignTeamId: v.slice(5), assignRoleId: null, memberIds: [] })
+                              else if (v.startsWith('role:')) patchSeg(s._k, { assignRoleId: v.slice(5), assignTeamId: null, memberIds: [] })
+                              else patchSeg(s._k, { assignTeamId: null, assignRoleId: null, memberIds: [] })
+                            }}
+                            className="w-full rounded border border-graysage/20 bg-white px-2 py-1 text-sm outline-none focus:border-sage"
+                          >
+                            <option value="">Sin encargado</option>
+                            {partTeams.length > 0 && (
+                              <optgroup label="Equipos participantes">
+                                {partTeams.map((pt) => (<option key={pt.teamId} value={`team:${pt.teamId}`}>{teamName(pt.teamId)}</option>))}
+                              </optgroup>
+                            )}
+                            <optgroup label="Roles">{roles.map((r) => (<option key={r.id} value={`role:${r.id}`}>{r.name}</option>))}</optgroup>
+                          </select>
+                          {s.assignRoleId && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {roleMembers.length === 0 && <span className="text-xs text-graysage/50">Sin miembros con este rol.</span>}
+                              {roleMembers.map((m) => (<button key={m.id} type="button" onClick={() => patchSeg(s._k, { memberIds: toggleArr(s.memberIds, m.id) })} className={chipCls(s.memberIds.includes(m.id))}>{m.name}</button>))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              {/* hora final */}
+              {segments.length > 0 && (
+                <div className="relative pl-14">
+                  <span className="absolute left-0 top-0 -translate-y-1/2 font-mono text-[0.7rem] text-graysage">{boundary(acc)}</span>
+                  <span className="text-[0.7rem] text-graysage/50">Fin</span>
+                </div>
+              )}
             </div>
 
-            {/* catálogo: agregar actividad interna */}
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {tags.map((t) => (
-                <button key={t.id} type="button" onClick={() => addSegmentFromTag(t)} className="rounded-full border border-graysage/25 px-2.5 py-1 text-xs text-graysage hover:bg-sage/10">
-                  + {t.name}
-                </button>
-              ))}
+            {segments.length === 0 && <p className="rounded-lg border border-dashed border-graysage/30 py-4 text-center text-xs text-graysage/60">Agrega actividades al servicio.</p>}
+
+            {/* catálogo */}
+            <div className="mt-3 mb-2 flex flex-wrap gap-1.5">
+              {tags.map((t) => (<button key={t.id} type="button" onClick={() => addSegmentFromTag(t)} className="rounded-full border border-graysage/25 px-2.5 py-1 text-xs text-graysage hover:bg-sage/10">+ {t.name}</button>))}
             </div>
-            <div className="mb-4 flex gap-2">
+            <div className="flex gap-2">
               <input value={newTagName} onChange={(e) => setNewTagName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), createTag())} placeholder="Nueva actividad interna…" className="flex-1 rounded-lg border border-graysage/25 bg-white px-3 py-1.5 text-sm outline-none focus:border-sage" />
               <button type="button" onClick={createTag} className="rounded-lg border border-sage/40 px-3 py-1.5 text-xs text-sage-dark hover:bg-sage/10">Agregar al catálogo</button>
             </div>
-
-            {/* segmentos */}
-            <ul className="space-y-2">
-              {segments.map((s, i) => {
-                const roleMembers = s.assignRoleId ? membersByRole.get(s.assignRoleId) ?? [] : []
-                return (
-                  <li key={s.id ?? i} className="rounded-lg border border-graysage/15 bg-white p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: segColor(s) }} />
-                      <input value={s.name} onChange={(e) => patchSeg(i, { name: e.target.value })} className="min-w-28 flex-1 rounded border border-graysage/20 bg-cream/40 px-2 py-1 text-sm outline-none focus:border-sage" />
-                      <input type="number" min={1} value={s.durationMin ?? ''} onChange={(e) => patchSeg(i, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream/40 px-2 py-1 text-sm outline-none focus:border-sage" />
-                      <span className="text-xs text-graysage">min</span>
-                      <div className="ml-auto flex items-center gap-1">
-                        <button type="button" onClick={() => moveSeg(i, -1)} className="px-1 text-graysage hover:text-sage-dark">▲</button>
-                        <button type="button" onClick={() => moveSeg(i, 1)} className="px-1 text-graysage hover:text-sage-dark">▼</button>
-                        <button type="button" onClick={() => removeSeg(i)} className="px-1 text-graysage hover:text-clay">✕</button>
-                      </div>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-graysage">Encargado:</span>
-                      <select
-                        value={s.assignTeamId ? `team:${s.assignTeamId}` : s.assignRoleId ? `role:${s.assignRoleId}` : ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          if (v.startsWith('team:')) patchSeg(i, { assignTeamId: v.slice(5), assignRoleId: null, memberIds: [] })
-                          else if (v.startsWith('role:')) patchSeg(i, { assignRoleId: v.slice(5), assignTeamId: null, memberIds: [] })
-                          else patchSeg(i, { assignTeamId: null, assignRoleId: null, memberIds: [] })
-                        }}
-                        className="rounded border border-graysage/20 bg-cream/40 px-2 py-1 text-sm outline-none focus:border-sage"
-                      >
-                        <option value="">—</option>
-                        {partTeams.length > 0 && (
-                          <optgroup label="Equipos participantes">
-                            {partTeams.map((pt) => (<option key={pt.teamId} value={`team:${pt.teamId}`}>{teamName(pt.teamId)}</option>))}
-                          </optgroup>
-                        )}
-                        <optgroup label="Roles">
-                          {roles.map((r) => (<option key={r.id} value={`role:${r.id}`}>{r.name}</option>))}
-                        </optgroup>
-                      </select>
-                    </div>
-                    {s.assignRoleId && (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {roleMembers.length === 0 && <span className="text-xs text-graysage/50">Sin miembros con este rol.</span>}
-                        {roleMembers.map((m) => (
-                          <button key={m.id} type="button" onClick={() => patchSeg(i, { memberIds: toggleArr(s.memberIds, m.id) })} className={chipCls(s.memberIds.includes(m.id))}>{m.name}</button>
-                        ))}
-                      </div>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
           </div>
 
           {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}

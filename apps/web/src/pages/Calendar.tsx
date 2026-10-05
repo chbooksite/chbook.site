@@ -126,6 +126,7 @@ export default function Calendar() {
         assignTeamId: row.team_id,
         assignRoleId: row.role_id,
         memberIds: row.member_ids ?? [],
+        pinned: !!row.pinned,
       })
       ssMap.set(row.schedule_id, arr)
     }
