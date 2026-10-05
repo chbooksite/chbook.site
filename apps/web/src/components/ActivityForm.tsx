@@ -33,10 +33,6 @@ const inputCls =
 function chipCls(active: boolean): string {
   return `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-sage text-cream' : 'bg-cream text-graysage hover:bg-sage/10'}`
 }
-// Chip de equipo participante: activo (en uso) cambia de color.
-function teamChipCls(active: boolean): string {
-  return `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-clay text-cream' : 'border border-graysage/30 bg-white text-graysage hover:bg-clay/10'}`
-}
 // Chip del catálogo de actividades: en uso (ya en la línea) cambia de color.
 function catalogChipCls(used: boolean): string {
   return `rounded-full px-2.5 py-1 text-xs transition ${used ? 'bg-sage/20 font-medium text-sage-dark' : 'border border-graysage/25 text-graysage hover:bg-sage/10'}`
@@ -171,7 +167,6 @@ export default function ActivityForm({
     if (!teamId || partTeams.some((t) => t.teamId === teamId)) return
     setPartTeams([...partTeams, { teamId, delegate: false, memberIds: [] }])
   }
-  const patchTeam = (teamId: string, p: Partial<ScheduleTeam>) => setPartTeams((prev) => prev.map((t) => (t.teamId === teamId ? { ...t, ...p } : t)))
   const removeTeam = (teamId: string) => setPartTeams((prev) => prev.filter((t) => t.teamId !== teamId))
 
   // Capa 2
@@ -390,35 +385,14 @@ export default function ActivityForm({
           <div className="rounded-xl bg-cream/50 p-4">
             <p className="text-sm font-medium text-charcoal">Equipos participantes</p>
             <p className="mb-3 text-xs text-graysage">Toca un equipo para activarlo durante todo el servicio. Los activos cambian de color.</p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {teams.map((t) => {
                 const active = partTeams.some((p) => p.teamId === t.id)
                 return (
-                  <button key={t.id} type="button" onClick={() => (active ? removeTeam(t.id) : addTeam(t.id))} className={teamChipCls(active)}>{t.name}</button>
+                  <button key={t.id} type="button" onClick={() => (active ? removeTeam(t.id) : addTeam(t.id))} className={catalogChipCls(active)}>{t.name}</button>
                 )
               })}
             </div>
-            {/* detalle de cada equipo activo: delegar o elegir miembros */}
-            {partTeams.map((pt) => {
-              const members = membersByTeam.get(pt.teamId) ?? []
-              return (
-                <div key={pt.teamId} className="mt-2 rounded-lg border border-graysage/15 bg-white p-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium text-charcoal">{teamName(pt.teamId)}</span>
-                    <label className="ml-auto flex items-center gap-1.5 text-xs text-graysage">
-                      <input type="checkbox" checked={pt.delegate} onChange={(e) => patchTeam(pt.teamId, { delegate: e.target.checked })} />
-                      Delegar al líder
-                    </label>
-                  </div>
-                  {!pt.delegate && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {members.length === 0 && <span className="text-xs text-graysage/50">Sin miembros en este equipo.</span>}
-                      {members.map((m) => (<button key={m.id} type="button" onClick={() => patchTeam(pt.teamId, { memberIds: toggleArr(pt.memberIds, m.id) })} className={chipCls(pt.memberIds.includes(m.id))}>{m.name}</button>))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
           </div>
 
           {/* Capa 2: línea de tiempo horizontal */}
