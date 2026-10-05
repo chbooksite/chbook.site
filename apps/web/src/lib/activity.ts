@@ -101,6 +101,20 @@ export function serviceMinutes(start: string | null, end: string | null): number
   return d > 0 ? d : null
 }
 
+// Conjunto de equipos participantes guardado para reutilizar en otros servicios.
+export interface TeamPreset {
+  name: string
+  teamIds: string[]
+}
+export function readTeamPresets(settings: unknown): TeamPreset[] {
+  const s = (settings ?? {}) as { team_presets?: unknown }
+  if (!Array.isArray(s.team_presets)) return []
+  return s.team_presets
+    .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
+    .map((p) => ({ name: String(p.name ?? ''), teamIds: Array.isArray(p.teamIds) ? (p.teamIds as string[]) : [] }))
+    .filter((p) => p.name)
+}
+
 export function readAudience(json: unknown): Audience {
   const a = (json ?? {}) as Partial<Audience>
   const scope: AudienceScope =

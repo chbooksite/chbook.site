@@ -15,6 +15,7 @@ import {
   type ScheduleTeam,
   type Segment,
   type Tag,
+  type TeamPreset,
 } from '../lib/activity'
 
 interface Opt {
@@ -109,6 +110,8 @@ export default function ActivityForm({
   tags,
   membersByTeam,
   membersByRole,
+  teamPresets,
+  onPresetsChange,
   onClose,
   onSaved,
   onTagCreated,
@@ -124,6 +127,8 @@ export default function ActivityForm({
   tags: Tag[]
   membersByTeam: Map<string, Opt[]>
   membersByRole: Map<string, Opt[]>
+  teamPresets: TeamPreset[]
+  onPresetsChange: (p: TeamPreset[]) => void
   onClose: () => void
   onSaved: () => void
   onTagCreated: (t: Tag) => void
@@ -143,9 +148,15 @@ export default function ActivityForm({
   const [audIds, setAudIds] = useState<string[]>(editing?.audience.ids ?? [])
   const [audKeys, setAudKeys] = useState<string[]>(editing?.audience.keys ?? [])
 
+  const teamsOf = (ids: string[]): ScheduleTeam[] => ids.filter((id) => teams.some((t) => t.id === id)).map((id) => ({ teamId: id, delegate: false, memberIds: [] }))
   const [partTeams, setPartTeams] = useState<ScheduleTeam[]>(
-    editing ? editingTeams : teams.filter((t) => t.key && DEFAULT_TEAM_KEYS.includes(t.key)).map((t) => ({ teamId: t.id, delegate: false, memberIds: [] })),
+    editing
+      ? editingTeams
+      : teamPresets[0]?.teamIds.length
+        ? teamsOf(teamPresets[0].teamIds)
+        : teams.filter((t) => t.key && DEFAULT_TEAM_KEYS.includes(t.key)).map((t) => ({ teamId: t.id, delegate: false, memberIds: [] })),
   )
+  const [presets, setPresets] = useState<TeamPreset[]>(teamPresets)
   const [segments, setSegments] = useState<Seg[]>(editing ? editingSegments.map(withKey) : defaultSegments(tags))
   const [newTagName, setNewTagName] = useState('')
   const [listOpen, setListOpen] = useState(false)
@@ -168,6 +179,24 @@ export default function ActivityForm({
     setPartTeams([...partTeams, { teamId, delegate: false, memberIds: [] }])
   }
   const removeTeam = (teamId: string) => setPartTeams((prev) => prev.filter((t) => t.teamId !== teamId))
+
+  // Presets de equipos: guardar el conjunto actual y reutilizarlo en otros servicios.
+  const persistPresets = async (next: TeamPreset[]) => {
+    const { data } = await supabase.from('churches').select('settings').eq('id', churchId).maybeSingle()
+    const s = (data?.settings ?? {}) as Record<string, unknown>
+    await supabase.from('churches').update({ settings: { ...s, team_presets: next } as never }).eq('id', churchId)
+    setPresets(next)
+    onPresetsChange(next)
+  }
+  const savePreset = () => {
+    if (!partTeams.length) return
+    const name = window.prompt('Nombre para este conjunto de equipos:', presets.length ? '' : 'Predeterminado')?.trim()
+    if (!name) return
+    const entry: TeamPreset = { name, teamIds: partTeams.map((t) => t.teamId) }
+    persistPresets([...presets.filter((p) => p.name !== name), entry])
+  }
+  const applyPreset = (p: TeamPreset) => setPartTeams(teamsOf(p.teamIds))
+  const deletePreset = (name: string) => persistPresets(presets.filter((p) => p.name !== name))
 
   // Capa 2
   const patchSeg = (k: string, p: Partial<Seg>) => setSegments((prev) => prev.map((s) => (s._k === k ? { ...s, ...p } : s)))
@@ -393,6 +422,16 @@ export default function ActivityForm({
                 )
               })}
             </div>
+            {/* presets de equipos */}
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              {presets.map((p) => (
+                <span key={p.name} className="inline-flex items-center gap-1 rounded-full border border-graysage/25 bg-white px-2.5 py-1 text-xs text-charcoal">
+                  <button type="button" onClick={() => applyPreset(p)} title="Usar este conjunto" className="hover:text-sage-dark">{p.name}</button>
+                  <button type="button" onClick={() => deletePreset(p.name)} title="Eliminar" className="text-graysage/60 hover:text-clay">✕</button>
+                </span>
+              ))}
+              <button type="button" onClick={savePreset} className="rounded-full px-2.5 py-1 text-xs text-sage-dark hover:bg-sage/10">+ Guardar estos equipos</button>
+            </div>
           </div>
 
           {/* Capa 2: línea de tiempo horizontal */}
@@ -467,7 +506,18 @@ export default function ActivityForm({
             <div className="mb-2 flex flex-wrap gap-1.5">
               {tags.map((t) => {
                 const used = segments.some((s) => s.tagId === t.id)
-                return (<button key={t.id} type="button" onClick={() => addSegmentFromTag(t)} className={catalogChipCls(used)}>+ {t.name}</button>)
+                const col = t.color ?? '#94a3b8'
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => addSegmentFromTag(t)}
+                    style={used ? { backgroundColor: col, color: '#fff' } : undefined}
+                    className={used ? 'rounded-full px-2.5 py-1 text-xs font-medium' : catalogChipCls(false)}
+                  >
+                    + {t.name}
+                  </button>
+                )
               })}
             </div>
             <div className="mb-3 flex gap-2">
