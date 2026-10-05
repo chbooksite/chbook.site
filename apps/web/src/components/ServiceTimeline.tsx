@@ -44,6 +44,7 @@ export default function ServiceTimeline({
   const [zoom, setZoom] = useState(1)
   const [win, setWin] = useState({ left: 0, width: 100 })
   const [dragActive, setDragActive] = useState(false)
+  const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [trashing, setTrashing] = useState(false)
 
   const lvl = (s: Segment) => s.level ?? 1
@@ -91,6 +92,7 @@ export default function ServiceTimeline({
       if (!p.pinned) {
         drag.current = { mode: 'reorder', key: p.key, level: p.level }
         setDragActive(true)
+        setDraggingKey(p.key)
       }
     }
     const d = drag.current
@@ -134,6 +136,7 @@ export default function ServiceTimeline({
     drag.current = null
     overTrash.current = false
     setDragActive(false)
+    setDraggingKey(null)
     setTrashing(false)
   }
 
@@ -180,7 +183,7 @@ export default function ServiceTimeline({
               onPointerMove={mini ? undefined : onMove}
               onPointerUp={mini ? undefined : onUp}
               style={{ width: `${w}%`, backgroundColor: colorOf(s) }}
-              className={`relative flex flex-col justify-center overflow-hidden ${mini ? '' : 'cursor-grab px-1.5 active:cursor-grabbing'} ${!mini && selectedKey === k ? 'ring-2 ring-inset ring-white' : ''}`}
+              className={`relative flex flex-col justify-center overflow-hidden ${mini ? '' : 'cursor-grab px-1.5 transition hover:brightness-110 active:cursor-grabbing'} ${!mini && selectedKey === k ? 'ring-2 ring-inset ring-white' : ''} ${draggingKey === k ? 'opacity-50 ring-2 ring-inset ring-charcoal/40' : ''}`}
               title={mini ? undefined : `${s.name} · ${s.durationMin ?? 0} min`}
             >
               {!mini && (
@@ -243,12 +246,10 @@ export default function ServiceTimeline({
         {totalMin != null && totalMin - sum1 < 0 ? ` · ⚠ excede ${sum1 - totalMin} min` : ''}
       </p>
 
-      {/* zona para eliminar al arrastrar al fondo */}
-      {dragActive && (
-        <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex h-16 items-center justify-center text-sm font-medium transition ${trashing ? 'bg-clay/90 text-cream' : 'bg-charcoal/70 text-cream/80'}`}>
-          🗑 {trashing ? 'Suelta para eliminar' : 'Arrastra aquí para eliminar'}
-        </div>
-      )}
+      {/* zona para eliminar al arrastrar al fondo (se desliza desde abajo) */}
+      <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex items-center justify-center text-sm font-medium transition-all duration-200 ease-out ${dragActive ? 'h-16 translate-y-0 opacity-100' : 'h-16 translate-y-full opacity-0'} ${trashing ? 'bg-clay/90 text-cream shadow-lg' : 'bg-charcoal/70 text-cream/80'}`}>
+        <span className={`transition-transform ${trashing ? 'scale-110' : ''}`}>🗑 {trashing ? 'Suelta para eliminar' : 'Arrastra aquí para eliminar'}</span>
+      </div>
     </div>
   )
 }

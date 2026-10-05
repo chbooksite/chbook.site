@@ -599,7 +599,7 @@ export default function ActivityForm({
                   key={s._k}
                   data-seg
                   onClick={() => setSelectedKey(s._k)}
-                  className={`cursor-pointer rounded-lg border bg-white p-2 transition ${selectedKey === s._k ? 'border-sage ring-1 ring-sage/30' : 'border-graysage/15'} ${dragging === s._k ? 'opacity-60' : ''}`}
+                  className={`cursor-pointer rounded-lg border bg-white p-2 transition hover:border-sage/40 hover:shadow-sm ${selectedKey === s._k ? 'border-sage ring-1 ring-sage/30' : 'border-graysage/15'} ${dragging === s._k ? 'opacity-60' : ''}`}
                 >
                   <div className="flex items-center gap-2">
                     {s.pinned ? (
