@@ -90,17 +90,17 @@ export default function ServiceTimeline({
   }
 
   // navegación (minimapa)
-  const scrollToFrac = (frac: number) => {
+  const scrollToFrac = (frac: number, behavior: ScrollBehavior = 'auto') => {
     const el = scrollRef.current
     if (!el) return
     const w = win.width / 100
-    el.scrollLeft = Math.max(0, Math.min(1, frac - w / 2)) * el.scrollWidth
+    el.scrollTo({ left: Math.max(0, Math.min(1, frac - w / 2)) * el.scrollWidth, behavior })
   }
   const onNavDown = (e: RPointerEvent) => {
     navDrag.current = true
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     const r = ovRef.current!.getBoundingClientRect()
-    scrollToFrac((e.clientX - r.left) / r.width)
+    scrollToFrac((e.clientX - r.left) / r.width, 'smooth')
   }
   const onNavMove = (e: RPointerEvent) => {
     if (!navDrag.current || !ovRef.current) return
@@ -163,7 +163,7 @@ export default function ServiceTimeline({
 
       {/* barra con scroll */}
       <div ref={scrollRef} onScroll={syncWin} className="overflow-x-auto">
-        <div ref={trackRef} style={{ width: `${zoom * 100}%` }} className="touch-none">
+        <div ref={trackRef} style={{ width: `${zoom * 100}%` }} className="touch-none transition-[width] duration-300 ease-out">
           {renderBar(false)}
           {/* horas en cada divisoria */}
           <div className="relative mt-1 h-4">
@@ -179,7 +179,7 @@ export default function ServiceTimeline({
       {zoomed && (
         <div ref={ovRef} onPointerDown={onNavDown} onPointerMove={onNavMove} onPointerUp={onNavUp} className="relative mt-1.5 cursor-pointer touch-none">
           {renderBar(true)}
-          <div style={{ left: `${win.left}%`, width: `${win.width}%` }} className="pointer-events-none absolute top-0 h-3 rounded border-2 border-charcoal/50 bg-charcoal/10" />
+          <div style={{ left: `${win.left}%`, width: `${win.width}%` }} className="pointer-events-none absolute top-0 h-3 rounded border-2 border-charcoal/50 bg-charcoal/10 transition-[left,width] duration-150 ease-out" />
         </div>
       )}
 

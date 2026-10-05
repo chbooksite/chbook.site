@@ -10,6 +10,7 @@ import {
   addDays,
   formatTime,
   projectWeek,
+  readAssignees,
   readAudience,
   recurrenceLabel,
   weekStart,
@@ -123,9 +124,7 @@ export default function Calendar() {
         tagId: row.tag_id,
         name: row.name,
         durationMin: row.duration_min,
-        assignTeamId: row.team_id,
-        assignRoleId: row.role_id,
-        memberIds: row.member_ids ?? [],
+        assignees: readAssignees(row.assignees),
         pinned: !!row.pinned,
       })
       ssMap.set(row.schedule_id, arr)

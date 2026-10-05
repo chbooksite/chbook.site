@@ -53,15 +53,28 @@ export interface ScheduleTeam {
   memberIds: string[]
 }
 
+// Encargado de una actividad: un equipo o un rol, con miembros específicos.
+export interface Assignee {
+  kind: 'team' | 'role'
+  id: string
+  memberIds: string[]
+}
+
+export function readAssignees(json: unknown): Assignee[] {
+  if (!Array.isArray(json)) return []
+  return json
+    .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
+    .filter((a) => (a.kind === 'team' || a.kind === 'role') && typeof a.id === 'string')
+    .map((a) => ({ kind: a.kind as 'team' | 'role', id: a.id as string, memberIds: Array.isArray(a.memberIds) ? (a.memberIds as string[]) : [] }))
+}
+
 // Capa 2: segmento de la línea de tiempo (no se solapa, va en orden).
 export interface Segment {
   id?: string
   tagId: string | null
   name: string
   durationMin: number | null
-  assignTeamId: string | null // un equipo participante
-  assignRoleId: string | null // o un rol específico
-  memberIds: string[]
+  assignees: Assignee[] // uno o varios encargados
   pinned: boolean // fijada: no se mueve al arrastrar/reordenar
 }
 

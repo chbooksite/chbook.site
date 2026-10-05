@@ -696,6 +696,7 @@ export type Database = {
       }
       schedule_segments: {
         Row: {
+          assignees: Json
           church_id: string
           created_at: string | null
           duration_min: number | null
@@ -710,6 +711,7 @@ export type Database = {
           team_id: string | null
         }
         Insert: {
+          assignees?: Json
           church_id: string
           created_at?: string | null
           duration_min?: number | null
@@ -724,6 +726,7 @@ export type Database = {
           team_id?: string | null
         }
         Update: {
+          assignees?: Json
           church_id?: string
           created_at?: string | null
           duration_min?: number | null

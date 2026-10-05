@@ -7,6 +7,7 @@ import {
   clockToMin,
   serviceMinutes,
   type ActivityType,
+  type Assignee,
   type Audience,
   type AudienceScope,
   type Freq,
@@ -31,7 +32,6 @@ function chipCls(active: boolean): string {
 const mkKey = () => Math.random().toString(36).slice(2)
 const withKey = (s: Segment): Seg => ({ ...s, _k: mkKey() })
 
-// Línea de tiempo por defecto al crear, para que el concepto se entienda de entrada.
 const DEFAULT_TIMELINE: { name: string; min: number; tag: string }[] = [
   { name: 'Inicio', min: 5, tag: 'Bienvenida' },
   { name: 'Alabanza', min: 25, tag: 'Alabanza' },
@@ -43,11 +43,10 @@ const DEFAULT_TIMELINE: { name: string; min: number; tag: string }[] = [
 function defaultSegments(tags: Tag[]): Seg[] {
   return DEFAULT_TIMELINE.map((d) => {
     const t = tags.find((x) => x.name.toLowerCase() === d.tag.toLowerCase())
-    return withKey({ tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignTeamId: null, assignRoleId: null, memberIds: [], pinned: false })
+    return withKey({ tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignees: [], pinned: false })
   })
 }
 
-// Reordena respetando los bloques fijados (que conservan su posición absoluta).
 function reorderRespectingPins(arr: Seg[], from: number, to: number): Seg[] {
   const moved = [...arr]
   const [m] = moved.splice(from, 1)
@@ -110,7 +109,6 @@ export default function ActivityForm({
   const [segments, setSegments] = useState<Seg[]>(editing ? editingSegments.map(withKey) : defaultSegments(tags))
   const [newTagName, setNewTagName] = useState('')
   const [menuKey, setMenuKey] = useState<string | null>(null)
-  const [assignKey, setAssignKey] = useState<string | null>(null)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
 
   const [saving, setSaving] = useState(false)
@@ -131,9 +129,22 @@ export default function ActivityForm({
   // Capa 2
   const patchSeg = (k: string, p: Partial<Seg>) => setSegments((prev) => prev.map((s) => (s._k === k ? { ...s, ...p } : s)))
   const removeSeg = (k: string) => setSegments((prev) => prev.filter((s) => s._k !== k))
-  const addSegmentFromTag = (t: Tag) =>
-    setSegments((prev) => [...prev, withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignTeamId: null, assignRoleId: null, memberIds: [], pinned: false })])
+  const addSegmentFromTag = (t: Tag) => {
+    const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false })
+    setSegments((prev) => [...prev, seg])
+    setSelectedKey(seg._k)
+  }
   const segColor = (s: Segment) => tags.find((t) => t.id === s.tagId)?.color ?? '#94a3b8'
+
+  // encargados
+  const membersOf = (a: Assignee): Opt[] => (a.kind === 'team' ? membersByTeam.get(a.id) : membersByRole.get(a.id)) ?? []
+  const assigneeLabel = (a: Assignee) => (a.kind === 'team' ? teamName(a.id) : roleName(a.id))
+  const addAssignee = (k: string, kind: 'team' | 'role', id: string) =>
+    setSegments((prev) => prev.map((s) => (s._k === k && !s.assignees.some((a) => a.kind === kind && a.id === id) ? { ...s, assignees: [...s.assignees, { kind, id, memberIds: [] }] } : s)))
+  const removeAssignee = (k: string, idx: number) => setSegments((prev) => prev.map((s) => (s._k === k ? { ...s, assignees: s.assignees.filter((_, i) => i !== idx) } : s)))
+  const toggleAssigneeMember = (k: string, idx: number, memberId: string) =>
+    setSegments((prev) => prev.map((s) => (s._k === k ? { ...s, assignees: s.assignees.map((a, i) => (i === idx ? { ...a, memberIds: toggleArr(a.memberIds, memberId) } : a)) } : s)))
+  const legend = (s: Seg): string => (s.assignees.length ? s.assignees.map((a) => { const n = a.memberIds.length; return n ? `${assigneeLabel(a)} (${n})` : assigneeLabel(a) }).join(' · ') : 'Sin encargado')
 
   const createTag = async () => {
     const nm = newTagName.trim()
@@ -153,20 +164,7 @@ export default function ActivityForm({
     addSegmentFromTag(tag)
   }
 
-  const legend = (s: Seg): string => {
-    if (s.assignTeamId) return teamName(s.assignTeamId)
-    if (s.assignRoleId) {
-      const rn = roleName(s.assignRoleId)
-      if (s.memberIds.length) {
-        const names = s.memberIds.map((id) => (membersByRole.get(s.assignRoleId!) ?? []).find((m) => m.id === id)?.name).filter(Boolean)
-        return names.length ? `${rn}: ${names.join(', ')}` : rn
-      }
-      return rn
-    }
-    return 'Sin encargado'
-  }
-
-  // Arrastre vertical
+  // Arrastre vertical de la lista
   const listRef = useRef<HTMLDivElement | null>(null)
   const dragKey = useRef<string | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
@@ -181,10 +179,7 @@ export default function ActivityForm({
     let target = kids.length - 1
     for (let i = 0; i < kids.length; i++) {
       const r = kids[i].getBoundingClientRect()
-      if (e.clientY < r.top + r.height / 2) {
-        target = i
-        break
-      }
+      if (e.clientY < r.top + r.height / 2) { target = i; break }
     }
     setSegments((prev) => {
       const from = prev.findIndex((s) => s._k === dragKey.current)
@@ -247,9 +242,7 @@ export default function ActivityForm({
           name: s.name,
           sort_order: i,
           duration_min: s.durationMin,
-          team_id: s.assignTeamId,
-          role_id: s.assignRoleId,
-          member_ids: s.assignRoleId ? s.memberIds : [],
+          assignees: s.assignees as never,
           pinned: s.pinned,
         })),
       )
@@ -266,7 +259,7 @@ export default function ActivityForm({
   }
 
   const availableTeams = teams.filter((t) => !partTeams.some((p) => p.teamId === t.id))
-
+  const selected = segments.find((s) => s._k === selectedKey) ?? null
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8" onClick={onClose}>
@@ -370,10 +363,9 @@ export default function ActivityForm({
           {/* Capa 2: línea de tiempo horizontal */}
           <div className="rounded-xl bg-cream/50 p-4">
             <p className="text-sm font-medium text-charcoal">Línea de tiempo del servicio</p>
-            <p className="mb-3 text-xs text-graysage">Arrastra el borde derecho de cada actividad para ajustar su duración. Debajo, usa ⠿ para reordenar y ⋮ para fijar, asignar encargado o eliminar.</p>
+            <p className="mb-3 text-xs text-graysage">Arrastra el borde derecho para la duración, el cuerpo para moverla. Toca una actividad para ver y asignar sus encargados.</p>
 
-            {/* barra visual */}
-            <div className="mb-4">
+            <div className="mb-3">
               <ServiceTimeline
                 segments={segments}
                 totalMin={total}
@@ -387,74 +379,81 @@ export default function ActivityForm({
               />
             </div>
 
+            {/* tarjeta de la actividad seleccionada */}
+            {selected && (
+              <div className="mb-3 rounded-xl border border-sage/30 bg-white p-3 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ backgroundColor: segColor(selected) }} />
+                  <input value={selected.name} onChange={(e) => patchSeg(selected._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-serif text-base text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
+                  <input type="number" min={1} value={selected.durationMin ?? ''} onChange={(e) => patchSeg(selected._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
+                  <span className="text-xs text-graysage">min</span>
+                </div>
+
+                <p className="mb-1 mt-3 text-xs font-medium uppercase tracking-wide text-graysage/70">Encargados</p>
+                {selected.assignees.length === 0 && <p className="text-xs text-graysage/60">Aún sin encargados. Añade uno abajo.</p>}
+                <div className="space-y-2">
+                  {selected.assignees.map((a, ai) => {
+                    const members = membersOf(a)
+                    return (
+                      <div key={`${a.kind}:${a.id}`} className="rounded-lg bg-cream/60 p-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${a.kind === 'team' ? 'bg-clay/10 text-clay' : 'bg-sage-water/15 text-sage-dark'}`}>
+                            {a.kind === 'team' ? 'Equipo' : 'Rol'}: {assigneeLabel(a)}
+                          </span>
+                          <button type="button" onClick={() => removeAssignee(selected._k, ai)} className="ml-auto text-xs text-graysage hover:text-clay">✕</button>
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {members.length === 0 && <span className="text-xs text-graysage/50">Sin miembros disponibles.</span>}
+                          {members.map((m) => (<button key={m.id} type="button" onClick={() => toggleAssigneeMember(selected._k, ai, m.id)} className={chipCls(a.memberIds.includes(m.id))}>{m.name}</button>))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <select
+                  value=""
+                  onChange={(e) => { const v = e.target.value; if (v.startsWith('team:')) addAssignee(selected._k, 'team', v.slice(5)); else if (v.startsWith('role:')) addAssignee(selected._k, 'role', v.slice(5)) }}
+                  className="mt-2 w-full rounded-lg border border-sage/40 bg-white px-2 py-1.5 text-sm text-sage-dark outline-none focus:border-sage"
+                >
+                  <option value="">+ Añadir encargado…</option>
+                  {partTeams.length > 0 && (<optgroup label="Equipos participantes">{partTeams.map((pt) => (<option key={pt.teamId} value={`team:${pt.teamId}`}>{teamName(pt.teamId)}</option>))}</optgroup>)}
+                  <optgroup label="Roles">{roles.map((r) => (<option key={r.id} value={`role:${r.id}`}>{r.name}</option>))}</optgroup>
+                </select>
+              </div>
+            )}
+
             {/* lista de actividades */}
             <div ref={listRef} className="space-y-1.5">
-              {segments.map((s) => {
-                const roleMembers = s.assignRoleId ? membersByRole.get(s.assignRoleId) ?? [] : []
-                return (
-                  <div
-                    key={s._k}
-                    className={`rounded-lg border bg-white p-2 transition ${selectedKey === s._k ? 'border-sage ring-1 ring-sage/30' : 'border-graysage/15'} ${dragging === s._k ? 'opacity-60' : ''}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {s.pinned ? (
-                        <span title="Fijada" className="text-sm">📌</span>
-                      ) : (
-                        <span onPointerDown={onDragStart(s._k)} onPointerMove={onDragMove} onPointerUp={onDragEnd} title="Arrastrar para reordenar" className="cursor-grab touch-none select-none px-1 text-graysage active:cursor-grabbing">⠿</span>
-                      )}
-                      <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: segColor(s) }} />
-                      <input value={s.name} onChange={(e) => patchSeg(s._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
-                      <div className="flex items-center gap-1">
-                        <input type="number" min={1} value={s.durationMin ?? ''} onChange={(e) => patchSeg(s._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-14 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
-                        <span className="text-[0.7rem] text-graysage">min</span>
-                      </div>
-                      <button type="button" onClick={() => setAssignKey(assignKey === s._k ? null : s._k)} className={`hidden rounded-full px-2 py-0.5 text-[0.7rem] sm:inline-block ${s.assignTeamId || s.assignRoleId ? 'bg-sage-water/10 text-sage-dark' : 'bg-graysage/10 text-graysage/70'}`}>
-                        {legend(s)}
-                      </button>
-                      <div className="relative">
-                        <button type="button" onClick={() => setMenuKey(menuKey === s._k ? null : s._k)} className="px-1 text-graysage hover:text-charcoal" title="Opciones">⋮</button>
-                        {menuKey === s._k && (
-                          <div className="absolute right-0 top-6 z-10 w-44 overflow-hidden rounded-lg border border-graysage/20 bg-white py-1 shadow-lg">
-                            <button type="button" onClick={() => { patchSeg(s._k, { pinned: !s.pinned }); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">{s.pinned ? 'Dejar de fijar' : 'Fijar (no mover)'}</button>
-                            <button type="button" onClick={() => { setAssignKey(s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">Asignar encargado</button>
-                            <button type="button" onClick={() => { removeSeg(s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-clay hover:bg-cream">Eliminar</button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* editor de encargado */}
-                    {assignKey === s._k && (
-                      <div className="mt-2 ml-6 rounded-lg bg-cream/60 p-2">
-                        <select
-                          value={s.assignTeamId ? `team:${s.assignTeamId}` : s.assignRoleId ? `role:${s.assignRoleId}` : ''}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            if (v.startsWith('team:')) patchSeg(s._k, { assignTeamId: v.slice(5), assignRoleId: null, memberIds: [] })
-                            else if (v.startsWith('role:')) patchSeg(s._k, { assignRoleId: v.slice(5), assignTeamId: null, memberIds: [] })
-                            else patchSeg(s._k, { assignTeamId: null, assignRoleId: null, memberIds: [] })
-                          }}
-                          className="w-full rounded border border-graysage/20 bg-white px-2 py-1 text-sm outline-none focus:border-sage"
-                        >
-                          <option value="">Sin encargado</option>
-                          {partTeams.length > 0 && (
-                            <optgroup label="Equipos participantes">
-                              {partTeams.map((pt) => (<option key={pt.teamId} value={`team:${pt.teamId}`}>{teamName(pt.teamId)}</option>))}
-                            </optgroup>
-                          )}
-                          <optgroup label="Roles">{roles.map((r) => (<option key={r.id} value={`role:${r.id}`}>{r.name}</option>))}</optgroup>
-                        </select>
-                        {s.assignRoleId && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {roleMembers.length === 0 && <span className="text-xs text-graysage/50">Sin miembros con este rol.</span>}
-                            {roleMembers.map((m) => (<button key={m.id} type="button" onClick={() => patchSeg(s._k, { memberIds: toggleArr(s.memberIds, m.id) })} className={chipCls(s.memberIds.includes(m.id))}>{m.name}</button>))}
-                          </div>
-                        )}
-                      </div>
+              {segments.map((s) => (
+                <div
+                  key={s._k}
+                  onClick={() => setSelectedKey(s._k)}
+                  className={`cursor-pointer rounded-lg border bg-white p-2 transition ${selectedKey === s._k ? 'border-sage ring-1 ring-sage/30' : 'border-graysage/15'} ${dragging === s._k ? 'opacity-60' : ''}`}
+                >
+                  <div className="flex items-center gap-2">
+                    {s.pinned ? (
+                      <span title="Fijada" className="text-sm">📌</span>
+                    ) : (
+                      <span onPointerDown={onDragStart(s._k)} onPointerMove={onDragMove} onPointerUp={onDragEnd} onClick={(e) => e.stopPropagation()} title="Arrastrar para reordenar" className="cursor-grab touch-none select-none px-1 text-graysage active:cursor-grabbing">⠿</span>
                     )}
+                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: segColor(s) }} />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-charcoal">{s.name}</span>
+                    <span className="hidden truncate text-xs text-graysage sm:inline">{legend(s)}</span>
+                    <span className="font-mono text-xs text-graysage">{s.durationMin ?? 0}′</span>
+                    <div className="relative" onClick={(e) => e.stopPropagation()}>
+                      <button type="button" onClick={() => setMenuKey(menuKey === s._k ? null : s._k)} className="px-1 text-graysage hover:text-charcoal" title="Opciones">⋮</button>
+                      {menuKey === s._k && (
+                        <div className="absolute right-0 top-6 z-10 w-40 overflow-hidden rounded-lg border border-graysage/20 bg-white py-1 shadow-lg">
+                          <button type="button" onClick={() => { patchSeg(s._k, { pinned: !s.pinned }); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">{s.pinned ? 'Dejar de fijar' : 'Fijar (no mover)'}</button>
+                          <button type="button" onClick={() => { setSelectedKey(s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">Encargados</button>
+                          <button type="button" onClick={() => { removeSeg(s._k); if (selectedKey === s._k) setSelectedKey(null); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-clay hover:bg-cream">Eliminar</button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )
-              })}
+                </div>
+              ))}
             </div>
 
             {/* catálogo */}
