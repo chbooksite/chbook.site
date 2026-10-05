@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import type { AgeRangeDef } from '../lib/member'
+import { DEFAULT_AGE_RANGES, type AgeRangeDef } from '../lib/member'
 
 const MAX = 100
-const DEFAULT_COLORS = ['#ec4899', '#f59e0b', '#84cc16', '#0ea5e9', '#6366f1', '#78716c', '#14b8a6', '#ef4444']
+const MAX_CUSTOM = 2
+const DEFAULT_COLORS = ['#14b8a6', '#ef4444', '#8b5cf6', '#f97316']
+const DEFAULT_KEYS = new Set(DEFAULT_AGE_RANGES.map((r) => r.key))
+const isCustom = (r: AgeRangeDef) => !DEFAULT_KEYS.has(r.key)
 
 // Editor visual de rangos de edad: línea de tiempo con pines + leyenda editable.
 export default function AgeRangesEditor({
@@ -27,6 +30,7 @@ export default function AgeRangesEditor({
 
   const sorted = [...ranges].sort((a, b) => a.start - b.start)
   const enabled = sorted.filter((r) => r.enabled)
+  const customCount = ranges.filter(isCustom).length
 
   const setStartLive = (key: string, start: number) => {
     const s = Math.max(0, Math.min(MAX, Math.round(start)))
@@ -51,6 +55,7 @@ export default function AgeRangesEditor({
   }
 
   const addRange = () => {
+    if (customCount >= MAX_CUSTOM) return
     const maxStart = ranges.reduce((m, r) => Math.max(m, r.start), 0)
     const key = `custom_${Date.now()}`
     commit([
@@ -142,25 +147,35 @@ export default function AgeRangesEditor({
             >
               <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${r.enabled ? 'left-[1.125rem]' : 'left-0.5'}`} />
             </button>
-            <button
-              type="button"
-              onClick={() => commit(ranges.filter((x) => x.key !== r.key))}
-              className="text-xs text-graysage hover:text-clay"
-              title="Eliminar"
-            >
-              ✕
-            </button>
+            {isCustom(r) ? (
+              <button
+                type="button"
+                onClick={() => commit(ranges.filter((x) => x.key !== r.key))}
+                className="text-xs text-graysage hover:text-clay"
+                title="Eliminar"
+              >
+                ✕
+              </button>
+            ) : (
+              <span className="w-3" aria-hidden />
+            )}
           </li>
         ))}
       </ul>
 
-      <button
-        type="button"
-        onClick={addRange}
-        className="mt-3 rounded-lg border border-sage/40 px-3 py-1.5 text-sm text-sage-dark transition hover:bg-sage/10"
-      >
-        + Agregar rango
-      </button>
+      {customCount < MAX_CUSTOM ? (
+        <button
+          type="button"
+          onClick={addRange}
+          className="mt-3 rounded-lg border border-sage/40 px-3 py-1.5 text-sm text-sage-dark transition hover:bg-sage/10"
+        >
+          + Agregar rango
+        </button>
+      ) : (
+        <p className="mt-3 text-xs text-graysage/70">
+          Máximo {MAX_CUSTOM} rangos personalizados. Desactiva los que no uses en lugar de borrarlos.
+        </p>
+      )}
     </div>
   )
 }
