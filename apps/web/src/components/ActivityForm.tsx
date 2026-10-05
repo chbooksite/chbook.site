@@ -1,10 +1,10 @@
 import { useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { supabase } from '../lib/supabase'
+import ServiceTimeline from './ServiceTimeline'
 import type { AgeRangeDef } from '../lib/member'
 import {
   WEEKDAYS,
   clockToMin,
-  minToClock,
   serviceMinutes,
   type ActivityType,
   type Audience,
@@ -24,7 +24,6 @@ type Seg = Segment & { _k: string }
 
 const inputCls =
   'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
-const PX_PER_MIN = 2.2
 
 function chipCls(active: boolean): string {
   return `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-sage text-cream' : 'bg-cream text-graysage hover:bg-sage/10'}`
@@ -112,6 +111,7 @@ export default function ActivityForm({
   const [newTagName, setNewTagName] = useState('')
   const [menuKey, setMenuKey] = useState<string | null>(null)
   const [assignKey, setAssignKey] = useState<string | null>(null)
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -133,7 +133,7 @@ export default function ActivityForm({
   const removeSeg = (k: string) => setSegments((prev) => prev.filter((s) => s._k !== k))
   const addSegmentFromTag = (t: Tag) =>
     setSegments((prev) => [...prev, withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignTeamId: null, assignRoleId: null, memberIds: [], pinned: false })])
-  const segColor = (s: Seg) => tags.find((t) => t.id === s.tagId)?.color ?? '#94a3b8'
+  const segColor = (s: Segment) => tags.find((t) => t.id === s.tagId)?.color ?? '#94a3b8'
 
   const createTag = async () => {
     const nm = newTagName.trim()
@@ -267,9 +267,6 @@ export default function ActivityForm({
 
   const availableTeams = teams.filter((t) => !partTeams.some((p) => p.teamId === t.id))
 
-  // Tiempos de cada divisoria (acumulado desde el inicio)
-  let acc = 0
-  const boundary = (offset: number) => (startMin != null ? minToClock(startMin + offset) : `${offset}′`)
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8" onClick={onClose}>
@@ -370,109 +367,94 @@ export default function ActivityForm({
             )}
           </div>
 
-          {/* Capa 2: línea de tiempo vertical e interactiva */}
+          {/* Capa 2: línea de tiempo horizontal */}
           <div className="rounded-xl bg-cream/50 p-4">
-            <div className="mb-1 flex items-baseline justify-between">
-              <p className="text-sm font-medium text-charcoal">Línea de tiempo del servicio</p>
-              <span className="text-xs text-graysage">
-                {segments.reduce((a, s) => a + (s.durationMin ?? 0), 0)} min{total != null ? ` / ${total}` : ''}
-              </span>
-            </div>
-            <p className="mb-3 text-xs text-graysage">Arrastra ⠿ para reordenar · usa ⋮ para fijar, asignar encargado o eliminar.</p>
+            <p className="text-sm font-medium text-charcoal">Línea de tiempo del servicio</p>
+            <p className="mb-3 text-xs text-graysage">Arrastra el borde derecho de cada actividad para ajustar su duración. Debajo, usa ⠿ para reordenar y ⋮ para fijar, asignar encargado o eliminar.</p>
 
-            <div ref={listRef} className="touch-none">
+            {/* barra visual */}
+            <div className="mb-4">
+              <ServiceTimeline
+                segments={segments}
+                totalMin={total}
+                startMin={startMin}
+                colorOf={segColor}
+                keyOf={(s) => (s as Seg)._k}
+                selectedKey={selectedKey}
+                onSelect={(i) => setSelectedKey(segments[i]._k)}
+                onDuration={(i, min) => setSegments((prev) => prev.map((s, idx) => (idx === i ? { ...s, durationMin: min } : s)))}
+              />
+            </div>
+
+            {/* lista de actividades */}
+            <div ref={listRef} className="space-y-1.5">
               {segments.map((s) => {
-                const top = acc
-                acc += s.durationMin ?? 0
-                const h = Math.max(56, (s.durationMin ?? 0) * PX_PER_MIN)
                 const roleMembers = s.assignRoleId ? membersByRole.get(s.assignRoleId) ?? [] : []
                 return (
-                  <div key={s._k} className="relative pl-14">
-                    {/* hora de la divisoria */}
-                    <span className="absolute left-0 top-0 -translate-y-1/2 font-mono text-[0.7rem] text-graysage">{boundary(top)}</span>
-                    {/* carril de color */}
-                    <span className="absolute left-12 top-0 h-full w-0.5" style={{ backgroundColor: segColor(s) }} />
-                    <div
-                      style={{ minHeight: h, borderLeftColor: segColor(s) }}
-                      className={`relative mb-2 rounded-lg border border-l-4 bg-white p-2.5 transition ${dragging === s._k ? 'opacity-60 ring-2 ring-sage/40' : 'border-graysage/15'}`}
-                    >
-                      <div className="flex items-start gap-2">
-                        {s.pinned ? (
-                          <span title="Fijada" className="mt-1 text-sm text-sage-dark">📌</span>
-                        ) : (
-                          <span onPointerDown={onDragStart(s._k)} onPointerMove={onDragMove} onPointerUp={onDragEnd} title="Arrastrar" className="mt-0.5 cursor-grab touch-none select-none px-1 text-graysage active:cursor-grabbing">⠿</span>
-                        )}
-                        <input value={s.name} onChange={(e) => patchSeg(s._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
-                        <div className="flex items-center gap-1">
-                          <input type="number" min={1} value={s.durationMin ?? ''} onChange={(e) => patchSeg(s._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-14 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
-                          <span className="text-[0.7rem] text-graysage">min</span>
-                        </div>
-                        <div className="relative">
-                          <button type="button" onClick={() => setMenuKey(menuKey === s._k ? null : s._k)} className="px-1 text-graysage hover:text-charcoal" title="Opciones">⋮</button>
-                          {menuKey === s._k && (
-                            <div className="absolute right-0 top-6 z-10 w-44 overflow-hidden rounded-lg border border-graysage/20 bg-white py-1 shadow-lg">
-                              <button type="button" onClick={() => { patchSeg(s._k, { pinned: !s.pinned }); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">
-                                {s.pinned ? 'Dejar de fijar' : 'Fijar (no mover)'}
-                              </button>
-                              <button type="button" onClick={() => { setAssignKey(assignKey === s._k ? null : s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">
-                                Asignar encargado
-                              </button>
-                              <button type="button" onClick={() => { removeSeg(s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-clay hover:bg-cream">
-                                Eliminar
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                  <div
+                    key={s._k}
+                    className={`rounded-lg border bg-white p-2 transition ${selectedKey === s._k ? 'border-sage ring-1 ring-sage/30' : 'border-graysage/15'} ${dragging === s._k ? 'opacity-60' : ''}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {s.pinned ? (
+                        <span title="Fijada" className="text-sm">📌</span>
+                      ) : (
+                        <span onPointerDown={onDragStart(s._k)} onPointerMove={onDragMove} onPointerUp={onDragEnd} title="Arrastrar para reordenar" className="cursor-grab touch-none select-none px-1 text-graysage active:cursor-grabbing">⠿</span>
+                      )}
+                      <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: segColor(s) }} />
+                      <input value={s.name} onChange={(e) => patchSeg(s._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
+                      <div className="flex items-center gap-1">
+                        <input type="number" min={1} value={s.durationMin ?? ''} onChange={(e) => patchSeg(s._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-14 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
+                        <span className="text-[0.7rem] text-graysage">min</span>
                       </div>
-
-                      {/* leyenda del encargado */}
-                      <button type="button" onClick={() => setAssignKey(assignKey === s._k ? null : s._k)} className={`mt-1 ml-6 inline-block rounded-full px-2 py-0.5 text-[0.7rem] ${s.assignTeamId || s.assignRoleId ? 'bg-sage-water/10 text-sage-dark' : 'bg-graysage/10 text-graysage/70'}`}>
+                      <button type="button" onClick={() => setAssignKey(assignKey === s._k ? null : s._k)} className={`hidden rounded-full px-2 py-0.5 text-[0.7rem] sm:inline-block ${s.assignTeamId || s.assignRoleId ? 'bg-sage-water/10 text-sage-dark' : 'bg-graysage/10 text-graysage/70'}`}>
                         {legend(s)}
                       </button>
-
-                      {/* editor de encargado */}
-                      {assignKey === s._k && (
-                        <div className="mt-2 ml-6 rounded-lg bg-cream/60 p-2">
-                          <select
-                            value={s.assignTeamId ? `team:${s.assignTeamId}` : s.assignRoleId ? `role:${s.assignRoleId}` : ''}
-                            onChange={(e) => {
-                              const v = e.target.value
-                              if (v.startsWith('team:')) patchSeg(s._k, { assignTeamId: v.slice(5), assignRoleId: null, memberIds: [] })
-                              else if (v.startsWith('role:')) patchSeg(s._k, { assignRoleId: v.slice(5), assignTeamId: null, memberIds: [] })
-                              else patchSeg(s._k, { assignTeamId: null, assignRoleId: null, memberIds: [] })
-                            }}
-                            className="w-full rounded border border-graysage/20 bg-white px-2 py-1 text-sm outline-none focus:border-sage"
-                          >
-                            <option value="">Sin encargado</option>
-                            {partTeams.length > 0 && (
-                              <optgroup label="Equipos participantes">
-                                {partTeams.map((pt) => (<option key={pt.teamId} value={`team:${pt.teamId}`}>{teamName(pt.teamId)}</option>))}
-                              </optgroup>
-                            )}
-                            <optgroup label="Roles">{roles.map((r) => (<option key={r.id} value={`role:${r.id}`}>{r.name}</option>))}</optgroup>
-                          </select>
-                          {s.assignRoleId && (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {roleMembers.length === 0 && <span className="text-xs text-graysage/50">Sin miembros con este rol.</span>}
-                              {roleMembers.map((m) => (<button key={m.id} type="button" onClick={() => patchSeg(s._k, { memberIds: toggleArr(s.memberIds, m.id) })} className={chipCls(s.memberIds.includes(m.id))}>{m.name}</button>))}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      <div className="relative">
+                        <button type="button" onClick={() => setMenuKey(menuKey === s._k ? null : s._k)} className="px-1 text-graysage hover:text-charcoal" title="Opciones">⋮</button>
+                        {menuKey === s._k && (
+                          <div className="absolute right-0 top-6 z-10 w-44 overflow-hidden rounded-lg border border-graysage/20 bg-white py-1 shadow-lg">
+                            <button type="button" onClick={() => { patchSeg(s._k, { pinned: !s.pinned }); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">{s.pinned ? 'Dejar de fijar' : 'Fijar (no mover)'}</button>
+                            <button type="button" onClick={() => { setAssignKey(s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">Asignar encargado</button>
+                            <button type="button" onClick={() => { removeSeg(s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-clay hover:bg-cream">Eliminar</button>
+                          </div>
+                        )}
+                      </div>
                     </div>
+
+                    {/* editor de encargado */}
+                    {assignKey === s._k && (
+                      <div className="mt-2 ml-6 rounded-lg bg-cream/60 p-2">
+                        <select
+                          value={s.assignTeamId ? `team:${s.assignTeamId}` : s.assignRoleId ? `role:${s.assignRoleId}` : ''}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            if (v.startsWith('team:')) patchSeg(s._k, { assignTeamId: v.slice(5), assignRoleId: null, memberIds: [] })
+                            else if (v.startsWith('role:')) patchSeg(s._k, { assignRoleId: v.slice(5), assignTeamId: null, memberIds: [] })
+                            else patchSeg(s._k, { assignTeamId: null, assignRoleId: null, memberIds: [] })
+                          }}
+                          className="w-full rounded border border-graysage/20 bg-white px-2 py-1 text-sm outline-none focus:border-sage"
+                        >
+                          <option value="">Sin encargado</option>
+                          {partTeams.length > 0 && (
+                            <optgroup label="Equipos participantes">
+                              {partTeams.map((pt) => (<option key={pt.teamId} value={`team:${pt.teamId}`}>{teamName(pt.teamId)}</option>))}
+                            </optgroup>
+                          )}
+                          <optgroup label="Roles">{roles.map((r) => (<option key={r.id} value={`role:${r.id}`}>{r.name}</option>))}</optgroup>
+                        </select>
+                        {s.assignRoleId && (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {roleMembers.length === 0 && <span className="text-xs text-graysage/50">Sin miembros con este rol.</span>}
+                            {roleMembers.map((m) => (<button key={m.id} type="button" onClick={() => patchSeg(s._k, { memberIds: toggleArr(s.memberIds, m.id) })} className={chipCls(s.memberIds.includes(m.id))}>{m.name}</button>))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
-              {/* hora final */}
-              {segments.length > 0 && (
-                <div className="relative pl-14">
-                  <span className="absolute left-0 top-0 -translate-y-1/2 font-mono text-[0.7rem] text-graysage">{boundary(acc)}</span>
-                  <span className="text-[0.7rem] text-graysage/50">Fin</span>
-                </div>
-              )}
             </div>
-
-            {segments.length === 0 && <p className="rounded-lg border border-dashed border-graysage/30 py-4 text-center text-xs text-graysage/60">Agrega actividades al servicio.</p>}
 
             {/* catálogo */}
             <div className="mt-3 mb-2 flex flex-wrap gap-1.5">
