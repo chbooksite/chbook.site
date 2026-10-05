@@ -27,6 +27,23 @@ function chipCls(active: boolean): string {
   return `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-sage text-cream' : 'bg-cream text-graysage hover:bg-sage/10'}`
 }
 
+// Línea de tiempo por defecto al crear una actividad nueva, para que el concepto
+// se entienda de entrada. Se vincula al catálogo (color) cuando el nombre calza.
+const DEFAULT_TIMELINE: { name: string; min: number; tag: string }[] = [
+  { name: 'Inicio', min: 5, tag: 'Bienvenida' },
+  { name: 'Alabanza', min: 25, tag: 'Alabanza' },
+  { name: 'Palabra', min: 35, tag: 'Prédica' },
+  { name: 'Ofrenda', min: 15, tag: 'Ofrenda' },
+  { name: 'Anuncios', min: 5, tag: 'Anuncios' },
+  { name: 'Despedida', min: 5, tag: 'Despedida' },
+]
+function defaultSegments(tags: Tag[]): Segment[] {
+  return DEFAULT_TIMELINE.map((d) => {
+    const t = tags.find((x) => x.name.toLowerCase() === d.tag.toLowerCase())
+    return { tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignTeamId: null, assignRoleId: null, memberIds: [] }
+  })
+}
+
 export default function ActivityForm({
   churchId,
   editing,
@@ -77,7 +94,7 @@ export default function ActivityForm({
   const [partTeams, setPartTeams] = useState<ScheduleTeam[]>(editingTeams)
 
   // ---- Capa 2: línea de tiempo ----
-  const [segments, setSegments] = useState<Segment[]>(editingSegments)
+  const [segments, setSegments] = useState<Segment[]>(editing ? editingSegments : defaultSegments(tags))
   const [newTagName, setNewTagName] = useState('')
 
   const [saving, setSaving] = useState(false)
