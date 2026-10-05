@@ -295,7 +295,7 @@ export default function ActivityForm({
   const selected = segments.find((s) => s._k === selectedKey) ?? null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8">
       <div
         className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
@@ -306,7 +306,10 @@ export default function ActivityForm({
           setSelectedKey(null)
         }}
       >
-        <h3 className="mb-4 font-serif text-lg text-charcoal">{editing ? 'Editar actividad' : 'Nueva actividad'}</h3>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="font-serif text-lg text-charcoal">{editing ? 'Editar actividad' : 'Nueva actividad'}</h3>
+          <button type="button" onClick={onClose} className="rounded-lg px-2 py-1 text-lg text-graysage hover:bg-cream hover:text-charcoal" title="Cerrar">✕</button>
+        </div>
 
         <div className="space-y-5">
           <div>
