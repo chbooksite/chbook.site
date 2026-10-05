@@ -41,6 +41,9 @@ export default function ServiceTimeline({
   const pending = useRef<{ key: string; level: number; pinned: boolean; x: number; y: number; frac?: number; moved: boolean } | null>(null)
   const navDrag = useRef(false)
   const overTrash = useRef(false)
+  const segEls = useRef(new Map<string, HTMLElement>())
+  const prevLefts = useRef(new Map<string, number>())
+  const prevOrder = useRef<string[]>([])
   const [zoom, setZoom] = useState(1)
   const [win, setWin] = useState({ left: 0, width: 100 })
   const [dragActive, setDragActive] = useState(false)
@@ -66,6 +69,33 @@ export default function ServiceTimeline({
       onBarBottom(barsRef.current.getBoundingClientRect().bottom - rootRef.current.getBoundingClientRect().top)
     }
   }, [zoom, segments, onBarBottom])
+
+  // FLIP: cuando cambia el ORDEN, las actividades se deslizan a su nuevo lugar.
+  useLayoutEffect(() => {
+    const order = segments.map((s, i) => keyOf(s, i))
+    const changed = order.length !== prevOrder.current.length || order.some((k, i) => k !== prevOrder.current[i])
+    const els = segEls.current
+    if (changed) {
+      els.forEach((el, k) => {
+        if (k === draggingKey) return
+        const prev = prevLefts.current.get(k)
+        if (prev == null) return
+        const dx = prev - el.getBoundingClientRect().left
+        if (Math.abs(dx) < 1) return
+        el.style.transition = 'none'
+        el.style.transform = `translateX(${dx}px)`
+        void el.offsetWidth
+        requestAnimationFrame(() => {
+          el.style.transition = 'transform 180ms ease'
+          el.style.transform = ''
+        })
+      })
+    }
+    const lefts = new Map<string, number>()
+    els.forEach((el, k) => lefts.set(k, el.getBoundingClientRect().left))
+    prevLefts.current = lefts
+    prevOrder.current = order
+  })
 
   const cursorMin = (clientX: number) => {
     const rect = trackRef.current!.getBoundingClientRect()
@@ -184,6 +214,7 @@ export default function ServiceTimeline({
           return (
             <div
               key={k}
+              ref={mini ? undefined : (el) => { const m = segEls.current; if (el) m.set(k, el); else m.delete(k) }}
               data-seg={mini ? undefined : ''}
               onPointerDown={mini ? undefined : onBodyDown(k, L, !!s.pinned)}
               style={{ width: `${w}%`, backgroundColor: colorOf(s) }}
