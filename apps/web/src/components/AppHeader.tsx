@@ -28,6 +28,9 @@ export default function AppHeader() {
           <NavLink to="/miembros" className={linkCls}>
             Miembros
           </NavLink>
+          <NavLink to="/calendario" className={linkCls}>
+            Calendario
+          </NavLink>
           <NavLink to="/ajustes" className={linkCls}>
             Ajustes
           </NavLink>

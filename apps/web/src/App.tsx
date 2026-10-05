@@ -6,6 +6,7 @@ import Onboarding from './pages/Onboarding'
 import Dashboard from './pages/Dashboard'
 import Members from './pages/Members'
 import MemberProfile from './pages/MemberProfile'
+import Calendar from './pages/Calendar'
 import Settings from './pages/Settings'
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/miembros" element={<Members />} />
             <Route path="/miembros/:id" element={<MemberProfile />} />
+            <Route path="/calendario" element={<Calendar />} />
             <Route path="/ajustes" element={<Settings />} />
           </Route>
 

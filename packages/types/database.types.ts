@@ -39,6 +39,130 @@ export type Database = {
   }
   public: {
     Tables: {
+      activity_schedules: {
+        Row: {
+          audience: Json
+          church_id: string
+          created_at: string | null
+          enabled: boolean | null
+          end_time: string | null
+          freq: string
+          id: string
+          location: string | null
+          name: string
+          nth: number | null
+          parent_id: string | null
+          responsible_team_id: string | null
+          sort_order: number | null
+          start_time: string | null
+          type_id: string | null
+          weekday: number
+        }
+        Insert: {
+          audience?: Json
+          church_id: string
+          created_at?: string | null
+          enabled?: boolean | null
+          end_time?: string | null
+          freq?: string
+          id?: string
+          location?: string | null
+          name: string
+          nth?: number | null
+          parent_id?: string | null
+          responsible_team_id?: string | null
+          sort_order?: number | null
+          start_time?: string | null
+          type_id?: string | null
+          weekday: number
+        }
+        Update: {
+          audience?: Json
+          church_id?: string
+          created_at?: string | null
+          enabled?: boolean | null
+          end_time?: string | null
+          freq?: string
+          id?: string
+          location?: string | null
+          name?: string
+          nth?: number | null
+          parent_id?: string | null
+          responsible_team_id?: string | null
+          sort_order?: number | null
+          start_time?: string | null
+          type_id?: string | null
+          weekday?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_schedules_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_schedules_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "activity_schedules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_schedules_type_id_fkey"
+            columns: ["type_id"]
+            isOneToOne: false
+            referencedRelation: "activity_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_schedules_responsible_team_id_fkey"
+            columns: ["responsible_team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      activity_types: {
+        Row: {
+          church_id: string
+          color: string
+          created_at: string | null
+          id: string
+          is_system: boolean | null
+          key: string
+          name: string
+        }
+        Insert: {
+          church_id: string
+          color?: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key: string
+          name: string
+        }
+        Update: {
+          church_id?: string
+          color?: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_types_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       activity_tags: {
         Row: {
           church_id: string | null
