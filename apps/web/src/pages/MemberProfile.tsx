@@ -13,13 +13,16 @@ import {
 } from '../lib/rules'
 import {
   ageFromBirth,
-  ageRange,
+  classifyAge,
   COARSE_AGE,
+  DEFAULT_AGE_RANGES,
   displayAgeRange,
   IDENTITY_TONE_CLASS,
   isBaptismInconsistent,
   memberIdentity,
+  readAgeRanges,
   resolveAgeGroup,
+  type AgeRangeDef,
 } from '../lib/member'
 
 interface Catalog {
@@ -68,6 +71,7 @@ export default function MemberProfile() {
   const [roles, setRoles] = useState<Catalog[]>([])
   const [teams, setTeams] = useState<Catalog[]>([])
   const [rules, setRules] = useState<ChurchRules>(DEFAULT_RULES)
+  const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -126,6 +130,7 @@ export default function MemberProfile() {
     setRoles(mapCat(rolesRes.data))
     setTeams(mapCat(teamsRes.data))
     setRules(readRules(churchRes.data?.settings))
+    setAgeRanges(readAgeRanges(churchRes.data?.settings))
 
     const m = memberRes.data as RawMember | null
     if (!m) {
@@ -339,7 +344,7 @@ export default function MemberProfile() {
         email: email.trim() || null,
         phone: phone.trim() || null,
         birth_date: birthDate || null,
-        age_group: birthDate ? null : resolveAgeGroup(ageInput, category) || ageGroup || null,
+        age_group: birthDate ? null : resolveAgeGroup(ageInput, category, ageRanges) || ageGroup || null,
         sex: sex || null,
         is_baptized: isBaptized,
         baptism_date: isBaptized ? baptismDate || null : null,
@@ -396,7 +401,7 @@ export default function MemberProfile() {
   const depHint = (req: Requires) =>
     `Requiere: ${[...req.roles, ...req.teams].map(nameById).join(', ')}`
   const age = ageGroupLabel(birthDate)
-  const rangoEdad = displayAgeRange(birthDate, ageGroup)
+  const rangoEdad = displayAgeRange(birthDate, ageGroup, ageRanges)
 
   const inputCls =
     'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
@@ -621,7 +626,9 @@ export default function MemberProfile() {
                       >
                         {d.full_name}
                       </Link>
-                      <span className="text-xs text-graysage">{ageRange(d.birth_date) ?? '—'}</span>
+                      <span className="text-xs text-graysage">
+                        {classifyAge(ageFromBirth(d.birth_date), ageRanges)?.name ?? '—'}
+                      </span>
                     </li>
                   ))}
                 </ul>

@@ -63,63 +63,61 @@ export function ageFromBirth(birthDate: string | null): number | null {
   return age
 }
 
-// Clasificación por rango de edad — un recurso del miembro (como el sexo) para
-// usar en métricas, filtros y funciones posteriores. No son equipos.
-export const AGE_RANGES: { name: string; min: number; max: number | null }[] = [
-  { name: 'Maternal', min: 0, max: 5 },
-  { name: 'Niños', min: 6, max: 12 },
-  { name: 'Adolescentes', min: 13, max: 17 },
-  { name: 'Jóvenes', min: 18, max: 28 },
-  { name: 'Adultos', min: 29, max: 59 },
-  { name: 'Adultos mayores', min: 60, max: null },
-]
-
-export function ageRange(birthDate: string | null): string | null {
-  const age = ageFromBirth(birthDate)
-  if (age == null) return null
-  return ageRangeFromAge(age)
+// Rangos de edad CONFIGURABLES por iglesia. Cada rango inicia en `start` y
+// cubre hasta el inicio del siguiente activo. Se guardan en churches.settings.age_ranges.
+export interface AgeRangeDef {
+  key: string
+  name: string
+  color: string // hex
+  start: number // edad de inicio
+  enabled: boolean
 }
 
-// Rango a partir de una edad (número).
-export function ageRangeFromAge(age: number): string | null {
-  for (const r of AGE_RANGES) {
-    if (age >= r.min && (r.max == null || age <= r.max)) return r.name
+export const DEFAULT_AGE_RANGES: AgeRangeDef[] = [
+  { key: 'maternal', name: 'Maternal', color: '#ec4899', start: 0, enabled: true },
+  { key: 'ninos', name: 'Niños', color: '#f59e0b', start: 6, enabled: true },
+  { key: 'adolescentes', name: 'Adolescentes', color: '#84cc16', start: 13, enabled: true },
+  { key: 'jovenes', name: 'Jóvenes', color: '#0ea5e9', start: 18, enabled: true },
+  { key: 'adultos', name: 'Adultos', color: '#6366f1', start: 29, enabled: true },
+  { key: 'adultos_mayores', name: 'Adultos mayores', color: '#78716c', start: 60, enabled: true },
+]
+
+export function readAgeRanges(settings: unknown): AgeRangeDef[] {
+  const s = (settings ?? {}) as { age_ranges?: AgeRangeDef[] }
+  return Array.isArray(s.age_ranges) && s.age_ranges.length ? s.age_ranges : DEFAULT_AGE_RANGES
+}
+
+// Rango (def) que corresponde a una edad, según los cortes ACTIVOS.
+export function classifyAge(age: number | null, ranges: AgeRangeDef[]): AgeRangeDef | null {
+  if (age == null) return null
+  const active = ranges.filter((r) => r.enabled).sort((a, b) => a.start - b.start)
+  let match: AgeRangeDef | null = null
+  for (const r of active) {
+    if (age >= r.start) match = r
+    else break
   }
-  return null
+  return match
 }
 
 // Categorías gruesas para cuando no hay fecha ni edad exacta.
 export const COARSE_AGE = ['Niño', 'Joven', 'Adulto'] as const
 
 // Clasificación a GUARDAR cuando no hay fecha de nacimiento (desde edad o categoría).
-export function resolveAgeGroup(ageInput: string, category: string): string | null {
+export function resolveAgeGroup(ageInput: string, category: string, ranges: AgeRangeDef[]): string | null {
   const n = Number(ageInput)
-  if (ageInput.trim() !== '' && !Number.isNaN(n)) return ageRangeFromAge(n)
+  if (ageInput.trim() !== '' && !Number.isNaN(n)) return classifyAge(n, ranges)?.name ?? null
   if (category) return category
   return null
 }
 
-// Clasificación a MOSTRAR: fecha de nacimiento (precisa) o el age_group guardado.
-export function displayAgeRange(birthDate: string | null, ageGroup: string | null): string | null {
-  if (birthDate) return ageRange(birthDate)
+// Clasificación a MOSTRAR: fecha de nacimiento (precisa, según cortes) o el age_group guardado.
+export function displayAgeRange(
+  birthDate: string | null,
+  ageGroup: string | null,
+  ranges: AgeRangeDef[],
+): string | null {
+  if (birthDate) return classifyAge(ageFromBirth(birthDate), ranges)?.name ?? null
   return ageGroup || null
-}
-
-// Color por rango de edad, para distinguir de un vistazo.
-export const AGE_TONE: Record<string, string> = {
-  Maternal: 'bg-pink-100 text-pink-700',
-  Niños: 'bg-amber-100 text-amber-700',
-  Niño: 'bg-amber-100 text-amber-700',
-  Adolescentes: 'bg-lime-100 text-lime-700',
-  Jóvenes: 'bg-sky-100 text-sky-700',
-  Joven: 'bg-sky-100 text-sky-700',
-  Adultos: 'bg-indigo-100 text-indigo-700',
-  Adulto: 'bg-indigo-100 text-indigo-700',
-  'Adultos mayores': 'bg-stone-200 text-stone-700',
-}
-
-export function ageTone(range: string | null): string {
-  return (range && AGE_TONE[range]) || 'bg-graysage/15 text-graysage'
 }
 
 export const IDENTITY_TONE_CLASS: Record<IdentityTone, string> = {

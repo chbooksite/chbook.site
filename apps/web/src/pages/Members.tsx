@@ -12,14 +12,16 @@ import {
   type Requires,
 } from '../lib/rules'
 import {
-  AGE_RANGES,
   ageFromBirth,
   COARSE_AGE,
+  DEFAULT_AGE_RANGES,
   displayAgeRange,
   IDENTITY_TONE_CLASS,
   isBaptismInconsistent,
   memberIdentity,
+  readAgeRanges,
   resolveAgeGroup,
+  type AgeRangeDef,
 } from '../lib/member'
 
 interface Catalog {
@@ -112,6 +114,7 @@ export default function Members() {
   const [teams, setTeams] = useState<Catalog[]>([])
   const [members, setMembers] = useState<MemberRow[]>([])
   const [rules, setRules] = useState<ChurchRules>(DEFAULT_RULES)
+  const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
   const [loading, setLoading] = useState(true)
 
   // Búsqueda y filtros
@@ -165,6 +168,7 @@ export default function Members() {
     setRoles(mapCat(rolesRes.data))
     setTeams(mapCat(teamsRes.data))
     setRules(readRules(churchRes.data?.settings))
+    setAgeRanges(readAgeRanges(churchRes.data?.settings))
     const raw = (membersRes.data ?? []) as unknown as RawMember[]
     setMembers(
       raw.map((m) => ({
@@ -260,7 +264,7 @@ export default function Members() {
         email: email.trim() || null,
         phone: phone.trim() || null,
         birth_date: newBirth || null,
-        age_group: newBirth ? null : resolveAgeGroup(newAge, newCategory),
+        age_group: newBirth ? null : resolveAgeGroup(newAge, newCategory, ageRanges),
         sex: newSex || null,
         is_baptized: newBaptized,
         status,
@@ -393,16 +397,12 @@ export default function Members() {
   const teamsBlocked = rules.baptism_for_teams && !newBaptized
 
   const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-  const memberRange = (m: MemberRow) => displayAgeRange(m.birthDate, m.ageGroupVal)
-  const AGE_MID: Record<string, number> = {
-    Maternal: 3, Niños: 9, Niño: 9, Adolescentes: 15, Jóvenes: 23, Joven: 23,
-    Adultos: 44, Adulto: 44, 'Adultos mayores': 70,
-  }
+  const memberRange = (m: MemberRow) => displayAgeRange(m.birthDate, m.ageGroupVal, ageRanges)
   const sortAge = (m: MemberRow): number => {
     const a = ageFromBirth(m.birthDate)
     if (a != null) return a
-    if (m.ageGroupVal && AGE_MID[m.ageGroupVal] != null) return AGE_MID[m.ageGroupVal]
-    return 999
+    const r = ageRanges.find((x) => x.name === m.ageGroupVal)
+    return r ? r.start : 999
   }
 
   const filtered = members.filter((m) => {
@@ -723,7 +723,7 @@ export default function Members() {
             </div>
             <FilterRow
               label="Edad"
-              options={AGE_RANGES.map((r) => ({ value: r.name, label: r.name }))}
+              options={ageRanges.filter((r) => r.enabled).map((r) => ({ value: r.name, label: r.name }))}
               selected={fAges}
               onToggle={(v) => toggleArr(fAges, setFAges, v)}
             />
