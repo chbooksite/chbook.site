@@ -101,18 +101,41 @@ export function serviceMinutes(start: string | null, end: string | null): number
   return d > 0 ? d : null
 }
 
-// Conjunto de equipos participantes guardado para reutilizar en otros servicios.
-export interface TeamPreset {
+// Plantilla reutilizable del ARREGLO de un servicio: equipos participantes +
+// la línea de tiempo (actividades con duración y encargados). El pastor la usa
+// para cualquier servicio y puede partir de ella para crear nuevos.
+export interface TemplateSegment {
+  tagId: string | null
   name: string
-  teamIds: string[]
+  durationMin: number | null
+  assignees: Assignee[]
+  pinned: boolean
 }
-export function readTeamPresets(settings: unknown): TeamPreset[] {
-  const s = (settings ?? {}) as { team_presets?: unknown }
-  if (!Array.isArray(s.team_presets)) return []
-  return s.team_presets
-    .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
-    .map((p) => ({ name: String(p.name ?? ''), teamIds: Array.isArray(p.teamIds) ? (p.teamIds as string[]) : [] }))
-    .filter((p) => p.name)
+export interface ActivityTemplate {
+  name: string // etiqueta de la plantilla
+  typeId: string | null
+  teamIds: string[]
+  segments: TemplateSegment[]
+}
+export function readActivityTemplates(settings: unknown): ActivityTemplate[] {
+  const s = (settings ?? {}) as { activity_templates?: unknown }
+  if (!Array.isArray(s.activity_templates)) return []
+  return s.activity_templates
+    .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object' && typeof t.name === 'string' && !!t.name)
+    .map((t) => ({
+      name: t.name as string,
+      typeId: (t.typeId as string) ?? null,
+      teamIds: Array.isArray(t.teamIds) ? (t.teamIds as string[]) : [],
+      segments: Array.isArray(t.segments)
+        ? (t.segments as Record<string, unknown>[]).map((s) => ({
+            tagId: (s.tagId as string) ?? null,
+            name: String(s.name ?? ''),
+            durationMin: typeof s.durationMin === 'number' ? s.durationMin : null,
+            assignees: readAssignees(s.assignees),
+            pinned: !!s.pinned,
+          }))
+        : [],
+    }))
 }
 
 export function readAudience(json: unknown): Audience {

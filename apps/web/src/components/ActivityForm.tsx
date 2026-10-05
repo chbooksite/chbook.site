@@ -15,7 +15,7 @@ import {
   type ScheduleTeam,
   type Segment,
   type Tag,
-  type TeamPreset,
+  type ActivityTemplate,
 } from '../lib/activity'
 
 interface Opt {
@@ -110,8 +110,8 @@ export default function ActivityForm({
   tags,
   membersByTeam,
   membersByRole,
-  teamPresets,
-  onPresetsChange,
+  templates,
+  onTemplatesChange,
   onClose,
   onSaved,
   onTagCreated,
@@ -127,8 +127,8 @@ export default function ActivityForm({
   tags: Tag[]
   membersByTeam: Map<string, Opt[]>
   membersByRole: Map<string, Opt[]>
-  teamPresets: TeamPreset[]
-  onPresetsChange: (p: TeamPreset[]) => void
+  templates: ActivityTemplate[]
+  onTemplatesChange: (t: ActivityTemplate[]) => void
   onClose: () => void
   onSaved: () => void
   onTagCreated: (t: Tag) => void
@@ -150,13 +150,9 @@ export default function ActivityForm({
 
   const teamsOf = (ids: string[]): ScheduleTeam[] => ids.filter((id) => teams.some((t) => t.id === id)).map((id) => ({ teamId: id, delegate: false, memberIds: [] }))
   const [partTeams, setPartTeams] = useState<ScheduleTeam[]>(
-    editing
-      ? editingTeams
-      : teamPresets[0]?.teamIds.length
-        ? teamsOf(teamPresets[0].teamIds)
-        : teams.filter((t) => t.key && DEFAULT_TEAM_KEYS.includes(t.key)).map((t) => ({ teamId: t.id, delegate: false, memberIds: [] })),
+    editing ? editingTeams : teams.filter((t) => t.key && DEFAULT_TEAM_KEYS.includes(t.key)).map((t) => ({ teamId: t.id, delegate: false, memberIds: [] })),
   )
-  const [presets, setPresets] = useState<TeamPreset[]>(teamPresets)
+  const [tpls, setTpls] = useState<ActivityTemplate[]>(templates)
   const [segments, setSegments] = useState<Seg[]>(editing ? editingSegments.map(withKey) : defaultSegments(tags))
   const [newTagName, setNewTagName] = useState('')
   const [listOpen, setListOpen] = useState(false)
@@ -180,23 +176,6 @@ export default function ActivityForm({
   }
   const removeTeam = (teamId: string) => setPartTeams((prev) => prev.filter((t) => t.teamId !== teamId))
 
-  // Presets de equipos: guardar el conjunto actual y reutilizarlo en otros servicios.
-  const persistPresets = async (next: TeamPreset[]) => {
-    const { data } = await supabase.from('churches').select('settings').eq('id', churchId).maybeSingle()
-    const s = (data?.settings ?? {}) as Record<string, unknown>
-    await supabase.from('churches').update({ settings: { ...s, team_presets: next } as never }).eq('id', churchId)
-    setPresets(next)
-    onPresetsChange(next)
-  }
-  const savePreset = () => {
-    if (!partTeams.length) return
-    const name = window.prompt('Nombre para este conjunto de equipos:', presets.length ? '' : 'Predeterminado')?.trim()
-    if (!name) return
-    const entry: TeamPreset = { name, teamIds: partTeams.map((t) => t.teamId) }
-    persistPresets([...presets.filter((p) => p.name !== name), entry])
-  }
-  const applyPreset = (p: TeamPreset) => setPartTeams(teamsOf(p.teamIds))
-  const deletePreset = (name: string) => persistPresets(presets.filter((p) => p.name !== name))
 
   // Capa 2
   const patchSeg = (k: string, p: Partial<Seg>) => setSegments((prev) => prev.map((s) => (s._k === k ? { ...s, ...p } : s)))
@@ -263,6 +242,33 @@ export default function ActivityForm({
     dragKey.current = null
     setDragging(null)
   }
+
+  // Plantillas: guardar el arreglo (equipos + línea de tiempo) y reutilizarlo.
+  const persistTemplates = async (next: ActivityTemplate[]) => {
+    const { data } = await supabase.from('churches').select('settings').eq('id', churchId).maybeSingle()
+    const s = (data?.settings ?? {}) as Record<string, unknown>
+    await supabase.from('churches').update({ settings: { ...s, activity_templates: next } as never }).eq('id', churchId)
+    setTpls(next)
+    onTemplatesChange(next)
+  }
+  const saveTemplate = () => {
+    const nm = window.prompt('Nombre de la plantilla (equipos + línea de tiempo):', name || '')?.trim()
+    if (!nm) return
+    const entry: ActivityTemplate = {
+      name: nm,
+      typeId: typeId || null,
+      teamIds: partTeams.map((t) => t.teamId),
+      segments: segments.map((s) => ({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees, pinned: s.pinned })),
+    }
+    persistTemplates([...tpls.filter((t) => t.name !== nm), entry])
+  }
+  const applyTemplate = (t: ActivityTemplate) => {
+    if (t.typeId) setTypeId(t.typeId)
+    setPartTeams(teamsOf(t.teamIds))
+    setSegments(t.segments.map((s) => withKey({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees ?? [], pinned: !!s.pinned })))
+    setSelectedKey(null)
+  }
+  const deleteTemplate = (nm: string) => persistTemplates(tpls.filter((t) => t.name !== nm))
 
   const save = async () => {
     if (!name.trim()) {
@@ -349,6 +355,19 @@ export default function ActivityForm({
           <button type="button" onClick={onClose} className="rounded-lg px-2 py-1 text-lg text-graysage hover:bg-cream hover:text-charcoal" title="Cerrar">✕</button>
         </div>
 
+        {/* Plantillas: reutilizar un arreglo (equipos + línea de tiempo) */}
+        <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-xl bg-cream/50 px-3 py-2">
+          <span className="mr-1 text-xs font-medium text-graysage">Plantillas:</span>
+          {tpls.length === 0 && <span className="text-xs text-graysage/50">ninguna guardada</span>}
+          {tpls.map((t) => (
+            <span key={t.name} className="inline-flex items-center gap-1 rounded-full border border-sage/30 bg-white px-2.5 py-1 text-xs text-charcoal">
+              <button type="button" onClick={() => applyTemplate(t)} title="Partir de esta plantilla" className="hover:text-sage-dark">{t.name}</button>
+              <button type="button" onClick={() => deleteTemplate(t.name)} title="Eliminar plantilla" className="text-graysage/60 hover:text-clay">✕</button>
+            </span>
+          ))}
+          <button type="button" onClick={saveTemplate} className="ml-auto rounded-lg border border-sage/40 px-2.5 py-1 text-xs text-sage-dark hover:bg-sage/10">Guardar como plantilla</button>
+        </div>
+
         <div className="space-y-5">
           <div>
             <label className="mb-1 block text-sm font-medium text-graysage">Nombre</label>
@@ -421,16 +440,6 @@ export default function ActivityForm({
                   <button key={t.id} type="button" onClick={() => (active ? removeTeam(t.id) : addTeam(t.id))} className={catalogChipCls(active)}>{t.name}</button>
                 )
               })}
-            </div>
-            {/* presets de equipos */}
-            <div className="mt-3 flex flex-wrap items-center gap-1.5">
-              {presets.map((p) => (
-                <span key={p.name} className="inline-flex items-center gap-1 rounded-full border border-graysage/25 bg-white px-2.5 py-1 text-xs text-charcoal">
-                  <button type="button" onClick={() => applyPreset(p)} title="Usar este conjunto" className="hover:text-sage-dark">{p.name}</button>
-                  <button type="button" onClick={() => deletePreset(p.name)} title="Eliminar" className="text-graysage/60 hover:text-clay">✕</button>
-                </span>
-              ))}
-              <button type="button" onClick={savePreset} className="rounded-full px-2.5 py-1 text-xs text-sage-dark hover:bg-sage/10">+ Guardar estos equipos</button>
             </div>
           </div>
 

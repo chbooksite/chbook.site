@@ -10,9 +10,9 @@ import {
   addDays,
   formatTime,
   projectWeek,
+  readActivityTemplates,
   readAssignees,
   readAudience,
-  readTeamPresets,
   recurrenceLabel,
   weekStart,
   type ActivityType,
@@ -22,7 +22,7 @@ import {
   type ScheduleTeam,
   type Segment,
   type Tag,
-  type TeamPreset,
+  type ActivityTemplate,
 } from '../lib/activity'
 
 interface Opt {
@@ -41,7 +41,7 @@ export default function Calendar() {
   const [roles, setRoles] = useState<Opt[]>([])
   const [tags, setTags] = useState<Tag[]>([])
   const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
-  const [teamPresets, setTeamPresets] = useState<TeamPreset[]>([])
+  const [templates, setTemplates] = useState<ActivityTemplate[]>([])
   const [membersByTeam, setMembersByTeam] = useState<Map<string, Opt[]>>(new Map())
   const [membersByRole, setMembersByRole] = useState<Map<string, Opt[]>>(new Map())
   const [teamsBySchedule, setTeamsBySchedule] = useState<Map<string, ScheduleTeam[]>>(new Map())
@@ -91,7 +91,7 @@ export default function Calendar() {
     setRoles((roleRes.data ?? []) as Opt[])
     setTags((tagRes.data ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color, defaultDurationMin: t.default_duration_min })))
     setAgeRanges(readAgeRanges(churchRes.data?.settings))
-    setTeamPresets(readTeamPresets(churchRes.data?.settings))
+    setTemplates(readActivityTemplates(churchRes.data?.settings))
 
     // miembros por equipo / rol
     const memName = new Map((memRes.data ?? []).map((m) => [m.id, m.full_name]))
@@ -285,8 +285,8 @@ export default function Calendar() {
           tags={tags}
           membersByTeam={membersByTeam}
           membersByRole={membersByRole}
-          teamPresets={teamPresets}
-          onPresetsChange={setTeamPresets}
+          templates={templates}
+          onTemplatesChange={setTemplates}
           onClose={() => setShowForm(false)}
           onSaved={() => {
             setShowForm(false)
