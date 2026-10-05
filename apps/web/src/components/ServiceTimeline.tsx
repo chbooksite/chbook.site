@@ -12,7 +12,7 @@ export default function ServiceTimeline({
   totalMin,
   startMin,
   colorOf,
-  onDuration,
+  onResize,
   onReorder,
   onSelect,
   onBarBottom,
@@ -23,7 +23,7 @@ export default function ServiceTimeline({
   totalMin: number | null
   startMin: number | null
   colorOf: (s: Segment) => string
-  onDuration: (index: number, min: number) => void
+  onResize: (index: number, minI: number, minNext?: number) => void
   onReorder: (from: number, to: number) => void
   onSelect?: (index: number, originFrac?: number) => void
   onBarBottom?: (px: number) => void
@@ -80,8 +80,17 @@ export default function ServiceTimeline({
     const d = drag.current
     if (!d || !trackRef.current) return
     if (d.mode === 'resize') {
+      // El borde derecho transfiere tiempo solo con la actividad de al lado:
+      // la suma se mantiene y nada más de la barra se mueve.
       const before = segments.slice(0, d.i).reduce((a, s) => a + (s.durationMin ?? 0), 0)
-      onDuration(d.i, Math.max(1, Math.round(cursorMin(e.clientX) - before)))
+      const next = segments[d.i + 1]
+      if (next) {
+        const pair = (segments[d.i].durationMin ?? 0) + (next.durationMin ?? 0)
+        const newI = Math.max(1, Math.min(pair - 1, Math.round(cursorMin(e.clientX) - before)))
+        onResize(d.i, newI, pair - newI)
+      } else {
+        onResize(d.i, Math.max(1, Math.round(cursorMin(e.clientX) - before)))
+      }
       return
     }
     // reorder: hallar índice destino según la posición del cursor

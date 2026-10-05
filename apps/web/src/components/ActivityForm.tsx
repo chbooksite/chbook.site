@@ -468,7 +468,7 @@ export default function ActivityForm({
                 keyOf={(s) => (s as Seg)._k}
                 selectedKey={selectedKey}
                 onSelect={(i, frac) => selectSeg(segments[i]._k, frac)}
-                onDuration={(i, min) => setSegments((prev) => prev.map((s, idx) => (idx === i ? { ...s, durationMin: min } : s)))}
+                onResize={(i, minI, minNext) => setSegments((prev) => prev.map((s, idx) => (idx === i ? { ...s, durationMin: minI } : minNext != null && idx === i + 1 ? { ...s, durationMin: minNext } : s)))}
                 onReorder={(from, to) => setSegments((prev) => reorderRespectingPins(prev, from, to))}
                 onBarBottom={setCardTop}
               />
