@@ -38,6 +38,7 @@ export default function ServiceTimeline({
   const barsRef = useRef<HTMLDivElement>(null)
   const ovRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ mode: 'resize' | 'reorder'; key: string; level: number } | null>(null)
+  const pending = useRef<{ key: string; level: number; pinned: boolean; x: number; y: number; frac?: number; moved: boolean } | null>(null)
   const navDrag = useRef(false)
   const overTrash = useRef(false)
   const [zoom, setZoom] = useState(1)
@@ -78,13 +79,20 @@ export default function ServiceTimeline({
     const sc = scrollRef.current
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const frac = sc ? Math.max(0, Math.min(1, (r.left + r.width / 2 - sc.getBoundingClientRect().left) / sc.clientWidth)) : undefined
-    onSelect?.(key, frac)
-    if (pinned) return
-    drag.current = { mode: 'reorder', key, level }
-    setDragActive(true)
+    // No seleccionamos aún: la tarjeta solo sale si fue un clic (sin arrastrar).
+    pending.current = { key, level, pinned, x: e.clientX, y: e.clientY, frac, moved: false }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   }
   const onMove = (e: RPointerEvent) => {
+    const p = pending.current
+    if (p && !p.moved) {
+      if (Math.abs(e.clientX - p.x) < 4 && Math.abs(e.clientY - p.y) < 4) return // aún no es arrastre
+      p.moved = true
+      if (!p.pinned) {
+        drag.current = { mode: 'reorder', key: p.key, level: p.level }
+        setDragActive(true)
+      }
+    }
     const d = drag.current
     if (!d || !trackRef.current) return
     const segs = levelSegs(d.level)
@@ -119,7 +127,10 @@ export default function ServiceTimeline({
   }
   const onUp = () => {
     const d = drag.current
+    const p = pending.current
     if (d?.mode === 'reorder' && overTrash.current) onDelete?.(d.key)
+    else if (p && !p.moved) onSelect?.(p.key, p.frac) // fue un clic → abrir tarjeta
+    pending.current = null
     drag.current = null
     overTrash.current = false
     setDragActive(false)
