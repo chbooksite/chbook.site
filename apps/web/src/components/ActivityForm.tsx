@@ -32,9 +32,10 @@ function chipCls(active: boolean): string {
 const mkKey = () => Math.random().toString(36).slice(2)
 const withKey = (s: Segment): Seg => ({ ...s, _k: mkKey() })
 
-// Tarjeta que "sale" de la barra: crece suavemente desde el punto (originPct)
-// donde está la actividad. Se re-monta (key) para re-animar en cada selección.
-function PopCard({ originPct, children }: { originPct: number; children: ReactNode }) {
+// Tarjeta que "sale" de la etiqueta de la barra: brota desde el punto (originPct)
+// con el color de la actividad y se SUPERPONE a la línea de tiempo, creciendo
+// suavemente hasta mostrar el contenido. Se re-monta (key) para re-animar.
+function PopCard({ originPct, color, children }: { originPct: number; color: string; children: ReactNode }) {
   const [shown, setShown] = useState(false)
   useEffect(() => {
     const r = requestAnimationFrame(() => setShown(true))
@@ -42,10 +43,10 @@ function PopCard({ originPct, children }: { originPct: number; children: ReactNo
   }, [])
   return (
     <div
-      style={{ transformOrigin: `${originPct}% top` }}
-      className={`transition-all duration-300 ease-out ${shown ? 'scale-100 translate-y-0 opacity-100' : 'scale-50 -translate-y-1 opacity-0'}`}
+      style={{ transformOrigin: `${originPct}% top`, borderColor: color, backgroundColor: shown ? '#ffffff' : color }}
+      className={`absolute inset-x-0 top-0 z-20 overflow-hidden rounded-xl border-l-4 shadow-xl transition-all duration-300 ease-out ${shown ? 'scale-100 opacity-100' : 'scale-[0.12] opacity-80'}`}
     >
-      {children}
+      <div className={`transition-opacity delay-100 duration-200 ${shown ? 'opacity-100' : 'opacity-0'}`}>{children}</div>
     </div>
   )
 }
@@ -128,6 +129,8 @@ export default function ActivityForm({
   const [newTagName, setNewTagName] = useState('')
   const [menuKey, setMenuKey] = useState<string | null>(null)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [originPct, setOriginPct] = useState(50)
+  const selectSeg = (k: string, frac?: number) => { setSelectedKey(k); if (frac != null) setOriginPct(frac * 100) }
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -279,19 +282,6 @@ export default function ActivityForm({
   const availableTeams = teams.filter((t) => !partTeams.some((p) => p.teamId === t.id))
   const selected = segments.find((s) => s._k === selectedKey) ?? null
 
-  // punto horizontal (%) desde el que "sale" la tarjeta de la actividad seleccionada
-  const sumMin = segments.reduce((a, s) => a + (s.durationMin ?? 0), 0)
-  const scaleMin = Math.max(total ?? 0, sumMin, 1)
-  let originPct = 50
-  if (selected) {
-    let before = 0
-    for (const s of segments) {
-      if (s._k === selected._k) break
-      before += s.durationMin ?? 0
-    }
-    originPct = ((before + (selected.durationMin ?? 0) / 2) / scaleMin) * 100
-  }
-
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8" onClick={onClose}>
       <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -396,7 +386,7 @@ export default function ActivityForm({
             <p className="text-sm font-medium text-charcoal">Línea de tiempo del servicio</p>
             <p className="mb-3 text-xs text-graysage">Arrastra el borde derecho para la duración, el cuerpo para moverla. Toca una actividad para ver y asignar sus encargados.</p>
 
-            <div className="mb-3">
+            <div className="relative mb-3">
               <ServiceTimeline
                 segments={segments}
                 totalMin={total}
@@ -404,21 +394,21 @@ export default function ActivityForm({
                 colorOf={segColor}
                 keyOf={(s) => (s as Seg)._k}
                 selectedKey={selectedKey}
-                onSelect={(i) => setSelectedKey(segments[i]._k)}
+                onSelect={(i, frac) => selectSeg(segments[i]._k, frac)}
                 onDuration={(i, min) => setSegments((prev) => prev.map((s, idx) => (idx === i ? { ...s, durationMin: min } : s)))}
                 onReorder={(from, to) => setSegments((prev) => reorderRespectingPins(prev, from, to))}
               />
-            </div>
 
-            {/* tarjeta de la actividad seleccionada — sale de la barra */}
+            {/* tarjeta de la actividad seleccionada — brota de la etiqueta y se superpone */}
             {selected && (
-              <PopCard key={selected._k} originPct={originPct}>
-              <div className="mb-3 rounded-xl border border-sage/30 bg-white p-3 shadow-md">
+              <PopCard key={selected._k} originPct={originPct} color={segColor(selected)}>
+              <div className="p-3">
                 <div className="flex items-center gap-2">
                   <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ backgroundColor: segColor(selected) }} />
                   <input value={selected.name} onChange={(e) => patchSeg(selected._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-serif text-base text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
                   <input type="number" min={1} value={selected.durationMin ?? ''} onChange={(e) => patchSeg(selected._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
                   <span className="text-xs text-graysage">min</span>
+                  <button type="button" onClick={() => setSelectedKey(null)} className="px-1 text-graysage hover:text-charcoal" title="Cerrar">✕</button>
                 </div>
 
                 <p className="mb-1 mt-3 text-xs font-medium uppercase tracking-wide text-graysage/70">Encargados</p>
@@ -455,6 +445,7 @@ export default function ActivityForm({
               </div>
               </PopCard>
             )}
+            </div>
 
             {/* lista de actividades */}
             <div ref={listRef} className="space-y-1.5">

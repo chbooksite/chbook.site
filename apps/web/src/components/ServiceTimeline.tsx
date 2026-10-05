@@ -24,7 +24,7 @@ export default function ServiceTimeline({
   colorOf: (s: Segment) => string
   onDuration: (index: number, min: number) => void
   onReorder: (from: number, to: number) => void
-  onSelect?: (index: number) => void
+  onSelect?: (index: number, originFrac?: number) => void
   selectedKey?: string | null
   keyOf: (s: Segment, i: number) => string
 }) {
@@ -59,7 +59,10 @@ export default function ServiceTimeline({
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   }
   const onBodyDown = (i: number, key: string, pinned: boolean) => (e: RPointerEvent) => {
-    onSelect?.(i)
+    const sc = scrollRef.current
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const frac = sc ? Math.max(0, Math.min(1, (r.left + r.width / 2 - sc.getBoundingClientRect().left) / sc.clientWidth)) : undefined
+    onSelect?.(i, frac)
     if (pinned) return
     drag.current = { mode: 'reorder', i, key }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
