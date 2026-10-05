@@ -14,7 +14,6 @@ import {
 import {
   AGE_RANGES,
   ageFromBirth,
-  ageTone,
   COARSE_AGE,
   displayAgeRange,
   IDENTITY_TONE_CLASS,
@@ -780,7 +779,6 @@ export default function Members() {
             {sorted.map((m, i) => {
               const deps = depsByGuardian[m.id] ?? []
               const expanded = expandedDeps.has(m.id)
-              const range = memberRange(m)
               return (
                 <div key={m.id} className={i > 0 ? 'border-t border-clay-light/25' : ''}>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
@@ -809,12 +807,6 @@ export default function Members() {
                       </span>
                       {m.email && <p className="font-mono text-xs text-graysage">{m.email}</p>}
                     </div>
-
-                    {range && (
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ageTone(range)}`}>
-                        {range}
-                      </span>
-                    )}
 
                     <div className="flex flex-wrap gap-1">
                       {m.roleIds.map((id) => (
