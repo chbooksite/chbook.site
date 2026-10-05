@@ -701,6 +701,7 @@ export type Database = {
           created_at: string | null
           duration_min: number | null
           id: string
+          level: number
           member_ids: string[] | null
           name: string
           pinned: boolean | null
@@ -716,6 +717,7 @@ export type Database = {
           created_at?: string | null
           duration_min?: number | null
           id?: string
+          level?: number
           member_ids?: string[] | null
           name: string
           pinned?: boolean | null
@@ -731,6 +733,7 @@ export type Database = {
           created_at?: string | null
           duration_min?: number | null
           id?: string
+          level?: number
           member_ids?: string[] | null
           name?: string
           pinned?: boolean | null

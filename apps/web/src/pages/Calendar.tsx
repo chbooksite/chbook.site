@@ -131,6 +131,7 @@ export default function Calendar() {
         durationMin: row.duration_min,
         assignees: readAssignees(row.assignees),
         pinned: !!row.pinned,
+        level: row.level ?? 1,
       })
       ssMap.set(row.schedule_id, arr)
     }

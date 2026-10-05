@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { minToClock, type Segment } from '../lib/activity'
 
-// Línea de tiempo HORIZONTAL del servicio.
-//  · Barras proporcionales a la duración, en orden y sin solaparse.
-//  · Se arrastra el borde derecho de cada barra para ajustar sus minutos.
-//  · Se arrastra el cuerpo de una barra para moverla (reordenar).
-//  · Zoom para leer actividades cortas + barra de navegación (minimapa) al ampliar.
-//  · Debajo: hora de reloj en cada divisoria.
+// Línea de tiempo HORIZONTAL del servicio, con actividades en SIMULTÁNEO:
+// nivel 1 = barra principal; niveles 2 y 3 = barras paralelas (media altura)
+// bajo la principal, alineadas a la misma escala de tiempo. En cada barra:
+//  · arrastrar el borde derecho transfiere minutos con la actividad vecina;
+//  · arrastrar el cuerpo reordena;
+//  · zoom + minimapa para navegar.
 export default function ServiceTimeline({
   segments,
   totalMin,
@@ -23,9 +23,9 @@ export default function ServiceTimeline({
   totalMin: number | null
   startMin: number | null
   colorOf: (s: Segment) => string
-  onResize: (index: number, minI: number, minNext?: number) => void
-  onReorder: (from: number, to: number) => void
-  onSelect?: (index: number, originFrac?: number) => void
+  onResize: (key: string, minThis: number, nextKey: string | null, minNext: number) => void
+  onReorder: (level: number, key: string, toIdx: number) => void
+  onSelect?: (key: string, originFrac?: number) => void
   onBarBottom?: (px: number) => void
   selectedKey?: string | null
   keyOf: (s: Segment, i: number) => string
@@ -33,16 +33,18 @@ export default function ServiceTimeline({
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
-  const barRef = useRef<HTMLDivElement>(null)
+  const barsRef = useRef<HTMLDivElement>(null)
   const ovRef = useRef<HTMLDivElement>(null)
-  const drag = useRef<{ mode: 'resize' | 'reorder'; i: number; key: string } | null>(null)
+  const drag = useRef<{ mode: 'resize' | 'reorder'; key: string; level: number } | null>(null)
   const navDrag = useRef(false)
   const [zoom, setZoom] = useState(1)
-  const [win, setWin] = useState({ left: 0, width: 100 }) // ventana visible (% del total)
+  const [win, setWin] = useState({ left: 0, width: 100 })
 
-  const sum = segments.reduce((a, s) => a + (s.durationMin ?? 0), 0)
-  const scale = Math.max(totalMin ?? 0, sum, 1)
-  const remaining = totalMin != null ? totalMin - sum : null
+  const lvl = (s: Segment) => s.level ?? 1
+  const levelSegs = (L: number) => segments.filter((s) => lvl(s) === L)
+  const activeLevels = [1, 2, 3].filter((L) => L === 1 || levelSegs(L).length > 0)
+  const sumOf = (L: number) => levelSegs(L).reduce((a, s) => a + (s.durationMin ?? 0), 0)
+  const scale = Math.max(totalMin ?? 0, ...activeLevels.map(sumOf), 1)
   const boundaryLabel = (offset: number) => (startMin != null ? minToClock(startMin + offset) : `${offset}′`)
 
   const syncWin = () => {
@@ -52,65 +54,62 @@ export default function ServiceTimeline({
   }
   useEffect(syncWin, [zoom, segments])
   useLayoutEffect(() => {
-    if (barRef.current && rootRef.current && onBarBottom) {
-      onBarBottom(barRef.current.getBoundingClientRect().bottom - rootRef.current.getBoundingClientRect().top)
+    if (barsRef.current && rootRef.current && onBarBottom) {
+      onBarBottom(barsRef.current.getBoundingClientRect().bottom - rootRef.current.getBoundingClientRect().top)
     }
-  }, [zoom, segments.length, onBarBottom])
+  }, [zoom, segments, onBarBottom])
 
   const cursorMin = (clientX: number) => {
     const rect = trackRef.current!.getBoundingClientRect()
     return ((clientX - rect.left) / rect.width) * scale
   }
 
-  const onResizeDown = (i: number, key: string) => (e: RPointerEvent) => {
+  const onResizeDown = (key: string, level: number) => (e: RPointerEvent) => {
     e.stopPropagation()
-    drag.current = { mode: 'resize', i, key }
+    drag.current = { mode: 'resize', key, level }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   }
-  const onBodyDown = (i: number, key: string, pinned: boolean) => (e: RPointerEvent) => {
+  const onBodyDown = (key: string, level: number, pinned: boolean) => (e: RPointerEvent) => {
     const sc = scrollRef.current
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const frac = sc ? Math.max(0, Math.min(1, (r.left + r.width / 2 - sc.getBoundingClientRect().left) / sc.clientWidth)) : undefined
-    onSelect?.(i, frac)
+    onSelect?.(key, frac)
     if (pinned) return
-    drag.current = { mode: 'reorder', i, key }
+    drag.current = { mode: 'reorder', key, level }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   }
   const onMove = (e: RPointerEvent) => {
     const d = drag.current
     if (!d || !trackRef.current) return
+    const segs = levelSegs(d.level)
+    const idx = segs.findIndex((s, i) => keyOf(s, i) === d.key)
+    if (idx < 0) return
     if (d.mode === 'resize') {
-      // El borde derecho transfiere tiempo solo con la actividad de al lado:
-      // la suma se mantiene y nada más de la barra se mueve.
-      const before = segments.slice(0, d.i).reduce((a, s) => a + (s.durationMin ?? 0), 0)
-      const next = segments[d.i + 1]
+      const before = segs.slice(0, idx).reduce((a, s) => a + (s.durationMin ?? 0), 0)
+      const next = segs[idx + 1]
       if (next) {
-        const pair = (segments[d.i].durationMin ?? 0) + (next.durationMin ?? 0)
+        const pair = (segs[idx].durationMin ?? 0) + (next.durationMin ?? 0)
         const newI = Math.max(1, Math.min(pair - 1, Math.round(cursorMin(e.clientX) - before)))
-        onResize(d.i, newI, pair - newI)
+        onResize(d.key, newI, keyOf(next, idx + 1), pair - newI)
       } else {
-        onResize(d.i, Math.max(1, Math.round(cursorMin(e.clientX) - before)))
+        onResize(d.key, Math.max(1, Math.round(cursorMin(e.clientX) - before)), null, 0)
       }
       return
     }
-    // reorder: hallar índice destino según la posición del cursor
-    const from = segments.findIndex((s, i) => keyOf(s, i) === d.key)
-    if (from < 0) return
     const cm = cursorMin(e.clientX)
     let acc = 0
-    let to = segments.length - 1
-    for (let i = 0; i < segments.length; i++) {
-      const dur = segments[i].durationMin ?? 0
+    let to = segs.length - 1
+    for (let i = 0; i < segs.length; i++) {
+      const dur = segs[i].durationMin ?? 0
       if (cm < acc + dur / 2) { to = i; break }
       acc += dur
     }
-    if (to !== from) onReorder(from, to)
+    if (to !== idx) onReorder(d.level, d.key, to)
   }
   const onUp = () => {
     drag.current = null
   }
 
-  // navegación (minimapa)
   const scrollToFrac = (frac: number, behavior: ScrollBehavior = 'auto') => {
     const el = scrollRef.current
     if (!el) return
@@ -132,82 +131,89 @@ export default function ServiceTimeline({
     navDrag.current = false
   }
 
-  if (segments.length === 0) {
+  if (levelSegs(1).length === 0 && activeLevels.length === 1) {
     return <p className="rounded-lg border border-dashed border-graysage/30 py-4 text-center text-xs text-graysage/60">Agrega actividades para ver la línea de tiempo.</p>
   }
 
-  let acc = 0
-  const offsets = segments.map((s) => { const o = acc; acc += s.durationMin ?? 0; return o })
-  const zoomed = zoom > 1.01
-
-  const renderBar = (mini: boolean) => (
-    <div ref={mini ? undefined : barRef} className={`flex ${mini ? 'h-3' : 'h-16'} w-full overflow-hidden rounded-lg border border-graysage/20 bg-cream/50`}>
-      {segments.map((s, i) => {
-        const w = ((s.durationMin ?? 0) / scale) * 100
-        const k = keyOf(s, i)
-        return (
-          <div
-            key={k}
-            data-seg={mini ? undefined : ''}
-            onPointerDown={mini ? undefined : onBodyDown(i, k, !!s.pinned)}
-            onPointerMove={mini ? undefined : onMove}
-            onPointerUp={mini ? undefined : onUp}
-            style={{ width: `${w}%`, backgroundColor: colorOf(s) }}
-            className={`relative flex flex-col justify-center overflow-hidden ${mini ? '' : 'cursor-grab px-1.5 active:cursor-grabbing'} ${!mini && selectedKey === k ? 'ring-2 ring-inset ring-white' : ''}`}
-            title={mini ? undefined : `${s.name} · ${s.durationMin ?? 0} min`}
-          >
-            {!mini && (
-              <>
-                <span className="truncate text-[0.7rem] font-medium leading-tight text-white/95">{s.name}</span>
-                <span className="text-[0.6rem] leading-tight text-white/80">{s.durationMin ?? 0}′{s.pinned ? ' 📌' : ''}</span>
-                <span onPointerDown={onResizeDown(i, k)} className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-black/15 hover:bg-black/30" title="Arrastra para ajustar la duración" />
-              </>
-            )}
+  const renderBar = (L: number, mini: boolean) => {
+    const segs = levelSegs(L)
+    const h = mini ? (L === 1 ? 'h-3' : 'h-2') : L === 1 ? 'h-16' : 'h-8'
+    const sumL = sumOf(L)
+    const rem = scale - sumL
+    return (
+      <div className={`flex ${h} w-full overflow-hidden rounded-lg border border-graysage/20 bg-cream/50 ${L > 1 && !mini ? 'mt-1' : ''}`}>
+        {segs.map((s, i) => {
+          const w = ((s.durationMin ?? 0) / scale) * 100
+          const k = keyOf(s, i)
+          return (
+            <div
+              key={k}
+              data-seg={mini ? undefined : ''}
+              onPointerDown={mini ? undefined : onBodyDown(k, L, !!s.pinned)}
+              onPointerMove={mini ? undefined : onMove}
+              onPointerUp={mini ? undefined : onUp}
+              style={{ width: `${w}%`, backgroundColor: colorOf(s) }}
+              className={`relative flex flex-col justify-center overflow-hidden ${mini ? '' : 'cursor-grab px-1.5 active:cursor-grabbing'} ${!mini && selectedKey === k ? 'ring-2 ring-inset ring-white' : ''}`}
+              title={mini ? undefined : `${s.name} · ${s.durationMin ?? 0} min`}
+            >
+              {!mini && (
+                <>
+                  <span className="truncate text-[0.7rem] font-medium leading-tight text-white/95">{s.name}</span>
+                  {L === 1 && <span className="text-[0.6rem] leading-tight text-white/80">{s.durationMin ?? 0}′{s.pinned ? ' 📌' : ''}</span>}
+                  <span onPointerDown={onResizeDown(k, L)} className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-black/15 hover:bg-black/30" title="Arrastra para ajustar la duración" />
+                </>
+              )}
+            </div>
+          )
+        })}
+        {rem > 0 && (
+          <div style={{ width: `${(rem / scale) * 100}%` }} className="flex items-center justify-center">
+            {!mini && L === 1 && <span className="text-[0.6rem] text-graysage/50">{rem}′</span>}
           </div>
-        )
-      })}
-      {remaining != null && remaining > 0 && (
-        <div style={{ width: `${(remaining / scale) * 100}%` }} className="flex items-center justify-center">
-          {!mini && <span className="text-[0.6rem] text-graysage/50">{remaining}′</span>}
-        </div>
-      )}
-    </div>
-  )
+        )}
+      </div>
+    )
+  }
+
+  const offsets1 = (() => { let a = 0; return levelSegs(1).map((s) => { const o = a; a += s.durationMin ?? 0; return o }) })()
+  const sum1 = sumOf(1)
+  const zoomed = zoom > 1.01
 
   return (
     <div ref={rootRef} className="select-none">
-      {/* control de zoom */}
       <div className="mb-1.5 flex items-center gap-2">
         <span className="text-[0.65rem] text-graysage">Zoom</span>
         <input type="range" min={1} max={6} step={0.5} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="h-1 flex-1 cursor-pointer accent-sage" />
         <span className="w-8 text-right font-mono text-[0.65rem] text-graysage">{zoom}×</span>
       </div>
 
-      {/* barra con scroll */}
       <div ref={scrollRef} onScroll={syncWin} className="overflow-x-auto">
         <div ref={trackRef} style={{ width: `${zoom * 100}%` }} className="touch-none transition-[width] duration-300 ease-out">
-          {renderBar(false)}
-          {/* horas en cada divisoria */}
-          <div className="relative mt-1 h-4">
-            {offsets.map((o, i) => (
-              <span key={i} style={{ left: `${(o / scale) * 100}%` }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] text-graysage">{boundaryLabel(o)}</span>
+          <div ref={barsRef}>
+            {activeLevels.map((L) => (
+              <div key={L}>{renderBar(L, false)}</div>
             ))}
-            <span style={{ left: `${(sum / scale) * 100}%` }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] text-graysage">{boundaryLabel(sum)}</span>
+            {/* horas en cada divisoria (según la línea principal) */}
+            <div className="relative mt-1 h-4">
+              {offsets1.map((o, i) => (
+                <span key={i} style={{ left: `${(o / scale) * 100}%` }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] text-graysage">{boundaryLabel(o)}</span>
+              ))}
+              <span style={{ left: `${(sum1 / scale) * 100}%` }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] text-graysage">{boundaryLabel(sum1)}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* barra de navegación (minimapa) — solo al ampliar */}
       {zoomed && (
         <div ref={ovRef} onPointerDown={onNavDown} onPointerMove={onNavMove} onPointerUp={onNavUp} className="relative mt-1.5 cursor-pointer touch-none">
-          {renderBar(true)}
+          {renderBar(1, true)}
           <div style={{ left: `${win.left}%`, width: `${win.width}%` }} className="pointer-events-none absolute top-0 h-3 rounded border-2 border-charcoal/50 bg-charcoal/10 transition-[left,width] duration-150 ease-out" />
         </div>
       )}
 
       <p className="mt-1 text-[0.65rem] text-graysage/70">
-        Total: {sum} min{totalMin != null ? ` · servicio ${totalMin} min` : ''}
-        {remaining != null && remaining < 0 ? ` · ⚠ excede ${-remaining} min` : ''}
+        Nivel 1: {sum1} min{totalMin != null ? ` · servicio ${totalMin} min` : ''}
+        {totalMin != null && totalMin - sum1 < 0 ? ` · ⚠ excede ${sum1 - totalMin} min` : ''}
       </p>
     </div>
   )

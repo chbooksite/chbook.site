@@ -82,7 +82,7 @@ const DEFAULT_TIMELINE: { name: string; min: number; tag: string }[] = [
 function defaultSegments(tags: Tag[]): Seg[] {
   return DEFAULT_TIMELINE.map((d) => {
     const t = tags.find((x) => x.name.toLowerCase() === d.tag.toLowerCase())
-    return withKey({ tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignees: [], pinned: false })
+    return withKey({ tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignees: [], pinned: false, level: 1 })
   })
 }
 
@@ -96,6 +96,19 @@ function reorderRespectingPins(arr: Seg[], from: number, to: number): Seg[] {
   let ri = 0
   for (let i = 0; i < arr.length; i++) out.push(pinAt.get(i) ?? rest[ri++])
   return out
+}
+
+// Reordena solo dentro de un nivel, conservando las posiciones de los demás.
+function reorderWithinLevel(arr: Seg[], level: number, key: string, toIdx: number): Seg[] {
+  const positions: number[] = []
+  arr.forEach((s, i) => { if ((s.level ?? 1) === level) positions.push(i) })
+  const sub = positions.map((i) => arr[i])
+  const from = sub.findIndex((s) => s._k === key)
+  if (from < 0) return arr
+  const reordered = reorderRespectingPins(sub, from, toIdx)
+  const copy = [...arr]
+  positions.forEach((gi, k) => (copy[gi] = reordered[k]))
+  return copy
 }
 
 export default function ActivityForm({
@@ -181,8 +194,18 @@ export default function ActivityForm({
   // Capa 2
   const patchSeg = (k: string, p: Partial<Seg>) => setSegments((prev) => prev.map((s) => (s._k === k ? { ...s, ...p } : s)))
   const removeSeg = (k: string) => setSegments((prev) => prev.filter((s) => s._k !== k))
+  // Mover una actividad a un nivel (1 principal, 2/3 simultáneos). Al pasar a
+  // 2/3, por defecto arranca al inicio y dura la mitad (nivel 3 = mitad del 2).
+  const moveToLevel = (k: string, level: number) =>
+    setSegments((prev) => {
+      const sum = (L: number) => prev.filter((s) => (s.level ?? 1) === L).reduce((a, s) => a + (s.durationMin ?? 0), 0)
+      const scaleMin = Math.max(total ?? 0, sum(1), sum(2), sum(3), 1)
+      const empty = prev.every((s) => (s.level ?? 1) !== level) // ¿primer segmento del nivel?
+      const def = level === 3 ? Math.max(1, Math.round((sum(2) || scaleMin) / 2)) : Math.max(1, Math.round(scaleMin / 2))
+      return prev.map((s) => (s._k === k ? { ...s, level, ...(level !== 1 && empty ? { durationMin: def } : {}) } : s))
+    })
   const addSegmentFromTag = (t: Tag) => {
-    const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false })
+    const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false, level: 1 })
     setSegments((prev) => [...prev, seg])
     setSelectedKey(seg._k)
   }
@@ -259,7 +282,7 @@ export default function ActivityForm({
       name: nm,
       typeId: typeId || null,
       teamIds: partTeams.map((t) => t.teamId),
-      segments: segments.map((s) => ({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees, pinned: s.pinned })),
+      segments: segments.map((s) => ({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees, pinned: s.pinned, level: s.level })),
     }
     persistTemplates([...tpls.filter((t) => t.name !== nm), entry])
     setTemplateName('')
@@ -267,7 +290,7 @@ export default function ActivityForm({
   const applyTemplate = (t: ActivityTemplate) => {
     if (t.typeId) setTypeId(t.typeId)
     setPartTeams(teamsOf(t.teamIds))
-    setSegments(t.segments.map((s) => withKey({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees ?? [], pinned: !!s.pinned })))
+    setSegments(t.segments.map((s) => withKey({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees ?? [], pinned: !!s.pinned, level: s.level ?? 1 })))
     setSelectedKey(null)
   }
   const deleteTemplate = (nm: string) => persistTemplates(tpls.filter((t) => t.name !== nm))
@@ -324,6 +347,7 @@ export default function ActivityForm({
           duration_min: s.durationMin,
           assignees: s.assignees as never,
           pinned: s.pinned,
+          level: s.level,
         })),
       )
       if (err) return fail(err.message)
@@ -467,9 +491,9 @@ export default function ActivityForm({
                 colorOf={segColor}
                 keyOf={(s) => (s as Seg)._k}
                 selectedKey={selectedKey}
-                onSelect={(i, frac) => selectSeg(segments[i]._k, frac)}
-                onResize={(i, minI, minNext) => setSegments((prev) => prev.map((s, idx) => (idx === i ? { ...s, durationMin: minI } : minNext != null && idx === i + 1 ? { ...s, durationMin: minNext } : s)))}
-                onReorder={(from, to) => setSegments((prev) => reorderRespectingPins(prev, from, to))}
+                onSelect={(key, frac) => selectSeg(key, frac)}
+                onResize={(key, minThis, nextKey, minNext) => setSegments((prev) => prev.map((s) => (s._k === key ? { ...s, durationMin: minThis } : nextKey && s._k === nextKey ? { ...s, durationMin: minNext } : s)))}
+                onReorder={(level, key, toIdx) => setSegments((prev) => reorderWithinLevel(prev, level, key, toIdx))}
                 onBarBottom={setCardTop}
               />
 
@@ -483,6 +507,13 @@ export default function ActivityForm({
                   <input type="number" min={1} value={selected.durationMin ?? ''} onChange={(e) => patchSeg(selected._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
                   <span className="text-xs text-graysage">min</span>
                   <button type="button" onClick={() => setSelectedKey(null)} className="px-1 text-graysage hover:text-charcoal" title="Cerrar">✕</button>
+                </div>
+
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-xs text-graysage">Nivel (simultáneo):</span>
+                  {[1, 2, 3].map((L) => (
+                    <button key={L} type="button" onClick={() => moveToLevel(selected._k, L)} className={`h-6 w-6 rounded-full text-xs transition ${(selected.level ?? 1) === L ? 'bg-sage text-cream' : 'border border-graysage/30 text-graysage hover:bg-sage/10'}`} title={L === 1 ? 'Principal' : `Nivel ${L} (paralelo)`}>{L}</button>
+                  ))}
                 </div>
 
                 <p className="mb-1 mt-3 text-xs font-medium uppercase tracking-wide text-graysage/70">Encargados</p>
