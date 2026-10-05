@@ -495,7 +495,13 @@ export default function ActivityForm({
                 selectedKey={selectedKey}
                 onSelect={(key, frac) => selectSeg(key, frac)}
                 onResize={(key, minThis, nextKey, minNext) => setSegments((prev) => prev.map((s) => (s._k === key ? { ...s, durationMin: minThis } : nextKey && s._k === nextKey ? { ...s, durationMin: minNext } : s)))}
-                onReorder={(level, key, toIdx) => setSegments((prev) => reorderWithinLevel(prev, level, key, toIdx))}
+                onReorder={(level, key, toIdx) =>
+                  setSegments((prev) => {
+                    const cur = prev.find((s) => s._k === key)
+                    const base = cur && (cur.level ?? 1) !== level ? prev.map((s) => (s._k === key ? { ...s, level } : s)) : prev
+                    return reorderWithinLevel(base, level, key, toIdx)
+                  })
+                }
                 onDelete={(key) => { removeSeg(key); if (selectedKey === key) setSelectedKey(null) }}
                 onBarBottom={setCardTop}
               />

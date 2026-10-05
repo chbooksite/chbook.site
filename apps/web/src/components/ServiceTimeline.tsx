@@ -42,8 +42,10 @@ export default function ServiceTimeline({
   const navDrag = useRef(false)
   const overTrash = useRef(false)
   const segEls = useRef(new Map<string, HTMLElement>())
+  const levelBarEls = useRef(new Map<number, HTMLElement>())
   const prevLefts = useRef(new Map<string, number>())
   const prevOrder = useRef<string[]>([])
+  const [overLevel, setOverLevel] = useState<number | null>(null)
   const [zoom, setZoom] = useState(1)
   const [win, setWin] = useState({ left: 0, width: 100 })
   const [dragActive, setDragActive] = useState(false)
@@ -149,10 +151,18 @@ export default function ServiceTimeline({
     overTrash.current = over
     setTrashing(over)
     if (over) return
-    // Posición destino ESTABLE: se mide contra las demás actividades (sin
-    // incluir la que se arrastra), así el punto de inserción no oscila.
+    // Nivel destino según sobre qué barra esté el puntero (pasar de nivel).
+    let targetLevel = d.level
+    for (const [L, el] of levelBarEls.current) {
+      const r = el.getBoundingClientRect()
+      if (e.clientY >= r.top - 6 && e.clientY <= r.bottom + 6) { targetLevel = L; break }
+    }
+    d.level = targetLevel
+    setOverLevel(targetLevel)
+    // Posición destino ESTABLE: se mide contra las demás actividades del nivel
+    // destino (sin incluir la que se arrastra), así el punto de inserción no oscila.
     const cm = cursorMin(e.clientX)
-    const others = segs.filter((s, i) => keyOf(s, i) !== d.key)
+    const others = levelSegs(targetLevel).filter((s, i) => keyOf(s, i) !== d.key)
     let acc = 0
     let ins = others.length
     for (let i = 0; i < others.length; i++) {
@@ -160,7 +170,7 @@ export default function ServiceTimeline({
       if (cm < acc + dur / 2) { ins = i; break }
       acc += dur
     }
-    onReorder(d.level, d.key, ins)
+    onReorder(targetLevel, d.key, ins)
   }
   const onUp = () => {
     const d = drag.current
@@ -174,6 +184,7 @@ export default function ServiceTimeline({
     setDraggingKey(null)
     setGhost(null)
     setTrashing(false)
+    setOverLevel(null)
   }
 
   const scrollToFrac = (frac: number, behavior: ScrollBehavior = 'auto') => {
@@ -256,8 +267,25 @@ export default function ServiceTimeline({
         <div ref={trackRef} style={{ width: `${zoom * 100}%` }} className="touch-none transition-[width] duration-300 ease-out">
           <div ref={barsRef}>
             {activeLevels.map((L) => (
-              <div key={L}>{renderBar(L, false)}</div>
+              <div
+                key={L}
+                ref={(el) => { const m = levelBarEls.current; if (el) m.set(L, el); else m.delete(L) }}
+                className={`rounded-lg transition ${dragActive && overLevel === L ? 'ring-2 ring-sage/60' : ''}`}
+              >
+                {renderBar(L, false)}
+              </div>
             ))}
+            {/* niveles vacíos como destino al arrastrar (crear nivel 2/3) */}
+            {dragActive &&
+              [2, 3].filter((L) => !activeLevels.includes(L)).map((L) => (
+                <div
+                  key={`ph-${L}`}
+                  ref={(el) => { const m = levelBarEls.current; if (el) m.set(L, el); else m.delete(L) }}
+                  className={`mt-3 flex h-8 w-full items-center justify-center rounded-lg border border-dashed transition ${overLevel === L ? 'border-sage bg-sage/10 text-sage-dark' : 'border-graysage/30 text-graysage/50'}`}
+                >
+                  <span className="text-[0.65rem]">Soltar aquí → Nivel {L}</span>
+                </div>
+              ))}
             {/* horas en cada divisoria (según la línea principal) */}
             <div className="relative mt-1 h-4">
               {offsets1.map((o, i) => (
