@@ -75,7 +75,7 @@ export default function ServiceTimeline({
   const onResizeDown = (key: string, level: number) => (e: RPointerEvent) => {
     e.stopPropagation()
     drag.current = { mode: 'resize', key, level }
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    rootRef.current?.setPointerCapture(e.pointerId)
   }
   const onBodyDown = (key: string, level: number, pinned: boolean) => (e: RPointerEvent) => {
     const sc = scrollRef.current
@@ -83,7 +83,7 @@ export default function ServiceTimeline({
     const frac = sc ? Math.max(0, Math.min(1, (r.left + r.width / 2 - sc.getBoundingClientRect().left) / sc.clientWidth)) : undefined
     // No seleccionamos aún: la tarjeta solo sale si fue un clic (sin arrastrar).
     pending.current = { key, level, pinned, x: e.clientX, y: e.clientY, frac, moved: false }
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    rootRef.current?.setPointerCapture(e.pointerId)
   }
   const onMove = (e: RPointerEvent) => {
     const p = pending.current
@@ -183,8 +183,6 @@ export default function ServiceTimeline({
               key={k}
               data-seg={mini ? undefined : ''}
               onPointerDown={mini ? undefined : onBodyDown(k, L, !!s.pinned)}
-              onPointerMove={mini ? undefined : onMove}
-              onPointerUp={mini ? undefined : onUp}
               style={{ width: `${w}%`, backgroundColor: colorOf(s) }}
               className={`relative flex flex-col justify-center overflow-hidden ${mini ? '' : 'cursor-grab px-1.5 transition hover:brightness-110 active:cursor-grabbing'} ${!mini && selectedKey === k ? 'ring-2 ring-inset ring-white' : ''} ${draggingKey === k ? 'opacity-50 ring-2 ring-inset ring-charcoal/40' : ''}`}
               title={mini ? undefined : `${s.name} · ${s.durationMin ?? 0} min`}
@@ -213,7 +211,7 @@ export default function ServiceTimeline({
   const zoomed = zoom > 1.01
 
   return (
-    <div ref={rootRef} className="select-none">
+    <div ref={rootRef} onPointerMove={onMove} onPointerUp={onUp} className="select-none">
       <div className="mb-1.5 flex items-center gap-2">
         <span className="text-[0.65rem] text-graysage">Zoom</span>
         <input type="range" min={1} max={6} step={0.5} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="h-1 flex-1 cursor-pointer accent-sage" />
