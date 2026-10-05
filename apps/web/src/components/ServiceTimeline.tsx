@@ -45,6 +45,7 @@ export default function ServiceTimeline({
   const [win, setWin] = useState({ left: 0, width: 100 })
   const [dragActive, setDragActive] = useState(false)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
+  const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null)
   const [trashing, setTrashing] = useState(false)
 
   const lvl = (s: Segment) => s.level ?? 1
@@ -97,6 +98,7 @@ export default function ServiceTimeline({
     }
     const d = drag.current
     if (!d || !trackRef.current) return
+    if (d.mode === 'reorder') setGhost({ x: e.clientX, y: e.clientY })
     const segs = levelSegs(d.level)
     const idx = segs.findIndex((s, i) => keyOf(s, i) === d.key)
     if (idx < 0) return
@@ -137,6 +139,7 @@ export default function ServiceTimeline({
     overTrash.current = false
     setDragActive(false)
     setDraggingKey(null)
+    setGhost(null)
     setTrashing(false)
   }
 
@@ -245,6 +248,20 @@ export default function ServiceTimeline({
         Nivel 1: {sum1} min{totalMin != null ? ` · servicio ${totalMin} min` : ''}
         {totalMin != null && totalMin - sum1 < 0 ? ` · ⚠ excede ${sum1 - totalMin} min` : ''}
       </p>
+
+      {/* etiqueta fantasma que sigue al puntero mientras se arrastra (50%) */}
+      {ghost && draggingKey && (() => {
+        const s = segments.find((x, i) => keyOf(x, i) === draggingKey)
+        if (!s) return null
+        return (
+          <div
+            style={{ left: ghost.x, top: ghost.y, backgroundColor: colorOf(s) }}
+            className="pointer-events-none fixed z-[70] max-w-[40vw] -translate-x-1/2 -translate-y-1/2 truncate rounded-lg px-2.5 py-1 text-xs font-medium text-white opacity-50 shadow-lg"
+          >
+            {s.name}
+          </div>
+        )
+      })()}
 
       {/* zona para eliminar al arrastrar al fondo (se desliza desde abajo) */}
       <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex items-center justify-center text-sm font-medium transition-all duration-200 ease-out ${dragActive ? 'h-16 translate-y-0 opacity-100' : 'h-16 translate-y-full opacity-0'} ${trashing ? 'bg-clay/90 text-cream shadow-lg' : 'bg-charcoal/70 text-cream/80'}`}>
