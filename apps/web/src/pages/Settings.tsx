@@ -4,7 +4,9 @@ import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
 import MapPicker, { type Coords } from '../components/MapPicker'
+import AgeRangesEditor from '../components/AgeRangesEditor'
 import { parseWkbPoint, toWktPoint } from '../lib/geo'
+import { DEFAULT_AGE_RANGES, readAgeRanges, type AgeRangeDef } from '../lib/member'
 import {
   DEFAULT_RULES,
   RULE_LABELS,
@@ -249,6 +251,7 @@ export default function Settings() {
   const [roles, setRoles] = useState<Item[]>([])
   const [teams, setTeams] = useState<Item[]>([])
   const [rules, setRules] = useState<ChurchRules>(DEFAULT_RULES)
+  const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
   const [settingsRaw, setSettingsRaw] = useState<Record<string, unknown>>({})
   const [church, setChurch] = useState({
     name: '',
@@ -298,6 +301,7 @@ export default function Settings() {
     const settings = (c?.settings ?? {}) as Record<string, unknown>
     setSettingsRaw(settings)
     setRules(readRules(settings))
+    setAgeRanges(readAgeRanges(settings))
     setLoading(false)
   }, [churchId])
 
@@ -308,7 +312,19 @@ export default function Settings() {
   const toggleRule = async (key: keyof ChurchRules) => {
     const next = { ...rules, [key]: !rules[key] }
     setRules(next)
-    await supabase.from('churches').update({ settings: { ...settingsRaw, rules: next } }).eq('id', churchId!)
+    const nextSettings = { ...settingsRaw, rules: next }
+    setSettingsRaw(nextSettings)
+    await supabase.from('churches').update({ settings: nextSettings }).eq('id', churchId!)
+  }
+
+  const saveAgeRanges = async (next: AgeRangeDef[]) => {
+    setAgeRanges(next)
+    const nextSettings = { ...settingsRaw, age_ranges: next }
+    setSettingsRaw(nextSettings)
+    await supabase
+      .from('churches')
+      .update({ settings: nextSettings as Record<string, unknown> as never })
+      .eq('id', churchId!)
   }
 
   const saveChurch = async () => {
@@ -489,6 +505,16 @@ export default function Settings() {
                 </li>
               ))}
             </ul>
+          </section>
+
+          <section className="rounded-2xl border border-clay-light/40 bg-white p-6">
+            <h2 className="font-serif text-lg text-charcoal">Rangos de edad</h2>
+            <p className="mb-4 text-sm text-graysage">
+              Define los cortes de edad de tu iglesia. Arrastra los pines en la línea o escribe la
+              edad de inicio. Cada rango se puede renombrar, cambiar de color o desactivar. Se usan
+              para clasificar a los miembros en toda la app.
+            </p>
+            <AgeRangesEditor value={ageRanges} onChange={saveAgeRanges} />
           </section>
 
           <CatalogSection
