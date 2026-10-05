@@ -26,6 +26,7 @@ import {
 interface Opt {
   id: string
   name: string
+  key?: string
 }
 
 export default function Calendar() {
@@ -53,7 +54,7 @@ export default function Calendar() {
     const [schRes, typeRes, teamRes, roleRes, tagRes, churchRes, memRes, mtRes, mrRes, stRes, ssRes] = await Promise.all([
       supabase.from('activity_schedules').select('*').eq('church_id', churchId),
       supabase.from('activity_types').select('id, key, name, color, is_system').order('is_system', { ascending: false }).order('name'),
-      supabase.from('teams').select('id, name').order('name'),
+      supabase.from('teams').select('id, name, key').order('name'),
       supabase.from('roles').select('id, name').order('name'),
       supabase.from('activity_tags').select('id, name, color, default_duration_min').order('name'),
       supabase.from('churches').select('settings').eq('id', churchId).maybeSingle(),

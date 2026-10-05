@@ -20,14 +20,26 @@ import {
 interface Opt {
   id: string
   name: string
+  key?: string
 }
 type Seg = Segment & { _k: string }
+
+// Equipos activos por defecto al crear una actividad nueva.
+const DEFAULT_TEAM_KEYS = ['multimedia', 'diaconos', 'musica', 'finanzas']
 
 const inputCls =
   'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
 
 function chipCls(active: boolean): string {
   return `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-sage text-cream' : 'bg-cream text-graysage hover:bg-sage/10'}`
+}
+// Chip de equipo participante: activo (en uso) cambia de color.
+function teamChipCls(active: boolean): string {
+  return `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-clay text-cream' : 'border border-graysage/30 bg-white text-graysage hover:bg-clay/10'}`
+}
+// Chip del catálogo de actividades: en uso (ya en la línea) cambia de color.
+function catalogChipCls(used: boolean): string {
+  return `rounded-full px-2.5 py-1 text-xs transition ${used ? 'bg-sage/20 font-medium text-sage-dark' : 'border border-graysage/25 text-graysage hover:bg-sage/10'}`
 }
 const mkKey = () => Math.random().toString(36).slice(2)
 const withKey = (s: Segment): Seg => ({ ...s, _k: mkKey() })
@@ -135,9 +147,12 @@ export default function ActivityForm({
   const [audIds, setAudIds] = useState<string[]>(editing?.audience.ids ?? [])
   const [audKeys, setAudKeys] = useState<string[]>(editing?.audience.keys ?? [])
 
-  const [partTeams, setPartTeams] = useState<ScheduleTeam[]>(editingTeams)
+  const [partTeams, setPartTeams] = useState<ScheduleTeam[]>(
+    editing ? editingTeams : teams.filter((t) => t.key && DEFAULT_TEAM_KEYS.includes(t.key)).map((t) => ({ teamId: t.id, delegate: false, memberIds: [] })),
+  )
   const [segments, setSegments] = useState<Seg[]>(editing ? editingSegments.map(withKey) : defaultSegments(tags))
   const [newTagName, setNewTagName] = useState('')
+  const [listOpen, setListOpen] = useState(false)
   const [menuKey, setMenuKey] = useState<string | null>(null)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [originPct, setOriginPct] = useState(50)
@@ -291,7 +306,6 @@ export default function ActivityForm({
     }
   }
 
-  const availableTeams = teams.filter((t) => !partTeams.some((p) => p.teamId === t.id))
   const selected = segments.find((s) => s._k === selectedKey) ?? null
 
   return (
@@ -372,21 +386,29 @@ export default function ActivityForm({
             {audScope === 'ages' && (<div className="mt-2 flex flex-wrap gap-2">{ageRanges.filter((r) => r.enabled).map((r) => (<button key={r.key} type="button" onClick={() => setAudKeys(toggleArr(audKeys, r.key))} className={chipCls(audKeys.includes(r.key))}>{r.name}</button>))}</div>)}
           </div>
 
-          {/* Capa 1: equipos participantes */}
+          {/* Capa 1: equipos participantes (en formato etiqueta) */}
           <div className="rounded-xl bg-cream/50 p-4">
             <p className="text-sm font-medium text-charcoal">Equipos participantes</p>
-            <p className="mb-3 text-xs text-graysage">Equipos disponibles durante todo el servicio. Elige miembros o deja que su líder los asigne.</p>
+            <p className="mb-3 text-xs text-graysage">Toca un equipo para activarlo durante todo el servicio. Los activos cambian de color.</p>
+            <div className="flex flex-wrap gap-2">
+              {teams.map((t) => {
+                const active = partTeams.some((p) => p.teamId === t.id)
+                return (
+                  <button key={t.id} type="button" onClick={() => (active ? removeTeam(t.id) : addTeam(t.id))} className={teamChipCls(active)}>{t.name}</button>
+                )
+              })}
+            </div>
+            {/* detalle de cada equipo activo: delegar o elegir miembros */}
             {partTeams.map((pt) => {
               const members = membersByTeam.get(pt.teamId) ?? []
               return (
-                <div key={pt.teamId} className="mb-2 rounded-lg border border-graysage/15 bg-white p-3">
+                <div key={pt.teamId} className="mt-2 rounded-lg border border-graysage/15 bg-white p-3">
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-medium text-charcoal">{teamName(pt.teamId)}</span>
                     <label className="ml-auto flex items-center gap-1.5 text-xs text-graysage">
                       <input type="checkbox" checked={pt.delegate} onChange={(e) => patchTeam(pt.teamId, { delegate: e.target.checked })} />
                       Delegar al líder
                     </label>
-                    <button type="button" onClick={() => removeTeam(pt.teamId)} className="text-xs text-graysage hover:text-clay">✕</button>
                   </div>
                   {!pt.delegate && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -397,12 +419,6 @@ export default function ActivityForm({
                 </div>
               )
             })}
-            {availableTeams.length > 0 && (
-              <select value="" onChange={(e) => addTeam(e.target.value)} className={`${inputCls} mt-1`}>
-                <option value="">+ Añadir equipo…</option>
-                {availableTeams.map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
-              </select>
-            )}
           </div>
 
           {/* Capa 2: línea de tiempo horizontal */}
@@ -472,8 +488,26 @@ export default function ActivityForm({
             )}
             </div>
 
-            {/* lista de actividades */}
-            <div ref={listRef} className="space-y-1.5">
+            {/* catálogo de actividades internas (visible) */}
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-graysage/70">Actividades internas</p>
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {tags.map((t) => {
+                const used = segments.some((s) => s.tagId === t.id)
+                return (<button key={t.id} type="button" onClick={() => addSegmentFromTag(t)} className={catalogChipCls(used)}>+ {t.name}</button>)
+              })}
+            </div>
+            <div className="mb-3 flex gap-2">
+              <input value={newTagName} onChange={(e) => setNewTagName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), createTag())} placeholder="Nueva actividad interna…" className="flex-1 rounded-lg border border-graysage/25 bg-white px-3 py-1.5 text-sm outline-none focus:border-sage" />
+              <button type="button" onClick={createTag} className="rounded-lg border border-sage/40 px-3 py-1.5 text-xs text-sage-dark hover:bg-sage/10">Agregar al catálogo</button>
+            </div>
+
+            {/* lista desplegable de actividades (la barra es lo principal) */}
+            <button type="button" onClick={() => setListOpen((v) => !v)} className="flex w-full items-center justify-between rounded-lg border border-graysage/20 bg-white px-3 py-1.5 text-sm text-graysage hover:bg-cream">
+              <span>Lista de actividades ({segments.length})</span>
+              <span className="text-xs">{listOpen ? '▾ ocultar' : '▸ ver'}</span>
+            </button>
+            {listOpen && (
+            <div ref={listRef} className="mt-1.5 space-y-1.5">
               {segments.map((s) => (
                 <div
                   key={s._k}
@@ -505,15 +539,7 @@ export default function ActivityForm({
                 </div>
               ))}
             </div>
-
-            {/* catálogo */}
-            <div className="mt-3 mb-2 flex flex-wrap gap-1.5">
-              {tags.map((t) => (<button key={t.id} type="button" onClick={() => addSegmentFromTag(t)} className="rounded-full border border-graysage/25 px-2.5 py-1 text-xs text-graysage hover:bg-sage/10">+ {t.name}</button>))}
-            </div>
-            <div className="flex gap-2">
-              <input value={newTagName} onChange={(e) => setNewTagName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), createTag())} placeholder="Nueva actividad interna…" className="flex-1 rounded-lg border border-graysage/25 bg-white px-3 py-1.5 text-sm outline-none focus:border-sage" />
-              <button type="button" onClick={createTag} className="rounded-lg border border-sage/40 px-3 py-1.5 text-xs text-sage-dark hover:bg-sage/10">Agregar al catálogo</button>
-            </div>
+            )}
           </div>
 
           {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
