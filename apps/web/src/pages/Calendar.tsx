@@ -3,9 +3,9 @@ import { Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
+import ActivityForm from '../components/ActivityForm'
 import { DEFAULT_AGE_RANGES, readAgeRanges, type AgeRangeDef } from '../lib/member'
 import {
-  WEEKDAYS,
   WEEKDAYS_SHORT,
   addDays,
   formatTime,
@@ -15,34 +15,17 @@ import {
   weekStart,
   type ActivityType,
   type Audience,
-  type AudienceScope,
   type Freq,
   type Schedule,
+  type ScheduleTeam,
+  type Segment,
+  type Tag,
 } from '../lib/activity'
 
 interface Opt {
   id: string
   name: string
 }
-
-const inputCls =
-  'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
-
-const emptyForm = {
-  name: '',
-  typeId: '',
-  freq: 'weekly' as Freq,
-  weekday: 0,
-  nth: 1,
-  startTime: '',
-  endTime: '',
-  audScope: 'all' as AudienceScope,
-  audIds: [] as string[],
-  audKeys: [] as string[],
-  responsibleTeamId: '',
-  enabled: true,
-}
-type FormState = typeof emptyForm
 
 export default function Calendar() {
   const { membership, membershipLoading } = useAuth()
@@ -52,27 +35,34 @@ export default function Calendar() {
   const [types, setTypes] = useState<ActivityType[]>([])
   const [teams, setTeams] = useState<Opt[]>([])
   const [roles, setRoles] = useState<Opt[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
   const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
+  const [membersByTeam, setMembersByTeam] = useState<Map<string, Opt[]>>(new Map())
+  const [membersByRole, setMembersByRole] = useState<Map<string, Opt[]>>(new Map())
+  const [teamsBySchedule, setTeamsBySchedule] = useState<Map<string, ScheduleTeam[]>>(new Map())
+  const [segmentsBySchedule, setSegmentsBySchedule] = useState<Map<string, Segment[]>>(new Map())
   const [weekRef, setWeekRef] = useState<Date>(new Date())
   const [loading, setLoading] = useState(true)
 
   const [showForm, setShowForm] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState<FormState>(emptyForm)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const setF = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((p) => ({ ...p, [k]: v }))
+  const [editing, setEditing] = useState<Schedule | null>(null)
 
   const load = useCallback(async () => {
     if (!churchId) return
-    const [schRes, typeRes, teamRes, roleRes, churchRes] = await Promise.all([
+    const [schRes, typeRes, teamRes, roleRes, tagRes, churchRes, memRes, mtRes, mrRes, stRes, ssRes] = await Promise.all([
       supabase.from('activity_schedules').select('*').eq('church_id', churchId),
       supabase.from('activity_types').select('id, key, name, color, is_system').order('is_system', { ascending: false }).order('name'),
       supabase.from('teams').select('id, name').order('name'),
       supabase.from('roles').select('id, name').order('name'),
+      supabase.from('activity_tags').select('id, name, color, default_duration_min').order('name'),
       supabase.from('churches').select('settings').eq('id', churchId).maybeSingle(),
+      supabase.from('members').select('id, full_name').neq('status', 'archived').order('full_name'),
+      supabase.from('member_teams').select('member_id, team_id'),
+      supabase.from('member_roles').select('member_id, role_id'),
+      supabase.from('schedule_teams').select('*').eq('church_id', churchId),
+      supabase.from('schedule_segments').select('*').eq('church_id', churchId).order('sort_order'),
     ])
+
     setSchedules(
       (schRes.data ?? []).map((r) => ({
         id: r.id,
@@ -91,12 +81,57 @@ export default function Calendar() {
         enabled: r.enabled ?? true,
       })),
     )
-    setTypes(
-      (typeRes.data ?? []).map((t) => ({ id: t.id, key: t.key, name: t.name, color: t.color, isSystem: !!t.is_system })),
-    )
+    setTypes((typeRes.data ?? []).map((t) => ({ id: t.id, key: t.key, name: t.name, color: t.color, isSystem: !!t.is_system })))
     setTeams((teamRes.data ?? []) as Opt[])
     setRoles((roleRes.data ?? []) as Opt[])
+    setTags((tagRes.data ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color, defaultDurationMin: t.default_duration_min })))
     setAgeRanges(readAgeRanges(churchRes.data?.settings))
+
+    // miembros por equipo / rol
+    const memName = new Map((memRes.data ?? []).map((m) => [m.id, m.full_name]))
+    const byTeam = new Map<string, Opt[]>()
+    for (const row of mtRes.data ?? []) {
+      const nm = memName.get(row.member_id)
+      if (!nm) continue
+      const arr = byTeam.get(row.team_id) ?? []
+      arr.push({ id: row.member_id, name: nm })
+      byTeam.set(row.team_id, arr)
+    }
+    const byRole = new Map<string, Opt[]>()
+    for (const row of mrRes.data ?? []) {
+      const nm = memName.get(row.member_id)
+      if (!nm) continue
+      const arr = byRole.get(row.role_id) ?? []
+      arr.push({ id: row.member_id, name: nm })
+      byRole.set(row.role_id, arr)
+    }
+    setMembersByTeam(byTeam)
+    setMembersByRole(byRole)
+
+    // capa 1 y 2 por servicio
+    const stMap = new Map<string, ScheduleTeam[]>()
+    for (const row of stRes.data ?? []) {
+      const arr = stMap.get(row.schedule_id) ?? []
+      arr.push({ teamId: row.team_id, delegate: !!row.delegate, memberIds: row.member_ids ?? [] })
+      stMap.set(row.schedule_id, arr)
+    }
+    const ssMap = new Map<string, Segment[]>()
+    for (const row of ssRes.data ?? []) {
+      const arr = ssMap.get(row.schedule_id) ?? []
+      arr.push({
+        id: row.id,
+        tagId: row.tag_id,
+        name: row.name,
+        durationMin: row.duration_min,
+        assignTeamId: row.team_id,
+        assignRoleId: row.role_id,
+        memberIds: row.member_ids ?? [],
+      })
+      ssMap.set(row.schedule_id, arr)
+    }
+    setTeamsBySchedule(stMap)
+    setSegmentsBySchedule(ssMap)
+
     setLoading(false)
   }, [churchId])
 
@@ -120,81 +155,20 @@ export default function Calendar() {
   const week = useMemo(() => projectWeek(schedules, weekStart(weekRef)), [schedules, weekRef])
   const todayKey = new Date().toDateString()
 
-  // ---- Formulario ----
   const openNew = () => {
-    setEditingId(null)
-    setForm(emptyForm)
-    setError(null)
+    setEditing(null)
     setShowForm(true)
   }
   const openEdit = (s: Schedule) => {
-    setEditingId(s.id)
-    setForm({
-      name: s.name,
-      typeId: s.typeId ?? '',
-      freq: s.freq,
-      weekday: s.weekday,
-      nth: s.nth && s.nth !== 0 ? s.nth : 1,
-      startTime: s.startTime ? s.startTime.slice(0, 5) : '',
-      endTime: s.endTime ? s.endTime.slice(0, 5) : '',
-      audScope: s.audience.scope,
-      audIds: s.audience.ids ?? [],
-      audKeys: s.audience.keys ?? [],
-      responsibleTeamId: s.responsibleTeamId ?? '',
-      enabled: s.enabled,
-    })
-    setError(null)
+    setEditing(s)
     setShowForm(true)
   }
-
-  const toggleArr = (arr: string[], v: string) =>
-    arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]
-
-  const save = async () => {
-    if (!form.name.trim()) {
-      setError('Ponle un nombre a la actividad.')
-      return
-    }
-    setSaving(true)
-    setError(null)
-    const audience: Audience =
-      form.audScope === 'all'
-        ? { scope: 'all' }
-        : form.audScope === 'ages'
-          ? { scope: 'ages', keys: form.audKeys }
-          : { scope: form.audScope, ids: form.audIds }
-    const payload = {
-      church_id: churchId!,
-      name: form.name.trim(),
-      type_id: form.typeId || null,
-      freq: form.freq,
-      weekday: form.weekday,
-      nth: form.freq === 'monthly' ? form.nth : null,
-      start_time: form.startTime || null,
-      end_time: form.endTime || null,
-      audience: audience as never,
-      responsible_team_id: form.responsibleTeamId || null,
-      enabled: form.enabled,
-    }
-    const { error: err } = editingId
-      ? await supabase.from('activity_schedules').update(payload).eq('id', editingId)
-      : await supabase.from('activity_schedules').insert(payload)
-    setSaving(false)
-    if (err) {
-      setError(err.message)
-      return
-    }
-    setShowForm(false)
-    await load()
-  }
-
   const toggleEnabled = async (s: Schedule) => {
     setSchedules((prev) => prev.map((x) => (x.id === s.id ? { ...x, enabled: !x.enabled } : x)))
     await supabase.from('activity_schedules').update({ enabled: !s.enabled }).eq('id', s.id)
   }
-
   const remove = async (s: Schedule) => {
-    if (!window.confirm(`¿Eliminar "${s.name}" del ritmo? Esto quita la actividad recurrente.`)) return
+    if (!window.confirm(`¿Eliminar "${s.name}" del ritmo? Esto quita la actividad recurrente y sus asignaciones.`)) return
     await supabase.from('activity_schedules').delete().eq('id', s.id)
     await load()
   }
@@ -222,30 +196,18 @@ export default function Calendar() {
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
             <h1 className="mb-1 font-serif text-2xl text-charcoal">El ritmo de la iglesia</h1>
-            <p className="text-sm text-graysage">
-              Define las actividades recurrentes una vez; el sistema proyecta tu semana.
-            </p>
+            <p className="text-sm text-graysage">Define las actividades recurrentes una vez; el sistema proyecta tu semana.</p>
           </div>
-          <button
-            type="button"
-            onClick={openNew}
-            className="shrink-0 rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage"
-          >
+          <button type="button" onClick={openNew} className="shrink-0 rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage">
             + Nueva actividad
           </button>
         </div>
 
         {/* Navegación de semana */}
         <div className="mb-3 flex items-center gap-3">
-          <button type="button" onClick={() => setWeekRef(addDays(ws, -7))} className="rounded-lg border border-graysage/25 px-2.5 py-1 text-sm text-graysage hover:bg-white">
-            ←
-          </button>
-          <button type="button" onClick={() => setWeekRef(new Date())} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">
-            Hoy
-          </button>
-          <button type="button" onClick={() => setWeekRef(addDays(ws, 7))} className="rounded-lg border border-graysage/25 px-2.5 py-1 text-sm text-graysage hover:bg-white">
-            →
-          </button>
+          <button type="button" onClick={() => setWeekRef(addDays(ws, -7))} className="rounded-lg border border-graysage/25 px-2.5 py-1 text-sm text-graysage hover:bg-white">←</button>
+          <button type="button" onClick={() => setWeekRef(new Date())} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">Hoy</button>
+          <button type="button" onClick={() => setWeekRef(addDays(ws, 7))} className="rounded-lg border border-graysage/25 px-2.5 py-1 text-sm text-graysage hover:bg-white">→</button>
           <span className="font-mono text-xs text-graysage">{rangeLabel}</span>
         </div>
 
@@ -254,28 +216,15 @@ export default function Calendar() {
           {week.map((day) => {
             const isToday = day.date.toDateString() === todayKey
             return (
-              <div
-                key={day.date.toISOString()}
-                className={`rounded-xl border bg-white p-2 ${isToday ? 'border-sage ring-1 ring-sage/30' : 'border-clay-light/40'}`}
-              >
+              <div key={day.date.toISOString()} className={`rounded-xl border bg-white p-2 ${isToday ? 'border-sage ring-1 ring-sage/30' : 'border-clay-light/40'}`}>
                 <div className="mb-2 flex items-baseline justify-between">
-                  <span className={`text-xs font-medium ${isToday ? 'text-sage-dark' : 'text-graysage'}`}>
-                    {WEEKDAYS_SHORT[day.weekday]}
-                  </span>
-                  <span className={`text-sm ${isToday ? 'font-semibold text-sage-dark' : 'text-charcoal'}`}>
-                    {day.date.getDate()}
-                  </span>
+                  <span className={`text-xs font-medium ${isToday ? 'text-sage-dark' : 'text-graysage'}`}>{WEEKDAYS_SHORT[day.weekday]}</span>
+                  <span className={`text-sm ${isToday ? 'font-semibold text-sage-dark' : 'text-charcoal'}`}>{day.date.getDate()}</span>
                 </div>
                 <div className="space-y-1.5">
                   {day.items.length === 0 && <p className="py-2 text-center text-[0.65rem] text-graysage/40">—</p>}
                   {day.items.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => openEdit(s)}
-                      style={{ borderLeftColor: colorOf(s) }}
-                      className={`block w-full rounded-md border-l-4 bg-cream/60 px-2 py-1.5 text-left transition hover:bg-cream ${s.enabled ? '' : 'opacity-40'}`}
-                    >
+                    <button key={s.id} type="button" onClick={() => openEdit(s)} style={{ borderLeftColor: colorOf(s) }} className={`block w-full rounded-md border-l-4 bg-cream/60 px-2 py-1.5 text-left transition hover:bg-cream ${s.enabled ? '' : 'opacity-40'}`}>
                       {s.startTime && <span className="font-mono text-[0.65rem] text-graysage">{formatTime(s.startTime)}</span>}
                       <span className="block text-xs font-medium leading-tight text-charcoal">{s.name}</span>
                     </button>
@@ -289,42 +238,27 @@ export default function Calendar() {
         {/* Lista de actividades recurrentes */}
         <h2 className="mb-3 font-serif text-lg text-charcoal">Actividades recurrentes</h2>
         {sortedList.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-graysage/30 bg-white/50 px-4 py-8 text-center text-sm text-graysage">
-            Aún no hay actividades. Crea la primera con «Nueva actividad».
-          </p>
+          <p className="rounded-xl border border-dashed border-graysage/30 bg-white/50 px-4 py-8 text-center text-sm text-graysage">Aún no hay actividades. Crea la primera con «Nueva actividad».</p>
         ) : (
           <ul className="space-y-2">
             {sortedList.map((s) => {
               const t = typeById.get(s.typeId ?? '')
+              const nTeams = teamsBySchedule.get(s.id)?.length ?? 0
+              const nSegs = segmentsBySchedule.get(s.id)?.length ?? 0
               return (
-                <li
-                  key={s.id}
-                  className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-clay-light/40 bg-white px-4 py-3 ${s.enabled ? '' : 'opacity-50'}`}
-                >
+                <li key={s.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-clay-light/40 bg-white px-4 py-3 ${s.enabled ? '' : 'opacity-50'}`}>
                   <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: colorOf(s) }} />
                   <span className="font-medium text-charcoal">{s.name}</span>
                   {t && <span className="text-xs text-graysage">· {t.name}</span>}
                   <span className="text-sm text-graysage">· {recurrenceLabel(s)}</span>
-                  {s.startTime && (
-                    <span className="font-mono text-xs text-graysage">
-                      · {formatTime(s.startTime)}
-                      {s.endTime ? `–${formatTime(s.endTime)}` : ''}
-                    </span>
-                  )}
+                  {s.startTime && <span className="font-mono text-xs text-graysage">· {formatTime(s.startTime)}{s.endTime ? `–${formatTime(s.endTime)}` : ''}</span>}
                   <span className="rounded-full bg-sage-water/10 px-2 py-0.5 text-xs text-sage-dark">{audienceLabel(s.audience)}</span>
-                  {s.responsibleTeamId && (
-                    <span className="text-xs text-graysage">{teamById.get(s.responsibleTeamId)}</span>
-                  )}
+                  {nTeams > 0 && <span className="text-xs text-graysage">{nTeams} equipo{nTeams > 1 ? 's' : ''}</span>}
+                  {nSegs > 0 && <span className="text-xs text-graysage">{nSegs} actividad{nSegs > 1 ? 'es' : ''}</span>}
                   <div className="ml-auto flex items-center gap-3">
-                    <button type="button" onClick={() => toggleEnabled(s)} className="text-xs text-graysage hover:text-sage-dark hover:underline">
-                      {s.enabled ? 'Pausar' : 'Activar'}
-                    </button>
-                    <button type="button" onClick={() => openEdit(s)} className="text-xs text-graysage hover:text-sage-dark hover:underline">
-                      Editar
-                    </button>
-                    <button type="button" onClick={() => remove(s)} className="text-xs text-graysage hover:text-clay hover:underline">
-                      Eliminar
-                    </button>
+                    <button type="button" onClick={() => toggleEnabled(s)} className="text-xs text-graysage hover:text-sage-dark hover:underline">{s.enabled ? 'Pausar' : 'Activar'}</button>
+                    <button type="button" onClick={() => openEdit(s)} className="text-xs text-graysage hover:text-sage-dark hover:underline">Editar</button>
+                    <button type="button" onClick={() => remove(s)} className="text-xs text-graysage hover:text-clay hover:underline">Eliminar</button>
                   </div>
                 </li>
               )
@@ -333,142 +267,27 @@ export default function Calendar() {
         )}
       </main>
 
-      {/* Formulario (panel) */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8" onClick={() => setShowForm(false)}>
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-4 font-serif text-lg text-charcoal">{editingId ? 'Editar actividad' : 'Nueva actividad'}</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-graysage">Nombre</label>
-                <input value={form.name} onChange={(e) => setF('name', e.target.value)} className={inputCls} placeholder="Culto de oración" autoFocus />
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-graysage">Tipo</label>
-                  <select
-                    value={form.typeId}
-                    onChange={(e) => {
-                      const id = e.target.value
-                      setForm((p) => ({ ...p, typeId: id, name: p.name || (typeById.get(id)?.name ?? '') }))
-                    }}
-                    className={inputCls}
-                  >
-                    <option value="">Sin tipo</option>
-                    {types.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-graysage">Equipo responsable</label>
-                  <select value={form.responsibleTeamId} onChange={(e) => setF('responsibleTeamId', e.target.value)} className={inputCls}>
-                    <option value="">—</option>
-                    {teams.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-graysage">Frecuencia</label>
-                  <select value={form.freq} onChange={(e) => setF('freq', e.target.value as Freq)} className={inputCls}>
-                    <option value="weekly">Cada semana</option>
-                    <option value="monthly">Una vez al mes</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-graysage">Día</label>
-                  <select value={form.weekday} onChange={(e) => setF('weekday', Number(e.target.value))} className={inputCls}>
-                    {WEEKDAYS.map((d, i) => (
-                      <option key={i} value={i}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {form.freq === 'monthly' && (
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-graysage">¿Qué {WEEKDAYS[form.weekday].toLowerCase()} del mes?</label>
-                  <select value={form.nth} onChange={(e) => setF('nth', Number(e.target.value))} className={inputCls}>
-                    <option value={1}>1º del mes</option>
-                    <option value={2}>2º del mes</option>
-                    <option value={3}>3º del mes</option>
-                    <option value={4}>4º del mes</option>
-                    <option value={-1}>Último del mes</option>
-                  </select>
-                </div>
-              )}
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-graysage">Hora de inicio</label>
-                  <input type="time" value={form.startTime} onChange={(e) => setF('startTime', e.target.value)} className={inputCls} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-graysage">Hora de fin <span className="text-graysage/50">(opcional)</span></label>
-                  <input type="time" value={form.endTime} onChange={(e) => setF('endTime', e.target.value)} className={inputCls} />
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-graysage">¿Para quién?</label>
-                <select value={form.audScope} onChange={(e) => setF('audScope', e.target.value as AudienceScope)} className={inputCls}>
-                  <option value="all">Toda la iglesia</option>
-                  <option value="teams">Equipos específicos</option>
-                  <option value="roles">Roles específicos</option>
-                  <option value="ages">Rangos de edad</option>
-                </select>
-                {form.audScope === 'teams' && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {teams.map((t) => (
-                      <button key={t.id} type="button" onClick={() => setF('audIds', toggleArr(form.audIds, t.id))} className={chipCls(form.audIds.includes(t.id))}>
-                        {t.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {form.audScope === 'roles' && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {roles.map((r) => (
-                      <button key={r.id} type="button" onClick={() => setF('audIds', toggleArr(form.audIds, r.id))} className={chipCls(form.audIds.includes(r.id))}>
-                        {r.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {form.audScope === 'ages' && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {ageRanges.filter((r) => r.enabled).map((r) => (
-                      <button key={r.key} type="button" onClick={() => setF('audKeys', toggleArr(form.audKeys, r.key))} className={chipCls(form.audKeys.includes(r.key))}>
-                        {r.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
-            </div>
-
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <button type="button" onClick={() => setShowForm(false)} className="text-sm text-graysage hover:underline">
-                Cancelar
-              </button>
-              <button type="button" onClick={save} disabled={saving} className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60">
-                {saving ? 'Guardando…' : 'Guardar'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ActivityForm
+          churchId={churchId!}
+          editing={editing}
+          editingTeams={editing ? teamsBySchedule.get(editing.id) ?? [] : []}
+          editingSegments={editing ? segmentsBySchedule.get(editing.id) ?? [] : []}
+          types={types}
+          teams={teams}
+          roles={roles}
+          ageRanges={ageRanges}
+          tags={tags}
+          membersByTeam={membersByTeam}
+          membersByRole={membersByRole}
+          onClose={() => setShowForm(false)}
+          onSaved={() => {
+            setShowForm(false)
+            load()
+          }}
+          onTagCreated={(tag) => setTags((prev) => [...prev, tag].sort((a, b) => a.name.localeCompare(b.name)))}
+        />
       )}
     </div>
   )
-}
-
-function chipCls(active: boolean): string {
-  return `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-sage text-cream' : 'bg-cream text-graysage hover:bg-sage/10'}`
 }

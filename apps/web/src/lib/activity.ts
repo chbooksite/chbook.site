@@ -38,6 +38,39 @@ export interface Schedule {
   enabled: boolean
 }
 
+// Catálogo editable de actividades internas (reusa activity_tags).
+export interface Tag {
+  id: string
+  name: string
+  color: string | null
+  defaultDurationMin: number | null
+}
+
+// Capa 1: equipo participante de todo el servicio.
+export interface ScheduleTeam {
+  teamId: string
+  delegate: boolean
+  memberIds: string[]
+}
+
+// Capa 2: segmento de la línea de tiempo (no se solapa, va en orden).
+export interface Segment {
+  id?: string
+  tagId: string | null
+  name: string
+  durationMin: number | null
+  assignTeamId: string | null // un equipo participante
+  assignRoleId: string | null // o un rol específico
+  memberIds: string[]
+}
+
+// Minutos entre inicio y fin del servicio (null si falta alguno o no es válido).
+export function serviceMinutes(start: string | null, end: string | null): number | null {
+  if (!start || !end) return null
+  const d = minutesOf(end) - minutesOf(start)
+  return d > 0 ? d : null
+}
+
 export function readAudience(json: unknown): Audience {
   const a = (json ?? {}) as Partial<Audience>
   const scope: AudienceScope =

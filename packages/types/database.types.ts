@@ -694,6 +694,108 @@ export type Database = {
           },
         ]
       }
+      schedule_segments: {
+        Row: {
+          church_id: string
+          created_at: string | null
+          duration_min: number | null
+          id: string
+          member_ids: string[] | null
+          name: string
+          role_id: string | null
+          schedule_id: string
+          sort_order: number
+          tag_id: string | null
+          team_id: string | null
+        }
+        Insert: {
+          church_id: string
+          created_at?: string | null
+          duration_min?: number | null
+          id?: string
+          member_ids?: string[] | null
+          name: string
+          role_id?: string | null
+          schedule_id: string
+          sort_order?: number
+          tag_id?: string | null
+          team_id?: string | null
+        }
+        Update: {
+          church_id?: string
+          created_at?: string | null
+          duration_min?: number | null
+          id?: string
+          member_ids?: string[] | null
+          name?: string
+          role_id?: string | null
+          schedule_id?: string
+          sort_order?: number
+          tag_id?: string | null
+          team_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_segments_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "activity_schedules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_segments_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "activity_tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_teams: {
+        Row: {
+          church_id: string
+          created_at: string | null
+          delegate: boolean | null
+          id: string
+          member_ids: string[] | null
+          schedule_id: string
+          team_id: string
+        }
+        Insert: {
+          church_id: string
+          created_at?: string | null
+          delegate?: boolean | null
+          id?: string
+          member_ids?: string[] | null
+          schedule_id: string
+          team_id: string
+        }
+        Update: {
+          church_id?: string
+          created_at?: string | null
+          delegate?: boolean | null
+          id?: string
+          member_ids?: string[] | null
+          schedule_id?: string
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_teams_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "activity_schedules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_teams_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_activities: {
         Row: {
           assignee_member_id: string | null
