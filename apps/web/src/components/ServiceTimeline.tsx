@@ -39,7 +39,7 @@ export default function ServiceTimeline({
   const barsRef = useRef<HTMLDivElement>(null)
   const ovRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ mode: 'resize' | 'resizeR' | 'resizeL' | 'body'; key: string; level: number; grab?: number } | null>(null)
-  const pending = useRef<{ key: string; level: number; pinned: boolean; x: number; y: number; frac?: number; moved: boolean } | null>(null)
+  const pending = useRef<{ key: string; level: number; pinned: boolean; x: number; y: number; frac?: number; moved: boolean; pointerId: number } | null>(null)
   const navDrag = useRef(false)
   const overTrash = useRef(false)
   const segEls = useRef(new Map<string, HTMLElement>())
@@ -127,8 +127,9 @@ export default function ServiceTimeline({
     const sc = scrollRef.current
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const frac = sc ? Math.max(0, Math.min(1, (r.left + r.width / 2 - sc.getBoundingClientRect().left) / sc.clientWidth)) : undefined
-    pending.current = { key, level, pinned, x: e.clientX, y: e.clientY, frac, moved: false }
-    rootRef.current?.setPointerCapture(e.pointerId)
+    // Sin captura aún: así un clic simple llega a la etiqueta (abre la tarjeta).
+    // La captura se toma solo cuando empieza un arrastre real (en onMove).
+    pending.current = { key, level, pinned, x: e.clientX, y: e.clientY, frac, moved: false, pointerId: e.pointerId }
   }
 
   const onMove = (e: RPointerEvent) => {
@@ -140,6 +141,7 @@ export default function ServiceTimeline({
         const seg = segments.find((s, i) => keyOf(s, i) === p.key)
         const startAtDown = p.level === 1 ? l1Starts.get(p.key) ?? 0 : seg?.startOffset ?? 0
         drag.current = { mode: 'body', key: p.key, level: p.level, grab: cursorTime(p.x) - startAtDown }
+        rootRef.current?.setPointerCapture(p.pointerId)
         setDragActive(true)
         setDraggingKey(p.key)
       }
