@@ -32,10 +32,20 @@ function chipCls(active: boolean): string {
 const mkKey = () => Math.random().toString(36).slice(2)
 const withKey = (s: Segment): Seg => ({ ...s, _k: mkKey() })
 
-// Tarjeta que "sale" de la etiqueta de la barra: brota desde el punto (originPct)
-// con el color de la actividad y se SUPERPONE a la línea de tiempo, creciendo
-// suavemente hasta mostrar el contenido. Se re-monta (key) para re-animar.
-function PopCard({ originPct, color, children }: { originPct: number; color: string; children: ReactNode }) {
+// hex (#rgb o #rrggbb) → rgba con alfa dado.
+function withAlpha(hex: string, a: number): string {
+  const h = hex.replace('#', '')
+  const n = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const r = parseInt(n.slice(0, 2), 16) || 0
+  const g = parseInt(n.slice(2, 4), 16) || 0
+  const b = parseInt(n.slice(4, 6), 16) || 0
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}
+
+// Tarjeta que "sale" de la etiqueta de la barra: brota desde el punto (originPct),
+// justo debajo de la barra (top) para no taparla, con el MISMO color de la
+// actividad al 50% de transparencia, superponiéndose a la línea de tiempo.
+function PopCard({ originPct, top, color, children }: { originPct: number; top: number; color: string; children: ReactNode }) {
   const [shown, setShown] = useState(false)
   useEffect(() => {
     const r = requestAnimationFrame(() => setShown(true))
@@ -43,8 +53,9 @@ function PopCard({ originPct, color, children }: { originPct: number; color: str
   }, [])
   return (
     <div
-      style={{ transformOrigin: `${originPct}% top`, borderColor: color, backgroundColor: shown ? '#ffffff' : color }}
-      className={`absolute inset-x-0 top-0 z-20 overflow-hidden rounded-xl border-l-4 shadow-xl transition-all duration-300 ease-out ${shown ? 'scale-100 opacity-100' : 'scale-[0.12] opacity-80'}`}
+      data-card
+      style={{ top, transformOrigin: `${originPct}% top`, borderColor: color, backgroundColor: withAlpha(color, 0.5) }}
+      className={`absolute inset-x-0 z-20 overflow-hidden rounded-xl border-l-4 shadow-xl backdrop-blur-sm transition-all duration-300 ease-out ${shown ? 'scale-100 opacity-100' : 'scale-[0.12] opacity-90'}`}
     >
       <div className={`transition-opacity delay-100 duration-200 ${shown ? 'opacity-100' : 'opacity-0'}`}>{children}</div>
     </div>
@@ -130,6 +141,7 @@ export default function ActivityForm({
   const [menuKey, setMenuKey] = useState<string | null>(null)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [originPct, setOriginPct] = useState(50)
+  const [cardTop, setCardTop] = useState(80)
   const selectSeg = (k: string, frac?: number) => { setSelectedKey(k); if (frac != null) setOriginPct(frac * 100) }
 
   const [saving, setSaving] = useState(false)
@@ -284,7 +296,16 @@ export default function ActivityForm({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8" onClick={onClose}>
-      <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+        onClickCapture={(e) => {
+          if (!selectedKey) return
+          const t = e.target as HTMLElement
+          if (t.closest('[data-card]') || t.closest('[data-seg]')) return
+          setSelectedKey(null)
+        }}
+      >
         <h3 className="mb-4 font-serif text-lg text-charcoal">{editing ? 'Editar actividad' : 'Nueva actividad'}</h3>
 
         <div className="space-y-5">
@@ -397,11 +418,12 @@ export default function ActivityForm({
                 onSelect={(i, frac) => selectSeg(segments[i]._k, frac)}
                 onDuration={(i, min) => setSegments((prev) => prev.map((s, idx) => (idx === i ? { ...s, durationMin: min } : s)))}
                 onReorder={(from, to) => setSegments((prev) => reorderRespectingPins(prev, from, to))}
+                onBarBottom={setCardTop}
               />
 
             {/* tarjeta de la actividad seleccionada — brota de la etiqueta y se superpone */}
             {selected && (
-              <PopCard key={selected._k} originPct={originPct} color={segColor(selected)}>
+              <PopCard key={selected._k} originPct={originPct} top={cardTop + 4} color={segColor(selected)}>
               <div className="p-3">
                 <div className="flex items-center gap-2">
                   <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ backgroundColor: segColor(selected) }} />
@@ -452,6 +474,7 @@ export default function ActivityForm({
               {segments.map((s) => (
                 <div
                   key={s._k}
+                  data-seg
                   onClick={() => setSelectedKey(s._k)}
                   className={`cursor-pointer rounded-lg border bg-white p-2 transition ${selectedKey === s._k ? 'border-sage ring-1 ring-sage/30' : 'border-graysage/15'} ${dragging === s._k ? 'opacity-60' : ''}`}
                 >

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { minToClock, type Segment } from '../lib/activity'
 
 // Línea de tiempo HORIZONTAL del servicio.
@@ -15,6 +15,7 @@ export default function ServiceTimeline({
   onDuration,
   onReorder,
   onSelect,
+  onBarBottom,
   selectedKey,
   keyOf,
 }: {
@@ -25,11 +26,14 @@ export default function ServiceTimeline({
   onDuration: (index: number, min: number) => void
   onReorder: (from: number, to: number) => void
   onSelect?: (index: number, originFrac?: number) => void
+  onBarBottom?: (px: number) => void
   selectedKey?: string | null
   keyOf: (s: Segment, i: number) => string
 }) {
+  const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
+  const barRef = useRef<HTMLDivElement>(null)
   const ovRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ mode: 'resize' | 'reorder'; i: number; key: string } | null>(null)
   const navDrag = useRef(false)
@@ -47,6 +51,11 @@ export default function ServiceTimeline({
     setWin({ left: (el.scrollLeft / el.scrollWidth) * 100, width: (el.clientWidth / el.scrollWidth) * 100 })
   }
   useEffect(syncWin, [zoom, segments])
+  useLayoutEffect(() => {
+    if (barRef.current && rootRef.current && onBarBottom) {
+      onBarBottom(barRef.current.getBoundingClientRect().bottom - rootRef.current.getBoundingClientRect().top)
+    }
+  }, [zoom, segments.length, onBarBottom])
 
   const cursorMin = (clientX: number) => {
     const rect = trackRef.current!.getBoundingClientRect()
@@ -123,13 +132,14 @@ export default function ServiceTimeline({
   const zoomed = zoom > 1.01
 
   const renderBar = (mini: boolean) => (
-    <div className={`flex ${mini ? 'h-3' : 'h-16'} w-full overflow-hidden rounded-lg border border-graysage/20 bg-cream/50`}>
+    <div ref={mini ? undefined : barRef} className={`flex ${mini ? 'h-3' : 'h-16'} w-full overflow-hidden rounded-lg border border-graysage/20 bg-cream/50`}>
       {segments.map((s, i) => {
         const w = ((s.durationMin ?? 0) / scale) * 100
         const k = keyOf(s, i)
         return (
           <div
             key={k}
+            data-seg={mini ? undefined : ''}
             onPointerDown={mini ? undefined : onBodyDown(i, k, !!s.pinned)}
             onPointerMove={mini ? undefined : onMove}
             onPointerUp={mini ? undefined : onUp}
@@ -156,7 +166,7 @@ export default function ServiceTimeline({
   )
 
   return (
-    <div className="select-none">
+    <div ref={rootRef} className="select-none">
       {/* control de zoom */}
       <div className="mb-1.5 flex items-center gap-2">
         <span className="text-[0.65rem] text-graysage">Zoom</span>
