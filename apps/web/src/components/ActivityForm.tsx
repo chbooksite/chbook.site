@@ -57,7 +57,7 @@ type Rect = { left: number; top: number; width: number; height: number }
 // exacto de la etiqueta tocada en la barra y crece hasta su tamaño; al cerrar,
 // se encoge de vuelta a esa misma etiqueta. Si no hay rect (abrir desde lista),
 // cae a un pop simple.
-function PopCard({ top, color, open, originRect, onExited, children }: { top: number; color: string; open: boolean; originRect: Rect | null; onExited: () => void; children: ReactNode }) {
+function PopCard({ color, open, originRect, onExited, children }: { color: string; open: boolean; originRect: Rect | null; onExited: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
   const DUR = 320
 
@@ -103,8 +103,8 @@ function PopCard({ top, color, open, originRect, onExited, children }: { top: nu
       ref={ref}
       data-card
       onTransitionEnd={(e) => { if (e.target === e.currentTarget && !open) onExited() }}
-      style={{ top, borderColor: color, backgroundColor: withAlpha(color, 0.8) }}
-      className="absolute inset-x-0 z-20 overflow-hidden rounded-xl border-l-4 shadow-xl backdrop-blur-sm"
+      style={{ borderColor: color, backgroundColor: withAlpha(color, 0.8) }}
+      className="overflow-hidden rounded-xl border-l-4 shadow-xl backdrop-blur-sm"
     >
       {children}
     </div>
@@ -212,20 +212,41 @@ export default function ActivityForm({
   const [newTagName, setNewTagName] = useState('')
   const [listOpen, setListOpen] = useState(false)
   const [menuKey, setMenuKey] = useState<string | null>(null)
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const [cardTop, setCardTop] = useState(80)
-  const [cardRect, setCardRect] = useState<Rect | null>(null)
-  const selectSeg = (k: string, rect?: Rect) => {
-    setSelectedKey((cur) => (cur === k ? null : k)) // volver a tocar la misma cierra
-    if (rect) setCardRect(rect)
+
+  // Varias tarjetas abiertas a la vez. Cada una: fijable (pin), arrastrable (dx/dy),
+  // y animada al abrir/cerrar (open). Las no fijadas se cierran al abrir otra o al
+  // hacer clic fuera.
+  interface OpenCard { key: string; pinned: boolean; rect: Rect | null; dx: number; dy: number; open: boolean }
+  const [cards, setCards] = useState<OpenCard[]>([])
+  const openKeys = cards.filter((c) => c.open).map((c) => c.key)
+  const isOpen = (k: string) => cards.some((c) => c.key === k && c.open)
+
+  const openCard = (key: string, rect?: Rect) =>
+    setCards((prev) => {
+      const ex = prev.find((c) => c.key === key)
+      if (ex) return prev.map((c) => (c.key === key ? { ...c, open: !c.open, ...(!c.open && rect ? { rect } : {}) } : c)) // toggle (reabre si venía cerrándose)
+      const kept = prev.map((c) => (c.pinned ? c : { ...c, open: false })) // cierra las no fijadas
+      return [...kept, { key, pinned: false, rect: rect ?? null, dx: 0, dy: 0, open: true }]
+    })
+  const closeCard = (key: string) => setCards((prev) => prev.map((c) => (c.key === key ? { ...c, open: false } : c)))
+  const removeExitedCard = (key: string) => setCards((prev) => prev.filter((c) => !(c.key === key && !c.open)))
+  const pinCard = (key: string) => setCards((prev) => prev.map((c) => (c.key === key ? { ...c, pinned: !c.pinned } : c)))
+  const closeUnpinned = () => setCards((prev) => prev.map((c) => (c.pinned ? c : { ...c, open: false })))
+  const deleteSeg = (key: string) => { removeSeg(key); setCards((prev) => prev.filter((c) => c.key !== key)) }
+
+  // Arrastre de la tarjeta por la pantalla (asa en la cabecera).
+  const cardDrag = useRef<{ key: string; sx: number; sy: number; dx0: number; dy0: number } | null>(null)
+  const onCardHandleDown = (key: string) => (e: RPointerEvent) => {
+    const c = cards.find((x) => x.key === key)
+    cardDrag.current = { key, sx: e.clientX, sy: e.clientY, dx0: c?.dx ?? 0, dy0: c?.dy ?? 0 }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   }
-  // La tarjeta se mantiene montada durante el cierre para animar la salida (inversa).
-  const [cardKey, setCardKey] = useState<string | null>(null)
-  const [cardOpen, setCardOpen] = useState(false)
-  useEffect(() => {
-    if (selectedKey) { setCardKey(selectedKey); setCardOpen(true) }
-    else setCardOpen(false)
-  }, [selectedKey])
+  const onCardHandleMove = (e: RPointerEvent) => {
+    const d = cardDrag.current
+    if (!d) return
+    setCards((prev) => prev.map((c) => (c.key === d.key ? { ...c, dx: d.dx0 + (e.clientX - d.sx), dy: d.dy0 + (e.clientY - d.sy) } : c)))
+  }
+  const onCardHandleUp = () => { cardDrag.current = null }
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -305,7 +326,7 @@ export default function ActivityForm({
   const addSegmentFromTag = (t: Tag) => {
     const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false, level: 1, color: null, startOffset: 0 })
     setSegments((prev) => [...prev, seg])
-    setSelectedKey(seg._k)
+    openCard(seg._k)
   }
   // Crear una actividad soltando un chip del catálogo en la línea de tiempo,
   // en el nivel y posición indicados (nivel 1 = inserta por tiempo; 2/3 = libre).
@@ -416,7 +437,7 @@ export default function ActivityForm({
     if (t.typeId) setTypeId(t.typeId)
     setPartTeams(teamsOf(t.teamIds))
     setSegments(t.segments.map((s) => withKey({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees ?? [], pinned: !!s.pinned, level: s.level ?? 1, color: s.color ?? null, startOffset: s.startOffset ?? 0 })))
-    setSelectedKey(null)
+    setCards([])
   }
   const deleteTemplate = (nm: string) => persistTemplates(tpls.filter((t) => t.name !== nm))
 
@@ -489,18 +510,16 @@ export default function ActivityForm({
     }
   }
 
-  const selected = segments.find((s) => s._k === cardKey) ?? null
-
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8">
       <div
         className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
         onClickCapture={(e) => {
-          if (!selectedKey) return
+          if (!cards.some((c) => c.open && !c.pinned)) return
           const t = e.target as HTMLElement
           if (t.closest('[data-card]') || t.closest('[data-seg]')) return
-          setSelectedKey(null)
+          closeUnpinned()
         }}
       >
         <div className="mb-4 flex items-center justify-between">
@@ -621,8 +640,8 @@ export default function ActivityForm({
                 startMin={startMin}
                 colorOf={segColor}
                 keyOf={(s) => (s as Seg)._k}
-                selectedKey={selectedKey}
-                onSelect={(key, rect) => selectSeg(key, rect)}
+                openKeys={openKeys}
+                onSelect={(key, rect) => openCard(key, rect)}
                 onResize={(key, minThis, nextKey, minNext) => setSegments((prev) => prev.map((s) => (s._k === key ? { ...s, durationMin: minThis } : nextKey && s._k === nextKey ? { ...s, durationMin: minNext } : s)))}
                 onReorder={(level, key, toIdx) =>
                   setSegments((prev) => {
@@ -632,72 +651,76 @@ export default function ActivityForm({
                   })
                 }
                 onPatchSeg={(key, patch) => setSegments((prev) => prev.map((s) => (s._k === key ? { ...s, ...patch } : s)))}
-                onDelete={(key) => { removeSeg(key); if (selectedKey === key) setSelectedKey(null) }}
-                onBarBottom={setCardTop}
+                onDelete={(key) => deleteSeg(key)}
               />
 
-            {/* tarjeta de la actividad seleccionada — brota de la etiqueta y se superpone */}
-            {selected && (
-              <PopCard key={selected._k} open={cardOpen} onExited={() => setCardKey(null)} originRect={cardRect} top={cardTop + 4} color={segColor(selected)}>
-              <div className="p-3">
-                <div className="flex items-start gap-2">
-                  <input
-                    type="color"
-                    value={segColor(selected)}
-                    onChange={(e) => patchSeg(selected._k, { color: e.target.value })}
-                    className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border border-graysage/25"
-                    title="Color de la actividad"
-                  />
-                  <input value={selected.name} onChange={(e) => patchSeg(selected._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-serif text-base text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
-                  <button type="button" onClick={() => setSelectedKey(null)} className="ml-1 px-2 text-lg leading-none text-graysage hover:text-charcoal" title="Cerrar">✕</button>
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <input type="number" min={1} value={selected.durationMin ?? ''} onChange={(e) => patchSeg(selected._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
-                  <span className="text-xs text-graysage">min</span>
-                  <button type="button" onClick={() => { removeSeg(selected._k); setSelectedKey(null) }} className="ml-auto rounded-lg px-2.5 py-1 text-xl text-graysage transition hover:bg-clay/10 hover:text-clay" title="Eliminar actividad">🗑</button>
-                </div>
-
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="text-xs text-graysage">Nivel (simultáneo):</span>
-                  {[1, 2, 3].map((L) => (
-                    <button key={L} type="button" onClick={() => moveToLevel(selected._k, L)} className={`h-6 w-6 rounded-full text-xs transition ${(selected.level ?? 1) === L ? 'bg-sage text-cream' : 'border border-graysage/30 text-graysage hover:bg-sage/10'}`} title={L === 1 ? 'Principal' : `Nivel ${L} (paralelo)`}>{L}</button>
-                  ))}
-                </div>
-
-                <p className="mb-1 mt-3 text-xs font-medium uppercase tracking-wide text-graysage/70">Encargados</p>
-                {selected.assignees.length === 0 && <p className="text-xs text-graysage/60">Aún sin encargados. Añade uno abajo.</p>}
-                <div className="space-y-2">
-                  {selected.assignees.map((a, ai) => {
-                    const members = membersOf(a)
-                    return (
-                      <div key={`${a.kind}:${a.id}`} className="rounded-lg bg-cream/60 p-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`rounded-full px-2 py-0.5 text-xs ${a.kind === 'team' ? 'bg-clay/10 text-clay' : 'bg-sage-water/15 text-sage-dark'}`}>
-                            {a.kind === 'team' ? 'Equipo' : 'Rol'}: {assigneeLabel(a)}
-                          </span>
-                          <button type="button" onClick={() => removeAssignee(selected._k, ai)} className="ml-auto text-xs text-graysage hover:text-clay">✕</button>
-                        </div>
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                          {members.length === 0 && <span className="text-xs text-graysage/50">Sin miembros disponibles.</span>}
-                          {members.map((m) => (<button key={m.id} type="button" onClick={() => toggleAssigneeMember(selected._k, ai, m.id)} className={chipCls(a.memberIds.includes(m.id))}>{m.name}</button>))}
-                        </div>
+            {/* tarjetas abiertas — flotantes (fijas), arrastrables por toda la pantalla y fijables */}
+            {cards.map((c) => {
+              const seg = segments.find((s) => s._k === c.key)
+              if (!seg) return null
+              const w = Math.min(360, window.innerWidth - 16)
+              const baseLeft = c.rect ? Math.max(8, Math.min(c.rect.left, window.innerWidth - w - 8)) : window.innerWidth / 2 - w / 2
+              const baseTop = c.rect ? c.rect.top + c.rect.height + 8 : 120
+              return (
+                <div key={c.key} style={{ position: 'fixed', left: baseLeft, top: baseTop, width: w, transform: `translate(${c.dx}px, ${c.dy}px)`, zIndex: 50 }}>
+                  <PopCard open={c.open} onExited={() => removeExitedCard(c.key)} originRect={c.rect} color={segColor(seg)}>
+                    <div className="p-3">
+                      <div className="flex items-start gap-2">
+                        <span onPointerDown={onCardHandleDown(c.key)} onPointerMove={onCardHandleMove} onPointerUp={onCardHandleUp} className="mt-0.5 cursor-move touch-none select-none px-1 text-graysage" title="Mover">⠿</span>
+                        <input type="color" value={segColor(seg)} onChange={(e) => patchSeg(seg._k, { color: e.target.value })} className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border border-graysage/25" title="Color de la actividad" />
+                        <input value={seg.name} onChange={(e) => patchSeg(seg._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-serif text-base text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
+                        <button type="button" onClick={() => pinCard(c.key)} className={`px-1 text-base leading-none transition ${c.pinned ? 'text-sage-dark' : 'text-graysage/40 hover:text-graysage'}`} title={c.pinned ? 'Quitar fijado' : 'Fijar (no se cierra)'}>📌</button>
+                        <button type="button" onClick={() => closeCard(c.key)} className="px-2 text-lg leading-none text-graysage hover:text-charcoal" title="Cerrar">✕</button>
                       </div>
-                    )
-                  })}
-                </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <input type="number" min={1} value={seg.durationMin ?? ''} onChange={(e) => patchSeg(seg._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
+                        <span className="text-xs text-graysage">min</span>
+                        <button type="button" onClick={() => deleteSeg(c.key)} className="ml-auto rounded-lg px-2.5 py-1 text-xl text-graysage transition hover:bg-clay/10 hover:text-clay" title="Eliminar actividad">🗑</button>
+                      </div>
 
-                <select
-                  value=""
-                  onChange={(e) => { const v = e.target.value; if (v.startsWith('team:')) addAssignee(selected._k, 'team', v.slice(5)); else if (v.startsWith('role:')) addAssignee(selected._k, 'role', v.slice(5)) }}
-                  className="mt-2 w-full rounded-lg border border-sage/40 bg-white px-2 py-1.5 text-sm text-sage-dark outline-none focus:border-sage"
-                >
-                  <option value="">+ Añadir encargado…</option>
-                  {partTeams.length > 0 && (<optgroup label="Equipos participantes">{partTeams.map((pt) => (<option key={pt.teamId} value={`team:${pt.teamId}`}>{teamName(pt.teamId)}</option>))}</optgroup>)}
-                  <optgroup label="Roles">{roles.map((r) => (<option key={r.id} value={`role:${r.id}`}>{r.name}</option>))}</optgroup>
-                </select>
-              </div>
-              </PopCard>
-            )}
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-xs text-graysage">Nivel (simultáneo):</span>
+                        {[1, 2, 3].map((L) => (
+                          <button key={L} type="button" onClick={() => moveToLevel(seg._k, L)} className={`h-6 w-6 rounded-full text-xs transition ${(seg.level ?? 1) === L ? 'bg-sage text-cream' : 'border border-graysage/30 text-graysage hover:bg-sage/10'}`} title={L === 1 ? 'Principal' : `Nivel ${L} (paralelo)`}>{L}</button>
+                        ))}
+                      </div>
+
+                      <p className="mb-1 mt-3 text-xs font-medium uppercase tracking-wide text-graysage/70">Encargados</p>
+                      {seg.assignees.length === 0 && <p className="text-xs text-graysage/60">Aún sin encargados. Añade uno abajo.</p>}
+                      <div className="space-y-2">
+                        {seg.assignees.map((a, ai) => {
+                          const members = membersOf(a)
+                          return (
+                            <div key={`${a.kind}:${a.id}`} className="rounded-lg bg-cream/60 p-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`rounded-full px-2 py-0.5 text-xs ${a.kind === 'team' ? 'bg-clay/10 text-clay' : 'bg-sage-water/15 text-sage-dark'}`}>
+                                  {a.kind === 'team' ? 'Equipo' : 'Rol'}: {assigneeLabel(a)}
+                                </span>
+                                <button type="button" onClick={() => removeAssignee(seg._k, ai)} className="ml-auto text-xs text-graysage hover:text-clay">✕</button>
+                              </div>
+                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {members.length === 0 && <span className="text-xs text-graysage/50">Sin miembros disponibles.</span>}
+                                {members.map((m) => (<button key={m.id} type="button" onClick={() => toggleAssigneeMember(seg._k, ai, m.id)} className={chipCls(a.memberIds.includes(m.id))}>{m.name}</button>))}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      <select
+                        value=""
+                        onChange={(e) => { const v = e.target.value; if (v.startsWith('team:')) addAssignee(seg._k, 'team', v.slice(5)); else if (v.startsWith('role:')) addAssignee(seg._k, 'role', v.slice(5)) }}
+                        className="mt-2 w-full rounded-lg border border-sage/40 bg-white px-2 py-1.5 text-sm text-sage-dark outline-none focus:border-sage"
+                      >
+                        <option value="">+ Añadir encargado…</option>
+                        {partTeams.length > 0 && (<optgroup label="Equipos participantes">{partTeams.map((pt) => (<option key={pt.teamId} value={`team:${pt.teamId}`}>{teamName(pt.teamId)}</option>))}</optgroup>)}
+                        <optgroup label="Roles">{roles.map((r) => (<option key={r.id} value={`role:${r.id}`}>{r.name}</option>))}</optgroup>
+                      </select>
+                    </div>
+                  </PopCard>
+                </div>
+              )
+            })}
             </div>
 
             {/* catálogo de actividades internas (visible) */}
@@ -738,8 +761,8 @@ export default function ActivityForm({
                 <div
                   key={s._k}
                   data-seg
-                  onClick={() => setSelectedKey(s._k)}
-                  className={`cursor-pointer rounded-lg border bg-white p-2 transition hover:border-sage/40 hover:shadow-sm ${selectedKey === s._k ? 'border-sage ring-1 ring-sage/30' : 'border-graysage/15'} ${dragging === s._k ? 'opacity-60' : ''}`}
+                  onClick={() => openCard(s._k)}
+                  className={`cursor-pointer rounded-lg border bg-white p-2 transition hover:border-sage/40 hover:shadow-sm ${isOpen(s._k) ? 'border-sage ring-1 ring-sage/30' : 'border-graysage/15'} ${dragging === s._k ? 'opacity-60' : ''}`}
                 >
                   <div className="flex items-center gap-2">
                     {s.pinned ? (
@@ -756,11 +779,11 @@ export default function ActivityForm({
                       {menuKey === s._k && (
                         <div className="absolute right-0 top-6 z-10 w-40 overflow-hidden rounded-lg border border-graysage/20 bg-white py-1 shadow-lg">
                           <button type="button" onClick={() => { patchSeg(s._k, { pinned: !s.pinned }); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">{s.pinned ? 'Dejar de fijar' : 'Fijar (no mover)'}</button>
-                          <button type="button" onClick={() => { setSelectedKey(s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">Encargados</button>
+                          <button type="button" onClick={() => { openCard(s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">Encargados</button>
                         </div>
                       )}
                     </div>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); removeSeg(s._k); if (selectedKey === s._k) setSelectedKey(null) }} className="px-1 text-graysage hover:text-clay" title="Eliminar">🗑</button>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); deleteSeg(s._k) }} className="px-1 text-graysage hover:text-clay" title="Eliminar">🗑</button>
                   </div>
                 </div>
               ))}

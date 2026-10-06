@@ -23,7 +23,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   onDelete?: (key: string) => void
   onSelect?: (key: string, originRect?: { left: number; top: number; width: number; height: number }) => void
   onBarBottom?: (px: number) => void
-  selectedKey?: string | null
+  openKeys?: string[]
   dropActive?: boolean
   dropTarget?: { kind: 'activity' | 'team'; level: number | null; segmentKey: string | null; timeMin: number | null; durationMin?: number | null } | null
   assigneeText?: (s: Segment) => string
@@ -39,7 +39,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   onDelete,
   onSelect,
   onBarBottom,
-  selectedKey,
+  openKeys,
   dropActive,
   dropTarget,
   assigneeText,
@@ -317,7 +317,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
               data-seg={mini ? undefined : ''}
               onPointerDown={mini ? undefined : onBodyDown(k, L, !!s.pinned)}
               style={{ left: `${left}%`, width: `${w}%`, backgroundColor: colorOf(s) }}
-              className={`absolute top-0 flex h-full flex-col justify-center overflow-hidden ${mini ? '' : 'cursor-grab px-1.5 transition hover:brightness-110 active:cursor-grabbing'} ${!mini && selectedKey === k ? 'ring-2 ring-inset ring-white' : ''} ${draggingKey === k ? 'opacity-50 ring-2 ring-inset ring-charcoal/40' : ''} ${!mini && dropTarget?.kind === 'team' && dropTarget.segmentKey === k ? 'z-10 ring-4 ring-inset ring-white brightness-110' : ''}`}
+              className={`absolute top-0 flex h-full flex-col justify-center overflow-hidden ${mini ? '' : 'cursor-grab px-1.5 transition hover:brightness-110 active:cursor-grabbing'} ${!mini && openKeys?.includes(k) ? 'ring-2 ring-inset ring-white' : ''} ${draggingKey === k ? 'opacity-50 ring-2 ring-inset ring-charcoal/40' : ''} ${!mini && dropTarget?.kind === 'team' && dropTarget.segmentKey === k ? 'z-10 ring-4 ring-inset ring-white brightness-110' : ''}`}
               title={mini ? undefined : `${s.name} · ${s.durationMin ?? 0} min`}
             >
               {!mini && (
