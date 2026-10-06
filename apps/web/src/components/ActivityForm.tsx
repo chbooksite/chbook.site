@@ -255,6 +255,7 @@ export default function ActivityForm({
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmClose, setConfirmClose] = useState(false)
 
   // Arrastrar chips (catálogo de actividades / equipos) hasta la línea de tiempo.
   const timelineRef = useRef<TimelineHandle>(null)
@@ -524,7 +525,7 @@ export default function ActivityForm({
   const initialSnap = useRef<string | null>(null)
   if (initialSnap.current === null) initialSnap.current = snapshot()
   const handleClose = () => {
-    if (initialSnap.current !== snapshot() && !window.confirm('Hay cambios sin guardar. ¿Seguro que quieres salir? Se perderán.')) return
+    if (initialSnap.current !== snapshot()) { setConfirmClose(true); return }
     onClose()
   }
 
@@ -827,12 +828,22 @@ export default function ActivityForm({
           </div>
         )}
 
-        <div className="mt-6 flex items-center justify-end gap-3">
-          <button type="button" onClick={handleClose} className="text-sm text-graysage hover:underline">Cancelar</button>
-          <button type="button" onClick={save} disabled={saving} className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60">
-            {saving ? 'Guardando…' : 'Guardar'}
-          </button>
-        </div>
+        {confirmClose ? (
+          <div className="mt-6 flex flex-wrap items-center gap-3 rounded-lg bg-clay/10 px-3 py-2.5">
+            <span className="text-sm text-clay">Hay cambios sin guardar. Si sales, se perderán.</span>
+            <div className="ml-auto flex items-center gap-3">
+              <button type="button" onClick={() => setConfirmClose(false)} className="text-sm text-graysage hover:underline">Seguir editando</button>
+              <button type="button" onClick={onClose} className="rounded-lg border border-clay/40 px-3 py-1.5 text-sm font-medium text-clay transition hover:bg-clay/10">Salir sin guardar</button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-6 flex items-center justify-end gap-3">
+            <button type="button" onClick={handleClose} className="text-sm text-graysage hover:underline">Cancelar</button>
+            <button type="button" onClick={save} disabled={saving} className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60">
+              {saving ? 'Guardando…' : 'Guardar'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
