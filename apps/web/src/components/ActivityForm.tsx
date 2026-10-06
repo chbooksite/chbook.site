@@ -54,15 +54,16 @@ function withAlpha(hex: string, a: number): string {
 // Tarjeta que "sale" de la etiqueta de la barra: brota desde el punto (originPct),
 // justo debajo de la barra (top) para no taparla, con el MISMO color de la
 // actividad al 50% de transparencia, superponiéndose a la línea de tiempo.
-function PopCard({ originPct, top, color, children }: { originPct: number; top: number; color: string; children: ReactNode }) {
+function PopCard({ originPct, top, color, open, onExited, children }: { originPct: number; top: number; color: string; open: boolean; onExited: () => void; children: ReactNode }) {
   const [shown, setShown] = useState(false)
   useEffect(() => {
-    const r = requestAnimationFrame(() => setShown(true))
-    return () => cancelAnimationFrame(r)
-  }, [])
+    if (open) { const r = requestAnimationFrame(() => setShown(true)); return () => cancelAnimationFrame(r) }
+    setShown(false) // cierre: colapsa (animación inversa) y al terminar se desmonta
+  }, [open])
   return (
     <div
       data-card
+      onTransitionEnd={(e) => { if (e.target === e.currentTarget && !open) onExited() }}
       style={{ top, transformOrigin: `${originPct}% top`, borderColor: color, backgroundColor: withAlpha(color, 0.5) }}
       className={`absolute inset-x-0 z-20 overflow-hidden rounded-xl border-l-4 shadow-xl backdrop-blur-sm transition-all duration-300 ease-out ${shown ? 'scale-100 opacity-100' : 'scale-[0.12] opacity-90'}`}
     >
@@ -179,6 +180,13 @@ export default function ActivityForm({
     setSelectedKey((cur) => (cur === k ? null : k)) // volver a tocar la misma cierra
     if (frac != null) setOriginPct(frac * 100)
   }
+  // La tarjeta se mantiene montada durante el cierre para animar la salida (inversa).
+  const [cardKey, setCardKey] = useState<string | null>(null)
+  const [cardOpen, setCardOpen] = useState(false)
+  useEffect(() => {
+    if (selectedKey) { setCardKey(selectedKey); setCardOpen(true) }
+    else setCardOpen(false)
+  }, [selectedKey])
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -442,7 +450,7 @@ export default function ActivityForm({
     }
   }
 
-  const selected = segments.find((s) => s._k === selectedKey) ?? null
+  const selected = segments.find((s) => s._k === cardKey) ?? null
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8">
@@ -591,7 +599,7 @@ export default function ActivityForm({
 
             {/* tarjeta de la actividad seleccionada — brota de la etiqueta y se superpone */}
             {selected && (
-              <PopCard key={selected._k} originPct={originPct} top={cardTop + 4} color={segColor(selected)}>
+              <PopCard key={selected._k} open={cardOpen} onExited={() => setCardKey(null)} originPct={originPct} top={cardTop + 4} color={segColor(selected)}>
               <div className="p-3">
                 <div className="flex items-start gap-2">
                   <input
