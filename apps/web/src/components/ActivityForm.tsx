@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import ServiceTimeline, { type TimelineHandle } from './ServiceTimeline'
 import type { AgeRangeDef } from '../lib/member'
@@ -51,23 +51,62 @@ function withAlpha(hex: string, a: number): string {
   return `rgba(${r}, ${g}, ${b}, ${a})`
 }
 
-// Tarjeta que "sale" de la etiqueta de la barra: brota desde el punto (originPct),
-// justo debajo de la barra (top) para no taparla, con el MISMO color de la
-// actividad al 50% de transparencia, superponiéndose a la línea de tiempo.
-function PopCard({ originPct, top, color, open, onExited, children }: { originPct: number; top: number; color: string; open: boolean; onExited: () => void; children: ReactNode }) {
-  const [shown, setShown] = useState(false)
+type Rect = { left: number; top: number; width: number; height: number }
+
+// Transición tipo "shared element" (FLIP): la tarjeta nace desde el rectángulo
+// exacto de la etiqueta tocada en la barra y crece hasta su tamaño; al cerrar,
+// se encoge de vuelta a esa misma etiqueta. Si no hay rect (abrir desde lista),
+// cae a un pop simple.
+function PopCard({ top, color, open, originRect, onExited, children }: { top: number; color: string; open: boolean; originRect: Rect | null; onExited: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const DUR = 320
+
+  const toOrigin = (el: HTMLElement) => {
+    const rest = el.getBoundingClientRect()
+    const o = originRect ?? { left: rest.left + rest.width / 2 - 20, top: rest.top - 12, width: 40, height: 16 }
+    const dx = o.left - rest.left
+    const dy = o.top - rest.top
+    const sx = Math.max(o.width / rest.width, 0.02)
+    const sy = Math.max(o.height / rest.height, 0.02)
+    el.style.transformOrigin = 'top left'
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`
+    el.style.opacity = '0.85'
+  }
+
+  // Entrada: medir el reposo, colocar en la etiqueta sin transición, y animar a 0.
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.transition = 'none'
+    toOrigin(el)
+    void el.offsetWidth
+    requestAnimationFrame(() => {
+      el.style.transition = `transform ${DUR}ms cubic-bezier(.4,0,.2,1), opacity ${DUR}ms ease`
+      el.style.transform = ''
+      el.style.opacity = '1'
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Cierre: volver a encogerse hacia la etiqueta (animación inversa).
   useEffect(() => {
-    if (open) { const r = requestAnimationFrame(() => setShown(true)); return () => cancelAnimationFrame(r) }
-    setShown(false) // cierre: colapsa (animación inversa) y al terminar se desmonta
+    if (open) return
+    const el = ref.current
+    if (!el) return
+    el.style.transition = `transform ${DUR}ms cubic-bezier(.4,0,.2,1), opacity ${DUR}ms ease`
+    toOrigin(el)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
   return (
     <div
+      ref={ref}
       data-card
       onTransitionEnd={(e) => { if (e.target === e.currentTarget && !open) onExited() }}
-      style={{ top, transformOrigin: `${originPct}% top`, borderColor: color, backgroundColor: withAlpha(color, 0.5) }}
-      className={`absolute inset-x-0 z-20 overflow-hidden rounded-xl border-l-4 shadow-xl backdrop-blur-sm transition-all duration-300 ease-out ${shown ? 'scale-100 opacity-100' : 'scale-[0.12] opacity-90'}`}
+      style={{ top, borderColor: color, backgroundColor: withAlpha(color, 0.5) }}
+      className="absolute inset-x-0 z-20 overflow-hidden rounded-xl border-l-4 shadow-xl backdrop-blur-sm"
     >
-      <div className={`transition-opacity delay-100 duration-200 ${shown ? 'opacity-100' : 'opacity-0'}`}>{children}</div>
+      {children}
     </div>
   )
 }
@@ -174,11 +213,11 @@ export default function ActivityForm({
   const [listOpen, setListOpen] = useState(false)
   const [menuKey, setMenuKey] = useState<string | null>(null)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const [originPct, setOriginPct] = useState(50)
   const [cardTop, setCardTop] = useState(80)
-  const selectSeg = (k: string, frac?: number) => {
+  const [cardRect, setCardRect] = useState<Rect | null>(null)
+  const selectSeg = (k: string, rect?: Rect) => {
     setSelectedKey((cur) => (cur === k ? null : k)) // volver a tocar la misma cierra
-    if (frac != null) setOriginPct(frac * 100)
+    if (rect) setCardRect(rect)
   }
   // La tarjeta se mantiene montada durante el cierre para animar la salida (inversa).
   const [cardKey, setCardKey] = useState<string | null>(null)
@@ -583,7 +622,7 @@ export default function ActivityForm({
                 colorOf={segColor}
                 keyOf={(s) => (s as Seg)._k}
                 selectedKey={selectedKey}
-                onSelect={(key, frac) => selectSeg(key, frac)}
+                onSelect={(key, rect) => selectSeg(key, rect)}
                 onResize={(key, minThis, nextKey, minNext) => setSegments((prev) => prev.map((s) => (s._k === key ? { ...s, durationMin: minThis } : nextKey && s._k === nextKey ? { ...s, durationMin: minNext } : s)))}
                 onReorder={(level, key, toIdx) =>
                   setSegments((prev) => {
@@ -599,7 +638,7 @@ export default function ActivityForm({
 
             {/* tarjeta de la actividad seleccionada — brota de la etiqueta y se superpone */}
             {selected && (
-              <PopCard key={selected._k} open={cardOpen} onExited={() => setCardKey(null)} originPct={originPct} top={cardTop + 4} color={segColor(selected)}>
+              <PopCard key={selected._k} open={cardOpen} onExited={() => setCardKey(null)} originRect={cardRect} top={cardTop + 4} color={segColor(selected)}>
               <div className="p-3">
                 <div className="flex items-start gap-2">
                   <input
