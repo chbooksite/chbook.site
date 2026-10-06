@@ -25,6 +25,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   onBarBottom?: (px: number) => void
   selectedKey?: string | null
   dropActive?: boolean
+  dropTarget?: { kind: 'activity' | 'team'; level: number | null; segmentKey: string | null; timeMin: number | null } | null
   keyOf: (s: Segment, i: number) => string
 }>(function ServiceTimeline({
   segments,
@@ -39,6 +40,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   onBarBottom,
   selectedKey,
   dropActive,
+  dropTarget,
   keyOf,
 }, ref) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -292,7 +294,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
               data-seg={mini ? undefined : ''}
               onPointerDown={mini ? undefined : onBodyDown(k, L, !!s.pinned)}
               style={{ left: `${left}%`, width: `${w}%`, backgroundColor: colorOf(s) }}
-              className={`absolute top-0 flex h-full flex-col justify-center overflow-hidden ${mini ? '' : 'cursor-grab px-1.5 transition hover:brightness-110 active:cursor-grabbing'} ${!mini && selectedKey === k ? 'ring-2 ring-inset ring-white' : ''} ${draggingKey === k ? 'opacity-50 ring-2 ring-inset ring-charcoal/40' : ''}`}
+              className={`absolute top-0 flex h-full flex-col justify-center overflow-hidden ${mini ? '' : 'cursor-grab px-1.5 transition hover:brightness-110 active:cursor-grabbing'} ${!mini && selectedKey === k ? 'ring-2 ring-inset ring-white' : ''} ${draggingKey === k ? 'opacity-50 ring-2 ring-inset ring-charcoal/40' : ''} ${!mini && dropTarget?.kind === 'team' && dropTarget.segmentKey === k ? 'z-10 ring-4 ring-inset ring-white brightness-110' : ''}`}
               title={mini ? undefined : `${s.name} · ${s.durationMin ?? 0} min`}
             >
               {!mini && (
@@ -306,6 +308,9 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
             </div>
           )
         })}
+        {!mini && dropTarget?.kind === 'activity' && dropTarget.level === L && dropTarget.timeMin != null && (
+          <span style={{ left: `${xPct(dropTarget.timeMin)}%` }} className="pointer-events-none absolute top-0 h-full w-1 -translate-x-1/2 rounded bg-sage-dark shadow" />
+        )}
       </div>
     )
   }
@@ -327,7 +332,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
               <div
                 key={L}
                 ref={(el) => { const m = levelBarEls.current; if (el) m.set(L, el); else m.delete(L) }}
-                className={`rounded-lg transition ${dragActive && overLevel === L ? 'ring-2 ring-sage/60' : ''}`}
+                className={`rounded-lg transition ${(dragActive && overLevel === L) || (dropTarget?.kind === 'activity' && dropTarget.level === L) ? 'ring-2 ring-sage/60' : ''}`}
               >
                 {renderBar(L, false)}
               </div>
@@ -337,7 +342,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
                 <div
                   key={`ph-${L}`}
                   ref={(el) => { const m = levelBarEls.current; if (el) m.set(L, el); else m.delete(L) }}
-                  className={`mt-3 flex h-8 w-full items-center justify-center rounded-lg border border-dashed transition ${overLevel === L ? 'border-sage bg-sage/10 text-sage-dark' : 'border-graysage/30 text-graysage/50'}`}
+                  className={`mt-3 flex h-8 w-full items-center justify-center rounded-lg border border-dashed transition ${overLevel === L || (dropTarget?.kind === 'activity' && dropTarget.level === L) ? 'border-sage bg-sage/10 text-sage-dark' : 'border-graysage/30 text-graysage/50'}`}
                 >
                   <span className="text-[0.65rem]">Soltar aquí → Nivel {L}</span>
                 </div>

@@ -184,7 +184,8 @@ export default function ActivityForm({
   const timelineRef = useRef<TimelineHandle>(null)
   const chipData = useRef<({ kind: 'activity'; tag: Tag } | { kind: 'team'; teamId: string }) & { x: number; y: number; moved: boolean; pointerId: number } | null>(null)
   const chipDidDrag = useRef(false)
-  const [chipDrag, setChipDrag] = useState<{ label: string; color: string; x: number; y: number } | null>(null)
+  const [chipDrag, setChipDrag] = useState<{ label: string; color: string; x: number; y: number; over: boolean } | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ kind: 'activity' | 'team'; level: number | null; segmentKey: string | null; timeMin: number | null } | null>(null)
 
   const startActivityChip = (t: Tag) => (e: RPointerEvent) => {
     chipData.current = { kind: 'activity', tag: t, x: e.clientX, y: e.clientY, moved: false, pointerId: e.pointerId }
@@ -201,17 +202,22 @@ export default function ActivityForm({
     d.moved = true
     d.x = e.clientX
     d.y = e.clientY
+    const hit = timelineRef.current?.hitTest(e.clientX, e.clientY) ?? null
+    const valid = !!hit && (d.kind === 'activity' ? hit.level != null : !!hit.segmentKey)
+    setDropTarget(hit ? { kind: d.kind, level: hit.level, segmentKey: hit.segmentKey, timeMin: hit.timeMin } : null)
     setChipDrag({
       label: d.kind === 'activity' ? d.tag.name : teamName(d.teamId),
       color: d.kind === 'activity' ? d.tag.color ?? '#64748b' : '#8a7f70',
       x: e.clientX,
       y: e.clientY,
+      over: valid,
     })
   }
   const onChipUp = (e: RPointerEvent) => {
     const d = chipData.current
     chipData.current = null
     setChipDrag(null)
+    setDropTarget(null)
     if (!d || !d.moved) return
     chipDidDrag.current = true
     setTimeout(() => { chipDidDrag.current = false }, 0)
@@ -547,6 +553,7 @@ export default function ActivityForm({
               <ServiceTimeline
                 ref={timelineRef}
                 dropActive={!!chipDrag}
+                dropTarget={dropTarget}
                 segments={segments}
                 totalMin={total}
                 startMin={startMin}
@@ -703,7 +710,7 @@ export default function ActivityForm({
         </div>
 
         {chipDrag && (
-          <div style={{ left: chipDrag.x, top: chipDrag.y, backgroundColor: chipDrag.color }} className="pointer-events-none fixed z-[80] -translate-x-1/2 -translate-y-1/2 rounded-full px-2.5 py-1 text-xs font-medium text-white opacity-60 shadow-lg">
+          <div style={{ left: chipDrag.x, top: chipDrag.y, backgroundColor: chipDrag.color }} className={`pointer-events-none fixed z-[80] -translate-x-1/2 -translate-y-1/2 rounded-full px-2.5 py-1 text-xs font-medium text-white shadow-lg transition-transform ${chipDrag.over ? 'scale-125 opacity-90 ring-2 ring-white' : 'scale-100 opacity-60'}`}>
             {chipDrag.label}
           </div>
         )}
