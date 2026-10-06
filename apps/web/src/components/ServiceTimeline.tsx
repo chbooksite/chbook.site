@@ -1,25 +1,18 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { minToClock, type Segment } from '../lib/activity'
+
+// Resultado de ubicar un punto (x,y) sobre la línea de tiempo: nivel, tiempo
+// en minutos (0 = inicio del servicio) y el segmento que esté debajo, si hay.
+export interface TimelineHandle {
+  hitTest(clientX: number, clientY: number): { level: number; timeMin: number; segmentKey: string | null } | null
+}
 
 // Línea de tiempo del servicio sobre un eje de tiempo compartido.
 //  · Nivel 1 = principal (secuencial desde el inicio del servicio).
 //  · Niveles 2 y 3 = barras paralelas (media altura) con bloques LIBRES: su
 //    borde izquierdo mueve el inicio (incluso antes del servicio) y el derecho
 //    el fin (incluso después). Se pueden mover y pasar de nivel arrastrando.
-export default function ServiceTimeline({
-  segments,
-  totalMin,
-  startMin,
-  colorOf,
-  onResize,
-  onReorder,
-  onPatchSeg,
-  onDelete,
-  onSelect,
-  onBarBottom,
-  selectedKey,
-  keyOf,
-}: {
+const ServiceTimeline = forwardRef<TimelineHandle, {
   segments: Segment[]
   totalMin: number | null
   startMin: number | null
@@ -31,8 +24,23 @@ export default function ServiceTimeline({
   onSelect?: (key: string, originFrac?: number) => void
   onBarBottom?: (px: number) => void
   selectedKey?: string | null
+  dropActive?: boolean
   keyOf: (s: Segment, i: number) => string
-}) {
+}>(function ServiceTimeline({
+  segments,
+  totalMin,
+  startMin,
+  colorOf,
+  onResize,
+  onReorder,
+  onPatchSeg,
+  onDelete,
+  onSelect,
+  onBarBottom,
+  selectedKey,
+  dropActive,
+  keyOf,
+}, ref) {
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
@@ -44,6 +52,7 @@ export default function ServiceTimeline({
   const overTrash = useRef(false)
   const segEls = useRef(new Map<string, HTMLElement>())
   const levelBarEls = useRef(new Map<number, HTMLElement>())
+  const geom = useRef({ t0: 0, span: 1 })
   const prevLefts = useRef(new Map<string, number>())
   const prevOrder = useRef<string[]>([])
   const [zoom, setZoom] = useState(1)
@@ -71,6 +80,27 @@ export default function ServiceTimeline({
   const xPct = (t: number) => ((t - t0) / span) * 100
   const boundaryLabel = (offset: number) => (startMin != null ? minToClock(startMin + offset) : `${offset}′`)
   const segStart = (s: Segment, k: string) => (lvl(s) === 1 ? l1Starts.get(k) ?? 0 : s.startOffset ?? 0)
+
+  // Geometría actual para hit-testing externo (arrastrar chips a la barra).
+  geom.current = { t0, span }
+  useImperativeHandle(ref, (): TimelineHandle => ({
+    hitTest(clientX, clientY) {
+      let level: number | null = null
+      for (const [L, el] of levelBarEls.current) {
+        const r = el.getBoundingClientRect()
+        if (clientY >= r.top - 6 && clientY <= r.bottom + 6) { level = L; break }
+      }
+      if (level == null || !trackRef.current) return null
+      const rect = trackRef.current.getBoundingClientRect()
+      const timeMin = geom.current.t0 + ((clientX - rect.left) / rect.width) * geom.current.span
+      let segmentKey: string | null = null
+      for (const [k, el] of segEls.current) {
+        const r = el.getBoundingClientRect()
+        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) { segmentKey = k; break }
+      }
+      return { level, timeMin, segmentKey }
+    },
+  }))
 
   const syncWin = () => {
     const el = scrollRef.current
@@ -302,7 +332,7 @@ export default function ServiceTimeline({
                 {renderBar(L, false)}
               </div>
             ))}
-            {dragActive &&
+            {(dragActive || dropActive) &&
               [2, 3].filter((L) => !activeLevels.includes(L)).map((L) => (
                 <div
                   key={`ph-${L}`}
@@ -351,4 +381,6 @@ export default function ServiceTimeline({
       </div>
     </div>
   )
-}
+})
+
+export default ServiceTimeline

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
-import ServiceTimeline from './ServiceTimeline'
+import ServiceTimeline, { type TimelineHandle } from './ServiceTimeline'
 import type { AgeRangeDef } from '../lib/member'
 import {
   WEEKDAYS,
@@ -180,6 +180,47 @@ export default function ActivityForm({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Arrastrar chips (catálogo de actividades / equipos) hasta la línea de tiempo.
+  const timelineRef = useRef<TimelineHandle>(null)
+  const chipData = useRef<({ kind: 'activity'; tag: Tag } | { kind: 'team'; teamId: string }) & { x: number; y: number; moved: boolean; pointerId: number } | null>(null)
+  const chipDidDrag = useRef(false)
+  const [chipDrag, setChipDrag] = useState<{ label: string; color: string; x: number; y: number } | null>(null)
+
+  const startActivityChip = (t: Tag) => (e: RPointerEvent) => {
+    chipData.current = { kind: 'activity', tag: t, x: e.clientX, y: e.clientY, moved: false, pointerId: e.pointerId }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const startTeamChip = (teamId: string) => (e: RPointerEvent) => {
+    chipData.current = { kind: 'team', teamId, x: e.clientX, y: e.clientY, moved: false, pointerId: e.pointerId }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const onChipMove = (e: RPointerEvent) => {
+    const d = chipData.current
+    if (!d) return
+    if (!d.moved && Math.abs(e.clientX - d.x) < 4 && Math.abs(e.clientY - d.y) < 4) return
+    d.moved = true
+    d.x = e.clientX
+    d.y = e.clientY
+    setChipDrag({
+      label: d.kind === 'activity' ? d.tag.name : teamName(d.teamId),
+      color: d.kind === 'activity' ? d.tag.color ?? '#64748b' : '#8a7f70',
+      x: e.clientX,
+      y: e.clientY,
+    })
+  }
+  const onChipUp = (e: RPointerEvent) => {
+    const d = chipData.current
+    chipData.current = null
+    setChipDrag(null)
+    if (!d || !d.moved) return
+    chipDidDrag.current = true
+    setTimeout(() => { chipDidDrag.current = false }, 0)
+    const hit = timelineRef.current?.hitTest(e.clientX, e.clientY)
+    if (!hit) return
+    if (d.kind === 'activity') addSegmentAt(d.tag, hit.level, hit.timeMin)
+    else if (hit.segmentKey) { addAssignee(hit.segmentKey, 'team', d.teamId); addTeam(d.teamId) }
+  }
+
   const toggleArr = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
   const total = serviceMinutes(startTime || null, endTime || null)
   const startMin = clockToMin(startTime || null)
@@ -209,6 +250,22 @@ export default function ActivityForm({
     const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false, level: 1, color: null, startOffset: 0 })
     setSegments((prev) => [...prev, seg])
     setSelectedKey(seg._k)
+  }
+  // Crear una actividad soltando un chip del catálogo en la línea de tiempo,
+  // en el nivel y posición indicados (nivel 1 = inserta por tiempo; 2/3 = libre).
+  const addSegmentAt = (t: Tag, level: number, timeMin: number) => {
+    const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false, level, color: null, startOffset: level === 1 ? 0 : Math.round(timeMin) })
+    setSegments((prev) => {
+      if (level !== 1) return [...prev, seg]
+      const l1 = prev.filter((s) => (s.level ?? 1) === 1)
+      let acc = 0
+      let ins = l1.length
+      for (let i = 0; i < l1.length; i++) { const dur = l1[i].durationMin ?? 0; if (timeMin < acc + dur / 2) { ins = i; break } acc += dur }
+      const gpos = ins < l1.length ? prev.indexOf(l1[ins]) : prev.length
+      const next = [...prev]
+      next.splice(gpos, 0, seg)
+      return next
+    })
   }
   const segColor = (s: Segment) => s.color ?? tags.find((t) => t.id === s.tagId)?.color ?? '#94a3b8'
 
@@ -470,12 +527,12 @@ export default function ActivityForm({
           {/* Capa 1: equipos participantes (en formato etiqueta) */}
           <div className="rounded-xl bg-cream/50 p-4">
             <p className="text-sm font-medium text-charcoal">Equipos participantes</p>
-            <p className="mb-3 text-xs text-graysage">Toca un equipo para activarlo durante todo el servicio. Los activos cambian de color.</p>
+            <p className="mb-3 text-xs text-graysage">Toca un equipo para activarlo durante todo el servicio, o arrástralo sobre una actividad para asignarlo. Los activos cambian de color.</p>
             <div className="flex flex-wrap gap-1.5">
               {teams.map((t) => {
                 const active = partTeams.some((p) => p.teamId === t.id)
                 return (
-                  <button key={t.id} type="button" onClick={() => (active ? removeTeam(t.id) : addTeam(t.id))} className={catalogChipCls(active)}>{t.name}</button>
+                  <button key={t.id} type="button" onPointerDown={startTeamChip(t.id)} onPointerMove={onChipMove} onPointerUp={onChipUp} onClick={() => { if (chipDidDrag.current) return; active ? removeTeam(t.id) : addTeam(t.id) }} className={`${catalogChipCls(active)} touch-none`}>{t.name}</button>
                 )
               })}
             </div>
@@ -488,6 +545,8 @@ export default function ActivityForm({
 
             <div className="relative mb-3">
               <ServiceTimeline
+                ref={timelineRef}
+                dropActive={!!chipDrag}
                 segments={segments}
                 totalMin={total}
                 startMin={startMin}
@@ -573,7 +632,7 @@ export default function ActivityForm({
             </div>
 
             {/* catálogo de actividades internas (visible) */}
-            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-graysage/70">Actividades internas</p>
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-graysage/70">Actividades internas <span className="normal-case text-graysage/50">· toca para añadir o arrástrala a la línea</span></p>
             <div className="mb-2 flex flex-wrap gap-1.5">
               {tags.map((t) => {
                 const used = segments.some((s) => s.tagId === t.id)
@@ -582,9 +641,12 @@ export default function ActivityForm({
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => addSegmentFromTag(t)}
+                    onPointerDown={startActivityChip(t)}
+                    onPointerMove={onChipMove}
+                    onPointerUp={onChipUp}
+                    onClick={() => { if (chipDidDrag.current) return; addSegmentFromTag(t) }}
                     style={used ? { backgroundColor: col, color: '#fff' } : undefined}
-                    className={used ? 'rounded-full px-2.5 py-1 text-xs font-medium' : catalogChipCls(false)}
+                    className={`${used ? 'rounded-full px-2.5 py-1 text-xs font-medium' : catalogChipCls(false)} touch-none`}
                   >
                     + {t.name}
                   </button>
@@ -639,6 +701,12 @@ export default function ActivityForm({
 
           {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
         </div>
+
+        {chipDrag && (
+          <div style={{ left: chipDrag.x, top: chipDrag.y, backgroundColor: chipDrag.color }} className="pointer-events-none fixed z-[80] -translate-x-1/2 -translate-y-1/2 rounded-full px-2.5 py-1 text-xs font-medium text-white opacity-60 shadow-lg">
+            {chipDrag.label}
+          </div>
+        )}
 
         <div className="mt-6 flex items-center justify-end gap-3">
           <button type="button" onClick={onClose} className="text-sm text-graysage hover:underline">Cancelar</button>
