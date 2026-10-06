@@ -96,9 +96,13 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   }
 
   const parallel = [...levelSegs(2), ...levelSegs(3)]
-  // El servicio arranca en 0: las actividades no pueden empezar antes.
+  // El servicio arranca en 0 y, si hay hora de fin, el eje llega justo hasta ella
+  // (no se amplía más allá). Sin hora de fin, el eje crece con el contenido.
   const t0 = 0
-  const t1 = Math.max(totalMin ?? 0, sum1 + (previewL1Idx != null ? previewDur : 0), ...parallel.map((s) => Math.max(0, s.startOffset ?? 0) + (s.durationMin ?? 0)))
+  const t1 =
+    totalMin != null
+      ? totalMin
+      : Math.max(sum1 + (previewL1Idx != null ? previewDur : 0), ...parallel.map((s) => Math.max(0, s.startOffset ?? 0) + (s.durationMin ?? 0)), 1)
   const span = Math.max(t1 - t0, 1)
   const xPct = (t: number) => ((t - t0) / span) * 100
   const boundaryLabel = (offset: number) => (startMin != null ? minToClock(startMin + offset) : `${offset}′`)
@@ -233,7 +237,9 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
         const newI = Math.max(1, Math.min(pair - 1, Math.round(ct - before)))
         onResize(d.key, newI, keyOf(next, idx + 1), pair - newI)
       } else {
-        onResize(d.key, Math.max(1, Math.round(ct - before)), null, 0)
+        let dur = Math.max(1, Math.round(ct - before))
+        if (totalMin != null) dur = Math.min(dur, Math.max(1, totalMin - before)) // no pasar del fin
+        onResize(d.key, dur, null, 0)
       }
       return
     }
