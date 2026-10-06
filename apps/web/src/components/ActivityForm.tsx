@@ -234,9 +234,11 @@ export default function ActivityForm({
   const closeUnpinned = () => setCards((prev) => prev.map((c) => (c.pinned ? c : { ...c, open: false })))
   const deleteSeg = (key: string) => { removeSeg(key); setCards((prev) => prev.filter((c) => c.key !== key)) }
 
-  // Arrastre de la tarjeta por la pantalla (asa en la cabecera).
+  // Arrastre de la tarjeta por la pantalla: desde cualquier zona vacía coloreada
+  // (no sobre inputs/botones) y SOLO mientras se mantiene presionado el botón.
   const cardDrag = useRef<{ key: string; sx: number; sy: number; dx0: number; dy0: number } | null>(null)
   const onCardHandleDown = (key: string) => (e: RPointerEvent) => {
+    if ((e.target as HTMLElement).closest('input, button, select, textarea, [contenteditable="true"]')) return
     const c = cards.find((x) => x.key === key)
     cardDrag.current = { key, sx: e.clientX, sy: e.clientY, dx0: c?.dx ?? 0, dy0: c?.dy ?? 0 }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
@@ -244,6 +246,7 @@ export default function ActivityForm({
   const onCardHandleMove = (e: RPointerEvent) => {
     const d = cardDrag.current
     if (!d) return
+    if (e.buttons === 0) { cardDrag.current = null; return } // sin botón presionado → no arrastrar
     setCards((prev) => prev.map((c) => (c.key === d.key ? { ...c, dx: d.dx0 + (e.clientX - d.sx), dy: d.dy0 + (e.clientY - d.sy) } : c)))
   }
   const onCardHandleUp = () => { cardDrag.current = null }
@@ -662,11 +665,19 @@ export default function ActivityForm({
               const baseLeft = c.rect ? Math.max(8, Math.min(c.rect.left, window.innerWidth - w - 8)) : window.innerWidth / 2 - w / 2
               const baseTop = c.rect ? c.rect.top + c.rect.height + 8 : 120
               return (
-                <div key={c.key} style={{ position: 'fixed', left: baseLeft, top: baseTop, width: w, transform: `translate(${c.dx}px, ${c.dy}px)`, zIndex: 50 }}>
+                <div
+                  key={c.key}
+                  onPointerDown={onCardHandleDown(c.key)}
+                  onPointerMove={onCardHandleMove}
+                  onPointerUp={onCardHandleUp}
+                  onPointerCancel={onCardHandleUp}
+                  onLostPointerCapture={onCardHandleUp}
+                  style={{ position: 'fixed', left: baseLeft, top: baseTop, width: w, transform: `translate(${c.dx}px, ${c.dy}px)`, zIndex: 50 }}
+                  className="cursor-move"
+                >
                   <PopCard open={c.open} onExited={() => removeExitedCard(c.key)} originRect={c.rect} color={segColor(seg)}>
                     <div className="p-3">
                       <div className="flex items-start gap-2">
-                        <span onPointerDown={onCardHandleDown(c.key)} onPointerMove={onCardHandleMove} onPointerUp={onCardHandleUp} className="mt-0.5 cursor-move touch-none select-none px-1 text-graysage" title="Mover">⠿</span>
                         <input type="color" value={segColor(seg)} onChange={(e) => patchSeg(seg._k, { color: e.target.value })} className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border border-graysage/25" title="Color de la actividad" />
                         <input value={seg.name} onChange={(e) => patchSeg(seg._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-serif text-base text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
                         <button type="button" onClick={() => pinCard(c.key)} className={`px-1 text-base leading-none transition ${c.pinned ? 'text-sage-dark' : 'text-graysage/40 hover:text-graysage'}`} title={c.pinned ? 'Quitar fijado' : 'Fijar (no se cierra)'}>📌</button>
