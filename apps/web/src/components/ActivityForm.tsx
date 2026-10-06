@@ -103,7 +103,7 @@ function PopCard({ top, color, open, originRect, onExited, children }: { top: nu
       ref={ref}
       data-card
       onTransitionEnd={(e) => { if (e.target === e.currentTarget && !open) onExited() }}
-      style={{ top, borderColor: color, backgroundColor: withAlpha(color, 0.5) }}
+      style={{ top, borderColor: color, backgroundColor: withAlpha(color, 0.3) }}
       className="absolute inset-x-0 z-20 overflow-hidden rounded-xl border-l-4 shadow-xl backdrop-blur-sm"
     >
       {children}
