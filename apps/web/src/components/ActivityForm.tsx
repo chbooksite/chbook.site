@@ -175,7 +175,10 @@ export default function ActivityForm({
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [originPct, setOriginPct] = useState(50)
   const [cardTop, setCardTop] = useState(80)
-  const selectSeg = (k: string, frac?: number) => { setSelectedKey(k); if (frac != null) setOriginPct(frac * 100) }
+  const selectSeg = (k: string, frac?: number) => {
+    setSelectedKey((cur) => (cur === k ? null : k)) // volver a tocar la misma cierra
+    if (frac != null) setOriginPct(frac * 100)
+  }
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
