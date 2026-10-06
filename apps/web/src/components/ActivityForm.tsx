@@ -554,6 +554,7 @@ export default function ActivityForm({
                 ref={timelineRef}
                 dropActive={!!chipDrag}
                 dropTarget={dropTarget}
+                assigneeText={(s) => s.assignees.map((a) => (a.kind === 'team' ? teamName(a.id) : roleName(a.id))).join(' · ')}
                 segments={segments}
                 totalMin={total}
                 startMin={startMin}

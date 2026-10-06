@@ -26,6 +26,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   selectedKey?: string | null
   dropActive?: boolean
   dropTarget?: { kind: 'activity' | 'team'; level: number | null; segmentKey: string | null; timeMin: number | null; durationMin?: number | null } | null
+  assigneeText?: (s: Segment) => string
   keyOf: (s: Segment, i: number) => string
 }>(function ServiceTimeline({
   segments,
@@ -41,6 +42,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   selectedKey,
   dropActive,
   dropTarget,
+  assigneeText,
   keyOf,
 }, ref) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -324,6 +326,9 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
                   {L > 1 && <span onPointerDown={onLeftDown(k, L)} className="absolute left-0 top-0 h-full w-2 cursor-ew-resize bg-black/15 hover:bg-black/30" title="Inicio" />}
                   <span className="truncate text-[0.7rem] font-medium leading-tight text-white/95">{s.name}</span>
                   {L === 1 && <span className="text-[0.6rem] leading-tight text-white/80">{s.durationMin ?? 0}′{s.pinned ? ' 📌' : ''}</span>}
+                  {assigneeText && assigneeText(s) && (
+                    <span className="mt-0.5 max-w-full truncate rounded bg-black/25 px-1 text-[0.55rem] leading-tight text-white/90" title={assigneeText(s)}>👥 {assigneeText(s)}</span>
+                  )}
                   <span onPointerDown={onRightDown(k, L)} className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-black/15 hover:bg-black/30" title={L === 1 ? 'Duración' : 'Fin'} />
                 </>
               )}
