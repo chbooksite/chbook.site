@@ -284,6 +284,17 @@ export default function ActivityForm({
   const toggleAssigneeMember = (k: string, idx: number, memberId: string) =>
     setSegments((prev) => prev.map((s) => (s._k === k ? { ...s, assignees: s.assignees.map((a, i) => (i === idx ? { ...a, memberIds: toggleArr(a.memberIds, memberId) } : a)) } : s)))
   const legend = (s: Seg): string => (s.assignees.length ? s.assignees.map((a) => { const n = a.memberIds.length; return n ? `${assigneeLabel(a)} (${n})` : assigneeLabel(a) }).join(' · ') : 'Sin encargado')
+  // Marcador dentro de la actividad: nombres de las personas (con su rol/equipo)
+  // cuando se eligieron; si no, solo el equipo o rol.
+  const assigneeMarker = (s: Segment): string =>
+    s.assignees
+      .map((a) => {
+        const base = assigneeLabel(a)
+        const pool = membersOf(a)
+        const names = a.memberIds.map((id) => pool.find((m) => m.id === id)?.name).filter(Boolean)
+        return names.length ? `${names.join(', ')} (${base})` : base
+      })
+      .join(' · ')
 
   const createTag = async () => {
     const nm = newTagName.trim()
@@ -554,7 +565,7 @@ export default function ActivityForm({
                 ref={timelineRef}
                 dropActive={!!chipDrag}
                 dropTarget={dropTarget}
-                assigneeText={(s) => s.assignees.map((a) => (a.kind === 'team' ? teamName(a.id) : roleName(a.id))).join(' · ')}
+                assigneeText={assigneeMarker}
                 segments={segments}
                 totalMin={total}
                 startMin={startMin}
