@@ -519,6 +519,15 @@ export default function ActivityForm({
     }
   }
 
+  // Confirmar al cerrar si hay cambios sin guardar (evita perder trabajo por toques accidentales).
+  const snapshot = () => JSON.stringify({ name, typeId, weekday, freq, nth, startTime, endTime, audScope, audIds, audKeys, partTeams, segments })
+  const initialSnap = useRef<string | null>(null)
+  if (initialSnap.current === null) initialSnap.current = snapshot()
+  const handleClose = () => {
+    if (initialSnap.current !== snapshot() && !window.confirm('Hay cambios sin guardar. ¿Seguro que quieres salir? Se perderán.')) return
+    onClose()
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8">
       <div
@@ -533,7 +542,7 @@ export default function ActivityForm({
       >
         <div className="mb-4 flex items-center justify-between">
           <h3 className="font-serif text-lg text-charcoal">{editing ? 'Editar actividad' : 'Nueva actividad'}</h3>
-          <button type="button" onClick={onClose} className="rounded-lg px-2 py-1 text-lg text-graysage hover:bg-cream hover:text-charcoal" title="Cerrar">✕</button>
+          <button type="button" onClick={handleClose} className="rounded-lg px-2 py-1 text-lg text-graysage hover:bg-cream hover:text-charcoal" title="Cerrar">✕</button>
         </div>
 
         {/* Plantillas: reutilizar un arreglo (equipos + línea de tiempo) */}
@@ -819,7 +828,7 @@ export default function ActivityForm({
         )}
 
         <div className="mt-6 flex items-center justify-end gap-3">
-          <button type="button" onClick={onClose} className="text-sm text-graysage hover:underline">Cancelar</button>
+          <button type="button" onClick={handleClose} className="text-sm text-graysage hover:underline">Cancelar</button>
           <button type="button" onClick={save} disabled={saving} className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60">
             {saving ? 'Guardando…' : 'Guardar'}
           </button>
