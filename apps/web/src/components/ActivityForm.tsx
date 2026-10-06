@@ -185,7 +185,7 @@ export default function ActivityForm({
   const chipData = useRef<({ kind: 'activity'; tag: Tag } | { kind: 'team'; teamId: string }) & { x: number; y: number; moved: boolean; pointerId: number } | null>(null)
   const chipDidDrag = useRef(false)
   const [chipDrag, setChipDrag] = useState<{ label: string; color: string; x: number; y: number; over: boolean } | null>(null)
-  const [dropTarget, setDropTarget] = useState<{ kind: 'activity' | 'team'; level: number | null; segmentKey: string | null; timeMin: number | null } | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ kind: 'activity' | 'team'; level: number | null; segmentKey: string | null; timeMin: number | null; durationMin: number | null } | null>(null)
 
   const startActivityChip = (t: Tag) => (e: RPointerEvent) => {
     chipData.current = { kind: 'activity', tag: t, x: e.clientX, y: e.clientY, moved: false, pointerId: e.pointerId }
@@ -204,7 +204,7 @@ export default function ActivityForm({
     d.y = e.clientY
     const hit = timelineRef.current?.hitTest(e.clientX, e.clientY) ?? null
     const valid = !!hit && (d.kind === 'activity' ? hit.level != null : !!hit.segmentKey)
-    setDropTarget(hit ? { kind: d.kind, level: hit.level, segmentKey: hit.segmentKey, timeMin: hit.timeMin } : null)
+    setDropTarget(hit ? { kind: d.kind, level: hit.level, segmentKey: hit.segmentKey, timeMin: hit.timeMin, durationMin: d.kind === 'activity' ? d.tag.defaultDurationMin ?? 10 : null } : null)
     setChipDrag({
       label: d.kind === 'activity' ? d.tag.name : teamName(d.teamId),
       color: d.kind === 'activity' ? d.tag.color ?? '#64748b' : '#8a7f70',

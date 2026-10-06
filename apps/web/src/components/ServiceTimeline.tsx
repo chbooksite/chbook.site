@@ -25,7 +25,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   onBarBottom?: (px: number) => void
   selectedKey?: string | null
   dropActive?: boolean
-  dropTarget?: { kind: 'activity' | 'team'; level: number | null; segmentKey: string | null; timeMin: number | null } | null
+  dropTarget?: { kind: 'activity' | 'team'; level: number | null; segmentKey: string | null; timeMin: number | null; durationMin?: number | null } | null
   keyOf: (s: Segment, i: number) => string
 }>(function ServiceTimeline({
   segments,
@@ -57,6 +57,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   const geom = useRef({ t0: 0, span: 1 })
   const prevLefts = useRef(new Map<string, number>())
   const prevOrder = useRef<string[]>([])
+  const prevPreview = useRef<number | null>(null)
   const [zoom, setZoom] = useState(1)
   const [win, setWin] = useState({ left: 0, width: 100 })
   const [dragActive, setDragActive] = useState(false)
@@ -75,13 +76,30 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   const l1Starts = new Map<string, number>()
   { let a = 0; levelSegs(1).forEach((s, i) => { l1Starts.set(keyOf(s, i), a); a += s.durationMin ?? 0 }) }
 
+  // Vista previa: al arrastrar una actividad sobre el nivel 1, abre un HUECO en
+  // la posición de inserción para que las demás se deslizan (FLIP) en vivo.
+  const previewDur = dropTarget?.durationMin ?? 0
+  let previewL1Idx: number | null = null
+  const l1PreviewStarts = new Map<string, number>()
+  let previewGapStart = 0
+  if (dropTarget?.kind === 'activity' && dropTarget.level === 1 && dropTarget.timeMin != null) {
+    const l1 = levelSegs(1)
+    let acc = 0
+    previewL1Idx = l1.length
+    for (let i = 0; i < l1.length; i++) { const dur = l1[i].durationMin ?? 0; if (dropTarget.timeMin < acc + dur / 2) { previewL1Idx = i; break } acc += dur }
+    acc = 0
+    l1.forEach((s, i) => { if (previewL1Idx === i) { previewGapStart = acc; acc += previewDur } l1PreviewStarts.set(keyOf(s, i), acc); acc += s.durationMin ?? 0 })
+    if (previewL1Idx === l1.length) previewGapStart = acc
+  }
+
   const parallel = [...levelSegs(2), ...levelSegs(3)]
   const t0 = Math.min(0, ...parallel.map((s) => s.startOffset ?? 0))
-  const t1 = Math.max(totalMin ?? 0, sum1, ...parallel.map((s) => (s.startOffset ?? 0) + (s.durationMin ?? 0)))
+  const t1 = Math.max(totalMin ?? 0, sum1 + (previewL1Idx != null ? previewDur : 0), ...parallel.map((s) => (s.startOffset ?? 0) + (s.durationMin ?? 0)))
   const span = Math.max(t1 - t0, 1)
   const xPct = (t: number) => ((t - t0) / span) * 100
   const boundaryLabel = (offset: number) => (startMin != null ? minToClock(startMin + offset) : `${offset}′`)
-  const segStart = (s: Segment, k: string) => (lvl(s) === 1 ? l1Starts.get(k) ?? 0 : s.startOffset ?? 0)
+  const segStart = (s: Segment, k: string) =>
+    lvl(s) === 1 ? (previewL1Idx != null ? l1PreviewStarts.get(k) ?? 0 : l1Starts.get(k) ?? 0) : s.startOffset ?? 0
 
   // Geometría actual para hit-testing externo (arrastrar chips a la barra).
   geom.current = { t0, span }
@@ -119,7 +137,11 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   // FLIP: cuando cambia el ORDEN del nivel 1, las actividades se deslizan.
   useLayoutEffect(() => {
     const order = segments.map((s, i) => keyOf(s, i))
-    const changed = order.length !== prevOrder.current.length || order.some((k, i) => k !== prevOrder.current[i])
+    const changed =
+      order.length !== prevOrder.current.length ||
+      order.some((k, i) => k !== prevOrder.current[i]) ||
+      prevPreview.current !== previewL1Idx
+    prevPreview.current = previewL1Idx
     const els = segEls.current
     if (changed) {
       els.forEach((el, k) => {
@@ -308,8 +330,11 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
             </div>
           )
         })}
-        {!mini && dropTarget?.kind === 'activity' && dropTarget.level === L && dropTarget.timeMin != null && (
-          <span style={{ left: `${xPct(dropTarget.timeMin)}%` }} className="pointer-events-none absolute top-0 h-full w-1 -translate-x-1/2 rounded bg-sage-dark shadow" />
+        {!mini && dropTarget?.kind === 'activity' && dropTarget.level === L && (
+          <span
+            style={L === 1 ? { left: `${xPct(previewGapStart)}%`, width: `${(previewDur / span) * 100}%` } : { left: `${xPct(dropTarget.timeMin ?? 0)}%`, width: `${(previewDur / span) * 100}%` }}
+            className="pointer-events-none absolute top-0 h-full rounded border-2 border-dashed border-sage-dark/70 bg-sage/20 transition-[left] duration-300 ease-out"
+          />
         )}
       </div>
     )
