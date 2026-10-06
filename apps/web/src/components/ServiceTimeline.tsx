@@ -72,24 +72,25 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   const sumOf = (L: number) => levelSegs(L).reduce((a, s) => a + (s.durationMin ?? 0), 0)
   const sum1 = sumOf(1)
 
-  // inicio (minutos, 0 = inicio del servicio) de cada actividad del nivel 1
-  const l1Starts = new Map<string, number>()
-  { let a = 0; levelSegs(1).forEach((s, i) => { l1Starts.set(keyOf(s, i), a); a += s.durationMin ?? 0 }) }
-
-  // Vista previa: al arrastrar una actividad sobre el nivel 1, abre un HUECO en
-  // la posición de inserción para que las demás se deslizan (FLIP) en vivo.
+  // Vista previa: al arrastrar una actividad sobre el nivel 1, se abre un HUECO
+  // en la posición de inserción para que las demás se deslicen (reusa el FLIP).
   const previewDur = dropTarget?.durationMin ?? 0
+  const l1 = levelSegs(1)
   let previewL1Idx: number | null = null
-  const l1PreviewStarts = new Map<string, number>()
-  let previewGapStart = 0
   if (dropTarget?.kind === 'activity' && dropTarget.level === 1 && dropTarget.timeMin != null) {
-    const l1 = levelSegs(1)
     let acc = 0
     previewL1Idx = l1.length
     for (let i = 0; i < l1.length; i++) { const dur = l1[i].durationMin ?? 0; if (dropTarget.timeMin < acc + dur / 2) { previewL1Idx = i; break } acc += dur }
-    acc = 0
-    l1.forEach((s, i) => { if (previewL1Idx === i) { previewGapStart = acc; acc += previewDur } l1PreviewStarts.set(keyOf(s, i), acc); acc += s.durationMin ?? 0 })
-    if (previewL1Idx === l1.length) previewGapStart = acc
+  }
+
+  // inicio (min, 0 = inicio del servicio) de cada actividad del nivel 1, con el
+  // hueco de la vista previa plegado dentro (fuente única de posiciones).
+  const l1Starts = new Map<string, number>()
+  let previewGapStart = 0
+  {
+    let a = 0
+    l1.forEach((s, i) => { if (previewL1Idx === i) { previewGapStart = a; a += previewDur } l1Starts.set(keyOf(s, i), a); a += s.durationMin ?? 0 })
+    if (previewL1Idx === l1.length) previewGapStart = a
   }
 
   const parallel = [...levelSegs(2), ...levelSegs(3)]
@@ -98,8 +99,7 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   const span = Math.max(t1 - t0, 1)
   const xPct = (t: number) => ((t - t0) / span) * 100
   const boundaryLabel = (offset: number) => (startMin != null ? minToClock(startMin + offset) : `${offset}′`)
-  const segStart = (s: Segment, k: string) =>
-    lvl(s) === 1 ? (previewL1Idx != null ? l1PreviewStarts.get(k) ?? 0 : l1Starts.get(k) ?? 0) : s.startOffset ?? 0
+  const segStart = (s: Segment, k: string) => (lvl(s) === 1 ? l1Starts.get(k) ?? 0 : s.startOffset ?? 0)
 
   // Geometría actual para hit-testing externo (arrastrar chips a la barra).
   geom.current = { t0, span }
