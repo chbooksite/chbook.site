@@ -62,6 +62,8 @@ function PopCard({ color, open, originRect, onExited, children }: { color: strin
   const DUR = 320
 
   const toOrigin = (el: HTMLElement) => {
+    el.style.transform = '' // medir el reposo real (idempotente ante doble-invocación)
+    void el.offsetWidth
     const rest = el.getBoundingClientRect()
     const o = originRect ?? { left: rest.left + rest.width / 2 - 20, top: rest.top - 12, width: 40, height: 16 }
     const dx = o.left - rest.left
@@ -667,13 +669,14 @@ export default function ActivityForm({
               return (
                 <div
                   key={c.key}
+                  data-card
                   onPointerDown={onCardHandleDown(c.key)}
                   onPointerMove={onCardHandleMove}
                   onPointerUp={onCardHandleUp}
                   onPointerCancel={onCardHandleUp}
                   onLostPointerCapture={onCardHandleUp}
                   style={{ position: 'fixed', left: baseLeft, top: baseTop, width: w, transform: `translate(${c.dx}px, ${c.dy}px)`, zIndex: 50 }}
-                  className="cursor-move"
+                  className="cursor-grab touch-none active:cursor-grabbing"
                 >
                   <PopCard open={c.open} onExited={() => removeExitedCard(c.key)} originRect={c.rect} color={segColor(seg)}>
                     <div className="p-3">
