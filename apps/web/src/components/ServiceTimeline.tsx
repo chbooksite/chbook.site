@@ -96,12 +96,13 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   }
 
   const parallel = [...levelSegs(2), ...levelSegs(3)]
-  const t0 = Math.min(0, ...parallel.map((s) => s.startOffset ?? 0))
-  const t1 = Math.max(totalMin ?? 0, sum1 + (previewL1Idx != null ? previewDur : 0), ...parallel.map((s) => (s.startOffset ?? 0) + (s.durationMin ?? 0)))
+  // El servicio arranca en 0: las actividades no pueden empezar antes.
+  const t0 = 0
+  const t1 = Math.max(totalMin ?? 0, sum1 + (previewL1Idx != null ? previewDur : 0), ...parallel.map((s) => Math.max(0, s.startOffset ?? 0) + (s.durationMin ?? 0)))
   const span = Math.max(t1 - t0, 1)
   const xPct = (t: number) => ((t - t0) / span) * 100
   const boundaryLabel = (offset: number) => (startMin != null ? minToClock(startMin + offset) : `${offset}′`)
-  const segStart = (s: Segment, k: string) => (lvl(s) === 1 ? l1Starts.get(k) ?? 0 : s.startOffset ?? 0)
+  const segStart = (s: Segment, k: string) => (lvl(s) === 1 ? l1Starts.get(k) ?? 0 : Math.max(0, s.startOffset ?? 0))
 
   // Geometría actual para hit-testing externo (arrastrar chips a la barra).
   geom.current = { t0, span }
@@ -210,12 +211,15 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
     if (d.mode === 'resizeL') {
       const start = seg.startOffset ?? 0
       const end = start + (seg.durationMin ?? 0)
-      const ns = Math.min(end - 1, Math.round(ct))
+      const ns = Math.max(0, Math.min(end - 1, Math.round(ct))) // no antes del inicio del servicio
       onPatchSeg(d.key, { startOffset: ns, durationMin: end - ns })
       return
     }
     if (d.mode === 'resizeR') {
-      onPatchSeg(d.key, { durationMin: Math.max(1, Math.round(ct - (seg.startOffset ?? 0))) })
+      const start = seg.startOffset ?? 0
+      let dur = Math.max(1, Math.round(ct - start))
+      if (totalMin != null) dur = Math.min(dur, Math.max(1, totalMin - start)) // no después del fin
+      onPatchSeg(d.key, { durationMin: dur })
       return
     }
     if (d.mode === 'resize') {
@@ -257,7 +261,9 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
       }
       onReorder(1, d.key, ins)
     } else {
-      onPatchSeg(d.key, { level: targetLevel, startOffset: Math.round(ct - (d.grab ?? 0)) })
+      let ns = Math.max(0, Math.round(ct - (d.grab ?? 0))) // no antes del inicio
+      if (totalMin != null) ns = Math.min(ns, Math.max(0, totalMin - (seg.durationMin ?? 0))) // no después del fin
+      onPatchSeg(d.key, { level: targetLevel, startOffset: ns })
     }
   }
 

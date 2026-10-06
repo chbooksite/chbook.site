@@ -336,7 +336,11 @@ export default function ActivityForm({
   // Crear una actividad soltando un chip del catálogo en la línea de tiempo,
   // en el nivel y posición indicados (nivel 1 = inserta por tiempo; 2/3 = libre).
   const addSegmentAt = (t: Tag, level: number, timeMin: number) => {
-    const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false, level, color: null, startOffset: level === 1 ? 0 : Math.round(timeMin) })
+    const dur = t.defaultDurationMin ?? 10
+    // niveles 2/3: dentro del intervalo del servicio [0, total]
+    let off = Math.max(0, Math.round(timeMin))
+    if (total != null) off = Math.min(off, Math.max(0, total - dur))
+    const seg = withKey({ tagId: t.id, name: t.name, durationMin: dur, assignees: [], pinned: false, level, color: null, startOffset: level === 1 ? 0 : off })
     setSegments((prev) => {
       if (level !== 1) return [...prev, seg]
       const l1 = prev.filter((s) => (s.level ?? 1) === 1)
