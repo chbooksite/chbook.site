@@ -22,6 +22,7 @@ const UNIT_LABEL: Record<string, string> = { hours: 'horas', days: 'días', week
 const COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#84cc16', '#f59e0b', '#ec4899', '#8b5cf6', '#ef4444']
 const LANE_H = 30
 const HEADER_H = 46
+const TIMELINE_H = 250 // ~3× la altura anterior
 
 // Calendario en línea de tiempo: eje con zoom (horas→meses) y ciclos como bandas
 // de color anidables. La duración se elige por preset (y nº de repeticiones o
@@ -71,7 +72,9 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const byId = new Map(items.map((c) => [c.id, c]))
   const laneOf = (c: Cycle) => cycleDepth(c, byId)
   const maxLane = items.reduce((m, c) => Math.max(m, laneOf(c)), 0)
-  const bodyH = HEADER_H + (maxLane + 1) * LANE_H + 8
+  const lanesH = (maxLane + 1) * LANE_H
+  const bodyH = Math.max(TIMELINE_H, HEADER_H + lanesH + 16)
+  const cyclesTop = bodyH - lanesH - 10 // los ciclos se apoyan en la parte de abajo
 
   // Por defecto HOY en el "cero" (borde izquierdo) de la barra.
   const todayToStart = (animate = false) => {
@@ -235,7 +238,7 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
 
           {items.map((c) => {
             const occ = cycleOccurrences(c, rangeEnd)
-            const topPx = HEADER_H + laneOf(c) * LANE_H
+            const topPx = cyclesTop + laneOf(c) * LANE_H
             return occ.map((o) => {
               const left = xOf(o.start)
               const w = Math.max(6, xOf(addDays(o.end, 1)) - left)
