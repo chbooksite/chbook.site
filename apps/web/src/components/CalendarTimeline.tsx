@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import {
   addDays,
+  addMonths,
   buildAxis,
+  chooseUnit,
   cycleDepth,
   cycleOccurrences,
   CYCLE_DURATIONS,
@@ -15,6 +17,8 @@ import {
   type CycleDuration,
 } from '../lib/calendar'
 
+const UNIT_LABEL: Record<string, string> = { hours: 'horas', days: 'días', weeks: 'semanas', months: 'meses' }
+
 const COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#84cc16', '#f59e0b', '#ec4899', '#8b5cf6', '#ef4444']
 const LANE_H = 30
 const HEADER_H = 46
@@ -26,18 +30,23 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const [items, setItems] = useState<Cycle[]>(cycles)
   useEffect(() => setItems(cycles), [cycles])
 
-  const [pxPerDay, setPxPerDay] = useState(10)
+  const [zoomT, setZoomT] = useState(35) // 0 = un año visible · 100 = un día (con horas)
+  const [containerW, setContainerW] = useState(900)
   const [selected, setSelected] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ id: string; mode: 'left' | 'right' | 'body'; x0: number; s0: Date; e0: Date } | null>(null)
 
   const today = startOfDay(new Date())
   const rangeStart = new Date(today.getFullYear(), today.getMonth() - 6, 1)
-  const rangeEnd = new Date(today.getFullYear(), today.getMonth() + 18, 1)
+  const rangeEnd = addMonths(rangeStart, 12) // ventana de un año
   const totalDays = Math.round((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS)
+  const minPx = Math.max(0.5, containerW / totalDays) // zoom máx. de alejamiento: el año entra justo
+  const maxPx = Math.max(minPx * 2, containerW) // zoom máx. de acercamiento: ~un día ocupa el ancho
+  const pxPerDay = minPx * Math.pow(maxPx / minPx, zoomT / 100)
   const width = totalDays * pxPerDay
   const xOf = (d: Date) => ((d.getTime() - rangeStart.getTime()) / DAY_MS) * pxPerDay
-  const axis = buildAxis(rangeStart, rangeEnd, pxPerDay)
+  const unit = chooseUnit(containerW / pxPerDay)
+  const axis = buildAxis(rangeStart, rangeEnd, pxPerDay, unit)
 
   const byId = new Map(items.map((c) => [c.id, c]))
   const laneOf = (c: Cycle) => cycleDepth(c, byId)
@@ -48,7 +57,13 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     const el = scrollRef.current
     if (el) el.scrollLeft = xOf(today) - el.clientWidth / 2
   }
-  useEffect(() => { centerToday() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const measure = () => { if (scrollRef.current) setContainerW(scrollRef.current.clientWidth) }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+  useEffect(() => { centerToday() }, [zoomT, containerW]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const persist = async (c: Cycle) => {
     await supabase.from('cycles').update({ name: c.name, color: c.color, starts_on: c.startsOn, ends_on: c.endsOn, goal: c.goal, parent_id: c.parentId, duration: c.duration, repeat: c.repeat }).eq('id', c.id)
@@ -132,8 +147,10 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
         <button type="button" onClick={createCycle} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-cream transition hover:bg-sage">+ Nuevo ciclo</button>
         <button type="button" onClick={centerToday} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">Hoy</button>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-[0.65rem] text-graysage">Zoom ({axis.unit})</span>
-          <input type="range" min={1.5} max={120} step={0.5} value={pxPerDay} onChange={(e) => setPxPerDay(Number(e.target.value))} className="h-1 w-40 cursor-pointer accent-sage" />
+          <span className="text-[0.65rem] text-graysage">Año</span>
+          <input type="range" min={0} max={100} step={1} value={zoomT} onChange={(e) => setZoomT(Number(e.target.value))} className="h-1 w-40 cursor-pointer accent-sage" title={`Zoom: ${UNIT_LABEL[unit]}`} />
+          <span className="text-[0.65rem] text-graysage">Día</span>
+          <span className="w-14 text-right text-[0.65rem] text-graysage/70">({UNIT_LABEL[unit]})</span>
         </div>
       </div>
 

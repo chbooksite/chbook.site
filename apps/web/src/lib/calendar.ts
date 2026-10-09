@@ -103,9 +103,20 @@ export function dayDiff(a: Date, b: Date): number {
 export interface Band { x: number; w: number; label: string; strong?: boolean }
 export interface Tick { x: number; label: string }
 
-// Construye el eje (banda superior = unidad grande, ticks = unidad fina) según
-// el zoom (px por día). xOf convierte una fecha a píxeles desde el inicio.
-export function buildAxis(rangeStart: Date, rangeEnd: Date, pxPerDay: number): { top: Band[]; ticks: Tick[]; unit: string } {
+export type AxisUnit = 'hours' | 'days' | 'weeks' | 'months'
+
+// Unidad del eje según cuántos días caben en pantalla (los días visibles).
+// Las horas solo aparecen cuando se ve ~un día (zoom máximo de acercamiento).
+export function chooseUnit(visibleDays: number): AxisUnit {
+  if (visibleDays <= 2.5) return 'hours'
+  if (visibleDays <= 45) return 'days'
+  if (visibleDays <= 160) return 'weeks'
+  return 'months'
+}
+
+// Construye el eje (banda superior = unidad grande, ticks = unidad fina) para la
+// unidad dada. xOf convierte una fecha a píxeles desde el inicio.
+export function buildAxis(rangeStart: Date, rangeEnd: Date, pxPerDay: number, unit: AxisUnit): { top: Band[]; ticks: Tick[]; unit: AxisUnit } {
   const xOf = (d: Date) => ((d.getTime() - rangeStart.getTime()) / DAY_MS) * pxPerDay
   const top: Band[] = []
   const ticks: Tick[] = []
@@ -135,7 +146,7 @@ export function buildAxis(rangeStart: Date, rangeEnd: Date, pxPerDay: number): {
     }
   }
 
-  if (pxPerDay >= 60) {
+  if (unit === 'hours') {
     // top = días, ticks = horas (cada 3h)
     dayBands()
     let cur = startOfDay(rangeStart)
@@ -146,12 +157,12 @@ export function buildAxis(rangeStart: Date, rangeEnd: Date, pxPerDay: number): {
       }
       cur = addDays(cur, 1)
     }
-  } else if (pxPerDay >= 16) {
+  } else if (unit === 'days') {
     // top = meses, ticks = días
     monthBands()
     let cur = startOfDay(rangeStart)
     while (cur < rangeEnd) { ticks.push({ x: xOf(cur), label: String(cur.getDate()) }); cur = addDays(cur, 1) }
-  } else if (pxPerDay >= 4) {
+  } else if (unit === 'weeks') {
     // top = meses, ticks = semanas (lunes)
     monthBands()
     let cur = startOfDay(rangeStart)
@@ -163,7 +174,6 @@ export function buildAxis(rangeStart: Date, rangeEnd: Date, pxPerDay: number): {
     let cur = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1)
     while (cur < rangeEnd) { ticks.push({ x: xOf(cur), label: cur.toLocaleDateString('es', { month: 'short' }) }); cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1) }
   }
-  const unit = pxPerDay >= 60 ? 'horas' : pxPerDay >= 16 ? 'días' : pxPerDay >= 4 ? 'semanas' : 'meses'
   return { top, ticks, unit }
 }
 
