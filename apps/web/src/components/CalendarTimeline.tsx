@@ -35,7 +35,6 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const [selected, setSelected] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
-  const drag = useRef<{ id: string; mode: 'left' | 'right' | 'body'; x0: number; s0: Date; e0: Date } | null>(null)
   const pan = useRef<{ sl: number; x: number } | null>(null)
 
   const today = startOfDay(new Date())
@@ -119,52 +118,23 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     if (selected === id) setSelected(null)
   }
 
-  // Arrastre de bordes / cuerpo (sobre la 1ª ocurrencia). El borde derecho pasa a
-  // duración personalizada; mover/borde izquierdo recalculan el fin si es preset.
-  const onDown = (c: Cycle, mode: 'left' | 'right' | 'body') => (e: RPointerEvent) => {
-    e.stopPropagation()
-    drag.current = { id: c.id, mode, x0: e.clientX, s0: parseYmd(c.startsOn), e0: parseYmd(c.endsOn) }
-    trackRef.current?.setPointerCapture(e.pointerId)
-    setSelected(c.id)
-  }
-  // Clic en zona vacía + arrastrar = desplazarse (1:1, poca sensibilidad).
+  // Los ciclos NO se arrastran (se editan por fechas en el panel). El arrastre de
+  // la barra solo sirve para desplazarse en el tiempo (1:1, sin seleccionar texto).
   const onBgDown = (e: RPointerEvent) => {
     const el = scrollRef.current
     if (!el) return
+    e.preventDefault() // evita selección de texto al arrastrar
     pan.current = { sl: el.scrollLeft, x: e.clientX }
     trackRef.current?.setPointerCapture(e.pointerId)
   }
   const onMove = (e: RPointerEvent) => {
-    if (pan.current) {
-      if (e.buttons === 0) { pan.current = null; magnetToday(); return }
-      const el = scrollRef.current
-      if (el) el.scrollLeft = pan.current.sl - (e.clientX - pan.current.x)
-      return
-    }
-    const d = drag.current
-    if (!d) return
-    if (e.buttons === 0) { onUp(); return }
-    const days = Math.round((e.clientX - d.x0) / pxPerDay)
-    if (d.mode === 'right') {
-      const en = addDays(d.e0, days)
-      const s = parseYmd(itemStart(d.id) ?? ymd(d.s0))
-      patch(d.id, { endsOn: ymd(en < s ? s : en), duration: 'custom' }, false)
-    } else if (d.mode === 'left') {
-      let s = addDays(d.s0, days)
-      if (s > d.e0) s = d.e0
-      patch(d.id, { startsOn: ymd(s) }, false)
-    } else {
-      patch(d.id, { startsOn: ymd(addDays(d.s0, days)), endsOn: ymd(addDays(d.e0, days)) }, false)
-    }
+    if (!pan.current) return
+    if (e.buttons === 0) { pan.current = null; magnetToday(); return }
+    const el = scrollRef.current
+    if (el) el.scrollLeft = pan.current.sl - (e.clientX - pan.current.x)
   }
-  const itemStart = (id: string) => items.find((x) => x.id === id)?.startsOn
   const onUp = () => {
-    if (pan.current) { pan.current = null; magnetToday(); return }
-    const d = drag.current
-    drag.current = null
-    if (!d) return
-    const c = items.find((x) => x.id === d.id)
-    if (c) persist(c)
+    if (pan.current) { pan.current = null; magnetToday() }
   }
 
   const sel = items.find((c) => c.id === selected) ?? null
@@ -195,7 +165,7 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
       </div>
 
       <div ref={scrollRef} className="overflow-x-auto rounded-xl border border-graysage/20 bg-cream/40">
-        <div ref={trackRef} onPointerDown={onBgDown} onPointerMove={onMove} onPointerUp={onUp} className="relative touch-none cursor-grab active:cursor-grabbing" style={{ width, height: bodyH }}>
+        <div ref={trackRef} onPointerDown={onBgDown} onPointerMove={onMove} onPointerUp={onUp} className="relative touch-none cursor-grab select-none active:cursor-grabbing" style={{ width, height: bodyH }}>
           {axis.top.map((b, i) => (
             <div key={i} style={{ left: b.x, width: b.w }} className={`absolute top-0 h-5 overflow-hidden border-l border-graysage/20 px-1 text-[0.6rem] leading-5 ${b.strong ? 'font-semibold text-charcoal' : 'text-graysage'}`}>{b.label}</div>
           ))}
@@ -213,18 +183,15 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
             return occ.map((o) => {
               const left = xOf(o.start)
               const w = Math.max(6, xOf(addDays(o.end, 1)) - left)
-              const first = o.i === 0
               return (
                 <div
                   key={`${c.id}:${o.i}`}
-                  onPointerDown={first ? onDown(c, 'body') : (e) => { e.stopPropagation(); setSelected(c.id) }}
+                  onPointerDown={(e) => { e.stopPropagation(); setSelected(c.id) }}
                   style={{ left, width: w, top: topPx, backgroundColor: c.color, borderColor: c.color }}
-                  className={`absolute flex h-[26px] items-center overflow-hidden rounded border px-1.5 text-white ${first ? 'cursor-grab active:cursor-grabbing' : 'opacity-70'} ${selected === c.id ? 'ring-2 ring-white' : ''}`}
+                  className={`absolute flex h-[26px] cursor-pointer items-center overflow-hidden rounded border px-1.5 text-white ${o.i === 0 ? '' : 'opacity-70'} ${selected === c.id ? 'ring-2 ring-white' : ''}`}
                   title={`${c.name} · ${ymd(o.start)} → ${ymd(o.end)}`}
                 >
-                  {first && <span onPointerDown={onDown(c, 'left')} className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize bg-black/20" />}
                   <span className="truncate text-[0.7rem] font-medium">{c.name}{c.repeat !== 1 ? ` ${o.i + 1}` : ''}</span>
-                  {first && <span onPointerDown={onDown(c, 'right')} className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize bg-black/20" />}
                 </div>
               )
             })
