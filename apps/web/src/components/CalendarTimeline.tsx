@@ -18,6 +18,7 @@ import {
 } from '../lib/calendar'
 
 const UNIT_LABEL: Record<string, string> = { hours: 'horas', days: 'días', weeks: 'semanas', months: 'meses' }
+const WEEKDAY_LETTER = ['D', 'L', 'M', 'M', 'J', 'V', 'S'] // getDay(): 0=domingo
 
 const COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#84cc16', '#f59e0b', '#ec4899', '#8b5cf6', '#ef4444']
 const LANE_H = 30
@@ -31,7 +32,7 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const [items, setItems] = useState<Cycle[]>(cycles)
   useEffect(() => setItems(cycles), [cycles])
 
-  const [zoomT, setZoomT] = useState(35) // 0 = un año visible · 100 = un día (con horas)
+  const [zoomT, setZoomT] = useState(67) // por defecto ~ vista de semana (0=año, 100=día)
   const [containerW, setContainerW] = useState(900)
   const [selected, setSelected] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -234,6 +235,23 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
               <span className="absolute left-0.5 top-2 whitespace-nowrap">{t.label}</span>
             </div>
           ))}
+          {/* líneas verticales por día + inicial del día (referencia) */}
+          {pxPerDay >= 12 && (() => {
+            const lines: Date[] = []
+            let cur = startOfDay(rangeStart)
+            while (cur < rangeEnd) { lines.push(cur); cur = addDays(cur, 1) }
+            return lines.map((d, i) => {
+              const x = xOf(d)
+              const weekend = d.getDay() === 0 || d.getDay() === 6
+              return (
+                <div key={`d${i}`}>
+                  <span style={{ left: x, top: HEADER_H, height: bodyH - HEADER_H }} className="absolute w-px bg-graysage/15" />
+                  <span style={{ left: x + 2, top: HEADER_H + 2 }} className={`absolute text-[0.55rem] ${weekend ? 'text-clay/70' : 'text-graysage/60'}`}>{WEEKDAY_LETTER[d.getDay()]}</span>
+                </div>
+              )
+            })
+          })()}
+
           <span style={{ left: xOf(today), height: bodyH }} className="absolute top-0 z-10 w-0.5 bg-clay/50" aria-hidden />
 
           {items.map((c) => {
