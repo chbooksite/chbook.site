@@ -35,7 +35,8 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const [selected, setSelected] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
-  const pan = useRef<{ sl: number; x: number } | null>(null)
+  const pan = useRef<{ sl: number; x: number; lastX: number; lastT: number; v: number } | null>(null)
+  const momentum = useRef<number | null>(null)
 
   const today = startOfDay(new Date())
   const rangeStart = new Date(today.getFullYear(), today.getMonth() - 6, 1)
@@ -124,18 +125,46 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     const el = scrollRef.current
     if (!el) return
     e.preventDefault() // evita selección de texto al arrastrar
-    pan.current = { sl: el.scrollLeft, x: e.clientX }
+    if (momentum.current) { cancelAnimationFrame(momentum.current); momentum.current = null }
+    pan.current = { sl: el.scrollLeft, x: e.clientX, lastX: e.clientX, lastT: performance.now(), v: 0 }
     trackRef.current?.setPointerCapture(e.pointerId)
   }
   const onMove = (e: RPointerEvent) => {
-    if (!pan.current) return
-    if (e.buttons === 0) { pan.current = null; magnetToday(); return }
+    const p = pan.current
+    if (!p) return
+    if (e.buttons === 0) { releasePan(); return }
     const el = scrollRef.current
-    if (el) el.scrollLeft = pan.current.sl - (e.clientX - pan.current.x)
+    if (el) el.scrollLeft = p.sl - (e.clientX - p.x)
+    const now = performance.now()
+    const dt = now - p.lastT
+    if (dt > 0) {
+      const inst = -(e.clientX - p.lastX) / dt // px de scroll por ms
+      p.v = p.v * 0.7 + inst * 0.3 // suavizado
+      p.lastX = e.clientX
+      p.lastT = now
+    }
   }
-  const onUp = () => {
-    if (pan.current) { pan.current = null; magnetToday() }
+  // Al soltar: continuar el movimiento con la última velocidad y frenar suave.
+  const releasePan = () => {
+    const p = pan.current
+    pan.current = null
+    if (!p) return
+    let v = p.v
+    let last = performance.now()
+    const step = (now: number) => {
+      const dt = now - last
+      last = now
+      v *= Math.pow(0.93, dt / 16) // fricción
+      const el = scrollRef.current
+      if (!el || Math.abs(v) < 0.02) { momentum.current = null; magnetToday(); return }
+      const before = el.scrollLeft
+      el.scrollLeft += v * dt
+      if (el.scrollLeft === before) { momentum.current = null; magnetToday(); return } // tope
+      momentum.current = requestAnimationFrame(step)
+    }
+    momentum.current = requestAnimationFrame(step)
   }
+  const onUp = () => { if (pan.current) releasePan() }
 
   const sel = items.find((c) => c.id === selected) ?? null
   const descendants = (id: string): Set<string> => {
