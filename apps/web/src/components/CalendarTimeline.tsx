@@ -60,10 +60,16 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     const el = scrollRef.current
     if (el) el.scrollTo({ left: xOf(today), behavior })
   }
-  // Imán suave: al soltar cerca de hoy, se acomoda a cero.
+  // Imán: si la línea de HOY queda de la mitad de la barra hacia la izquierda,
+  // se acomoda a cero (borde izquierdo) con un movimiento suave.
   const magnetToday = () => {
     const el = scrollRef.current
-    if (el && Math.abs(el.scrollLeft - xOf(today)) < 44) el.scrollTo({ left: xOf(today), behavior: 'smooth' })
+    if (!el) return
+    const target = xOf(today)
+    const onScreen = target - el.scrollLeft // posición de "hoy" dentro del viewport
+    if (onScreen > -el.clientWidth * 0.25 && onScreen <= el.clientWidth / 2) {
+      el.scrollTo({ left: target, behavior: 'smooth' })
+    }
   }
   useLayoutEffect(() => {
     const measure = () => { if (scrollRef.current) setContainerW(scrollRef.current.clientWidth) }
