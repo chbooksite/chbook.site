@@ -409,7 +409,7 @@ export default function MemberProfile() {
   return (
     <div className="min-h-screen bg-cream">
       <AppHeader />
-      <main className="mx-auto max-w-3xl px-6 py-10">
+      <main className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
         <Link to="/miembros" className="text-sm text-sage underline-offset-2 hover:underline">
           ← Miembros
         </Link>

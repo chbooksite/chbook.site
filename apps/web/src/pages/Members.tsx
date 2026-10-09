@@ -449,7 +449,7 @@ export default function Members() {
   return (
     <div className="min-h-screen bg-cream">
       <AppHeader />
-      <main className="mx-auto max-w-4xl px-6 py-10">
+      <main className="mx-auto max-w-none px-6 py-10 lg:px-10">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="font-serif text-2xl text-charcoal">Miembros</h1>

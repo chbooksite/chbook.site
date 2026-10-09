@@ -65,7 +65,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-cream">
       <AppHeader />
 
-      <main className="mx-auto max-w-4xl px-6 py-12">
+      <main className="mx-auto max-w-none px-6 py-12 lg:px-10">
         <h1 className="font-serif text-3xl text-charcoal">
           {church ? church.name : 'Bienvenido'}
         </h1>

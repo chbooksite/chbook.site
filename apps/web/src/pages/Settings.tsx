@@ -419,7 +419,7 @@ export default function Settings() {
   return (
     <div className="min-h-screen bg-cream">
       <AppHeader />
-      <main className="mx-auto max-w-3xl px-6 py-10">
+      <main className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
         <h1 className="mb-1 font-serif text-2xl text-charcoal">Ajustes</h1>
         <p className="mb-8 text-sm text-graysage">
           Personaliza los equipos, roles y sus dependencias. Los del sistema no se pueden borrar.

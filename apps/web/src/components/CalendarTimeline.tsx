@@ -37,6 +37,24 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const trackRef = useRef<HTMLDivElement>(null)
   const pan = useRef<{ sl: number; x: number; lastX: number; lastT: number; v: number } | null>(null)
   const momentum = useRef<number | null>(null)
+  const animScroll = useRef<number | null>(null)
+
+  // Desplazamiento animado (ease-out suave, estilo inercia) hasta un objetivo.
+  const animateScrollTo = (target: number, dur = 650) => {
+    const el = scrollRef.current
+    if (!el) return
+    if (animScroll.current) cancelAnimationFrame(animScroll.current)
+    const start = el.scrollLeft
+    const dist = target - start
+    const t0 = performance.now()
+    const ease = (t: number) => 1 - Math.pow(1 - t, 3)
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / dur)
+      el.scrollLeft = start + dist * ease(t)
+      animScroll.current = t < 1 ? requestAnimationFrame(step) : null
+    }
+    animScroll.current = requestAnimationFrame(step)
+  }
 
   const today = startOfDay(new Date())
   const rangeStart = new Date(today.getFullYear(), today.getMonth() - 6, 1)
@@ -56,9 +74,11 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const bodyH = HEADER_H + (maxLane + 1) * LANE_H + 8
 
   // Por defecto HOY en el "cero" (borde izquierdo) de la barra.
-  const todayToStart = (behavior: ScrollBehavior = 'auto') => {
+  const todayToStart = (animate = false) => {
     const el = scrollRef.current
-    if (el) el.scrollTo({ left: xOf(today), behavior })
+    if (!el) return
+    if (animate) animateScrollTo(xOf(today))
+    else el.scrollLeft = xOf(today)
   }
   // Imán: si la línea de HOY queda de la mitad de la barra hacia la izquierda,
   // se acomoda a cero (borde izquierdo) con un movimiento suave.
@@ -68,7 +88,7 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     const target = xOf(today)
     const onScreen = target - el.scrollLeft // posición de "hoy" dentro del viewport
     if (onScreen > -el.clientWidth * 0.25 && onScreen <= el.clientWidth / 2) {
-      el.scrollTo({ left: target, behavior: 'smooth' })
+      animateScrollTo(target, 700)
     }
   }
   useLayoutEffect(() => {
@@ -132,6 +152,7 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     if (!el) return
     e.preventDefault() // evita selección de texto al arrastrar
     if (momentum.current) { cancelAnimationFrame(momentum.current); momentum.current = null }
+    if (animScroll.current) { cancelAnimationFrame(animScroll.current); animScroll.current = null }
     pan.current = { sl: el.scrollLeft, x: e.clientX, lastX: e.clientX, lastT: performance.now(), v: 0 }
     trackRef.current?.setPointerCapture(e.pointerId)
   }
@@ -185,7 +206,7 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <button type="button" onClick={createCycle} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-cream transition hover:bg-sage">+ Nuevo ciclo</button>
-        <button type="button" onClick={() => todayToStart('smooth')} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">Hoy</button>
+        <button type="button" onClick={() => todayToStart(true)} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">Hoy</button>
         <div className="ml-auto flex items-center gap-2">
           <div className="flex overflow-hidden rounded-lg border border-graysage/25">
             {ZOOM_PRESETS.map((p) => (

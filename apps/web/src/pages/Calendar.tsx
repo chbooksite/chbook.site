@@ -205,7 +205,7 @@ export default function Calendar() {
   return (
     <div className="min-h-screen bg-cream">
       <AppHeader />
-      <main className="mx-auto max-w-5xl px-6 py-10">
+      <main className="mx-auto max-w-none px-6 py-10 lg:px-10">
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
             <h1 className="mb-1 font-serif text-2xl text-charcoal">El ritmo de la iglesia</h1>
