@@ -4,6 +4,8 @@ import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
 import ActivityForm from '../components/ActivityForm'
+import CalendarTimeline from '../components/CalendarTimeline'
+import { type Cycle } from '../lib/calendar'
 import { DEFAULT_AGE_RANGES, readAgeRanges, type AgeRangeDef } from '../lib/member'
 import {
   WEEKDAYS_SHORT,
@@ -41,6 +43,7 @@ export default function Calendar() {
   const [roles, setRoles] = useState<Opt[]>([])
   const [tags, setTags] = useState<Tag[]>([])
   const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
+  const [cycles, setCycles] = useState<Cycle[]>([])
   const [templates, setTemplates] = useState<ActivityTemplate[]>([])
   const [membersByTeam, setMembersByTeam] = useState<Map<string, Opt[]>>(new Map())
   const [membersByRole, setMembersByRole] = useState<Map<string, Opt[]>>(new Map())
@@ -54,7 +57,7 @@ export default function Calendar() {
 
   const load = useCallback(async () => {
     if (!churchId) return
-    const [schRes, typeRes, teamRes, roleRes, tagRes, churchRes, memRes, mtRes, mrRes, stRes, ssRes] = await Promise.all([
+    const [schRes, typeRes, teamRes, roleRes, tagRes, churchRes, memRes, mtRes, mrRes, stRes, ssRes, cycRes] = await Promise.all([
       supabase.from('activity_schedules').select('*').eq('church_id', churchId),
       supabase.from('activity_types').select('id, key, name, color, is_system').order('is_system', { ascending: false }).order('name'),
       supabase.from('teams').select('id, name, key').order('name'),
@@ -66,6 +69,7 @@ export default function Calendar() {
       supabase.from('member_roles').select('member_id, role_id'),
       supabase.from('schedule_teams').select('*').eq('church_id', churchId),
       supabase.from('schedule_segments').select('*').eq('church_id', churchId).order('sort_order'),
+      supabase.from('cycles').select('*').eq('church_id', churchId).order('starts_on'),
     ])
 
     setSchedules(
@@ -92,6 +96,7 @@ export default function Calendar() {
     setTags((tagRes.data ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color, defaultDurationMin: t.default_duration_min })))
     setAgeRanges(readAgeRanges(churchRes.data?.settings))
     setTemplates(readActivityTemplates(churchRes.data?.settings))
+    setCycles((cycRes.data ?? []).map((c) => ({ id: c.id, parentId: c.parent_id, name: c.name, color: c.color, startsOn: c.starts_on, endsOn: c.ends_on, goal: c.goal })))
 
     // miembros por equipo / rol
     const memName = new Map((memRes.data ?? []).map((m) => [m.id, m.full_name]))
@@ -210,6 +215,13 @@ export default function Calendar() {
             + Nueva actividad
           </button>
         </div>
+
+        {/* Calendario en línea de tiempo: ciclos */}
+        <section className="mb-10">
+          <h2 className="mb-1 font-serif text-lg text-charcoal">Calendario</h2>
+          <p className="mb-3 text-sm text-graysage">Marca ciclos (trimestres, campañas…) en la línea de tiempo. Usa el zoom para cambiar la escala (horas, días, semanas, meses).</p>
+          {churchId && <CalendarTimeline churchId={churchId} cycles={cycles} />}
+        </section>
 
         {/* Navegación de semana */}
         <div className="mb-3 flex items-center gap-3">

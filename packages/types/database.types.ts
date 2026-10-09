@@ -339,37 +339,100 @@ export type Database = {
         }
         Relationships: []
       }
+      cycles: {
+        Row: {
+          church_id: string
+          color: string
+          created_at: string | null
+          ends_on: string
+          goal: string | null
+          id: string
+          name: string
+          parent_id: string | null
+          sort_order: number | null
+          starts_on: string
+        }
+        Insert: {
+          church_id: string
+          color?: string
+          created_at?: string | null
+          ends_on: string
+          goal?: string | null
+          id?: string
+          name: string
+          parent_id?: string | null
+          sort_order?: number | null
+          starts_on: string
+        }
+        Update: {
+          church_id?: string
+          color?: string
+          created_at?: string | null
+          ends_on?: string
+          goal?: string | null
+          id?: string
+          name?: string
+          parent_id?: string | null
+          sort_order?: number | null
+          starts_on?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycles_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cycles_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "cycles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       events: {
         Row: {
+          all_day: boolean | null
           church_id: string | null
+          color: string | null
           created_at: string | null
           description: string | null
           ends_at: string | null
           event_type: string | null
           id: string
           is_public: boolean | null
+          parent_id: string | null
           starts_at: string | null
           title: string
         }
         Insert: {
+          all_day?: boolean | null
           church_id?: string | null
+          color?: string | null
           created_at?: string | null
           description?: string | null
           ends_at?: string | null
           event_type?: string | null
           id?: string
           is_public?: boolean | null
+          parent_id?: string | null
           starts_at?: string | null
           title: string
         }
         Update: {
+          all_day?: boolean | null
           church_id?: string | null
+          color?: string | null
           created_at?: string | null
           description?: string | null
           ends_at?: string | null
           event_type?: string | null
           id?: string
           is_public?: boolean | null
+          parent_id?: string | null
           starts_at?: string | null
           title?: string
         }
