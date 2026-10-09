@@ -34,7 +34,9 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const [containerW, setContainerW] = useState(900)
   const [selected, setSelected] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const trackRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ id: string; mode: 'left' | 'right' | 'body'; x0: number; s0: Date; e0: Date } | null>(null)
+  const pan = useRef<{ sl: number; x: number } | null>(null)
 
   const today = startOfDay(new Date())
   const rangeStart = new Date(today.getFullYear(), today.getMonth() - 6, 1)
@@ -53,9 +55,15 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const maxLane = items.reduce((m, c) => Math.max(m, laneOf(c)), 0)
   const bodyH = HEADER_H + (maxLane + 1) * LANE_H + 8
 
-  const centerToday = () => {
+  // Por defecto HOY en el "cero" (borde izquierdo) de la barra.
+  const todayToStart = (behavior: ScrollBehavior = 'auto') => {
     const el = scrollRef.current
-    if (el) el.scrollLeft = xOf(today) - el.clientWidth / 2
+    if (el) el.scrollTo({ left: xOf(today), behavior })
+  }
+  // Imán suave: al soltar cerca de hoy, se acomoda a cero.
+  const magnetToday = () => {
+    const el = scrollRef.current
+    if (el && Math.abs(el.scrollLeft - xOf(today)) < 44) el.scrollTo({ left: xOf(today), behavior: 'smooth' })
   }
   useLayoutEffect(() => {
     const measure = () => { if (scrollRef.current) setContainerW(scrollRef.current.clientWidth) }
@@ -63,7 +71,20 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
   }, [])
-  useEffect(() => { centerToday() }, [zoomT, containerW]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { todayToStart() }, [zoomT, containerW]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Presets de zoom: selecciona directamente una temporalidad.
+  const tFor = (visibleDays: number) => {
+    const px = containerW / visibleDays
+    const t = (100 * Math.log(px / minPx)) / Math.log(maxPx / minPx)
+    return Math.max(0, Math.min(100, t))
+  }
+  const ZOOM_PRESETS: { label: string; days: number }[] = [
+    { label: 'Día', days: 1 },
+    { label: 'Semana', days: 7 },
+    { label: 'Mes', days: 30 },
+    { label: 'Año', days: 365 },
+  ]
 
   const persist = async (c: Cycle) => {
     await supabase.from('cycles').update({ name: c.name, color: c.color, starts_on: c.startsOn, ends_on: c.endsOn, goal: c.goal, parent_id: c.parentId, duration: c.duration, repeat: c.repeat }).eq('id', c.id)
@@ -103,13 +124,26 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const onDown = (c: Cycle, mode: 'left' | 'right' | 'body') => (e: RPointerEvent) => {
     e.stopPropagation()
     drag.current = { id: c.id, mode, x0: e.clientX, s0: parseYmd(c.startsOn), e0: parseYmd(c.endsOn) }
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    trackRef.current?.setPointerCapture(e.pointerId)
     setSelected(c.id)
   }
+  // Clic en zona vacía + arrastrar = desplazarse (1:1, poca sensibilidad).
+  const onBgDown = (e: RPointerEvent) => {
+    const el = scrollRef.current
+    if (!el) return
+    pan.current = { sl: el.scrollLeft, x: e.clientX }
+    trackRef.current?.setPointerCapture(e.pointerId)
+  }
   const onMove = (e: RPointerEvent) => {
+    if (pan.current) {
+      if (e.buttons === 0) { pan.current = null; magnetToday(); return }
+      const el = scrollRef.current
+      if (el) el.scrollLeft = pan.current.sl - (e.clientX - pan.current.x)
+      return
+    }
     const d = drag.current
     if (!d) return
-    if (e.buttons === 0) { finishDrag(); return }
+    if (e.buttons === 0) { onUp(); return }
     const days = Math.round((e.clientX - d.x0) / pxPerDay)
     if (d.mode === 'right') {
       const en = addDays(d.e0, days)
@@ -124,7 +158,8 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     }
   }
   const itemStart = (id: string) => items.find((x) => x.id === id)?.startsOn
-  const finishDrag = () => {
+  const onUp = () => {
+    if (pan.current) { pan.current = null; magnetToday(); return }
     const d = drag.current
     drag.current = null
     if (!d) return
@@ -145,17 +180,22 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <button type="button" onClick={createCycle} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-cream transition hover:bg-sage">+ Nuevo ciclo</button>
-        <button type="button" onClick={centerToday} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">Hoy</button>
+        <button type="button" onClick={() => todayToStart('smooth')} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">Hoy</button>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-[0.65rem] text-graysage">Año</span>
-          <input type="range" min={0} max={100} step={1} value={zoomT} onChange={(e) => setZoomT(Number(e.target.value))} className="h-1 w-40 cursor-pointer accent-sage" title={`Zoom: ${UNIT_LABEL[unit]}`} />
+          <div className="flex overflow-hidden rounded-lg border border-graysage/25">
+            {ZOOM_PRESETS.map((p) => (
+              <button key={p.label} type="button" onClick={() => setZoomT(tFor(p.days))} className={`px-2 py-1 text-xs transition ${Math.abs(tFor(p.days) - zoomT) < 7 ? 'bg-sage text-cream' : 'text-graysage hover:bg-sage/10'}`}>{p.label}</button>
+            ))}
+          </div>
+          {/* slider: Día (izq) → Año (der), invierte zoomT */}
           <span className="text-[0.65rem] text-graysage">Día</span>
-          <span className="w-14 text-right text-[0.65rem] text-graysage/70">({UNIT_LABEL[unit]})</span>
+          <input type="range" min={0} max={100} step={1} value={100 - zoomT} onChange={(e) => setZoomT(100 - Number(e.target.value))} className="h-1 w-36 cursor-pointer accent-sage" title={`Zoom: ${UNIT_LABEL[unit]}`} />
+          <span className="text-[0.65rem] text-graysage">Año</span>
         </div>
       </div>
 
       <div ref={scrollRef} className="overflow-x-auto rounded-xl border border-graysage/20 bg-cream/40">
-        <div className="relative touch-none" style={{ width, height: bodyH }} onPointerMove={onMove} onPointerUp={finishDrag}>
+        <div ref={trackRef} onPointerDown={onBgDown} onPointerMove={onMove} onPointerUp={onUp} className="relative touch-none cursor-grab active:cursor-grabbing" style={{ width, height: bodyH }}>
           {axis.top.map((b, i) => (
             <div key={i} style={{ left: b.x, width: b.w }} className={`absolute top-0 h-5 overflow-hidden border-l border-graysage/20 px-1 text-[0.6rem] leading-5 ${b.strong ? 'font-semibold text-charcoal' : 'text-graysage'}`}>{b.label}</div>
           ))}
@@ -178,8 +218,6 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
                 <div
                   key={`${c.id}:${o.i}`}
                   onPointerDown={first ? onDown(c, 'body') : (e) => { e.stopPropagation(); setSelected(c.id) }}
-                  onPointerMove={first ? onMove : undefined}
-                  onPointerUp={first ? finishDrag : undefined}
                   style={{ left, width: w, top: topPx, backgroundColor: c.color, borderColor: c.color }}
                   className={`absolute flex h-[26px] items-center overflow-hidden rounded border px-1.5 text-white ${first ? 'cursor-grab active:cursor-grabbing' : 'opacity-70'} ${selected === c.id ? 'ring-2 ring-white' : ''}`}
                   title={`${c.name} · ${ymd(o.start)} → ${ymd(o.end)}`}
