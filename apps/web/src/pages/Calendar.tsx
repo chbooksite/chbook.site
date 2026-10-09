@@ -96,7 +96,7 @@ export default function Calendar() {
     setTags((tagRes.data ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color, defaultDurationMin: t.default_duration_min })))
     setAgeRanges(readAgeRanges(churchRes.data?.settings))
     setTemplates(readActivityTemplates(churchRes.data?.settings))
-    setCycles((cycRes.data ?? []).map((c) => ({ id: c.id, parentId: c.parent_id, name: c.name, color: c.color, startsOn: c.starts_on, endsOn: c.ends_on, goal: c.goal })))
+    setCycles((cycRes.data ?? []).map((c) => ({ id: c.id, parentId: c.parent_id, name: c.name, color: c.color, startsOn: c.starts_on, endsOn: c.ends_on, goal: c.goal, duration: (c.duration as Cycle['duration']) ?? 'custom', repeat: c.repeat ?? 1 })))
 
     // miembros por equipo / rol
     const memName = new Map((memRes.data ?? []).map((m) => [m.id, m.full_name]))

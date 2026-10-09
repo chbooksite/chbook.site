@@ -344,11 +344,13 @@ export type Database = {
           church_id: string
           color: string
           created_at: string | null
+          duration: string
           ends_on: string
           goal: string | null
           id: string
           name: string
           parent_id: string | null
+          repeat: number
           sort_order: number | null
           starts_on: string
         }
@@ -356,11 +358,13 @@ export type Database = {
           church_id: string
           color?: string
           created_at?: string | null
+          duration?: string
           ends_on: string
           goal?: string | null
           id?: string
           name: string
           parent_id?: string | null
+          repeat?: number
           sort_order?: number | null
           starts_on: string
         }
@@ -368,11 +372,13 @@ export type Database = {
           church_id?: string
           color?: string
           created_at?: string | null
+          duration?: string
           ends_on?: string
           goal?: string | null
           id?: string
           name?: string
           parent_id?: string | null
+          repeat?: number
           sort_order?: number | null
           starts_on?: string
         }

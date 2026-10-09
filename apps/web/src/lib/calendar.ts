@@ -1,14 +1,78 @@
 // Calendario en línea de tiempo: ciclos (rangos de fechas anidables) y el eje
 // temporal con zoom (horas/días/semanas/meses según px por día).
 
+export type CycleDuration = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'semiannual' | 'annual' | 'custom'
+
 export interface Cycle {
   id: string
   parentId: string | null
   name: string
   color: string
   startsOn: string // 'YYYY-MM-DD'
-  endsOn: string // 'YYYY-MM-DD' (inclusive)
+  endsOn: string // 'YYYY-MM-DD' (inclusive) — fin de UNA ocurrencia
   goal: string | null
+  duration: CycleDuration
+  repeat: number // nº de repeticiones; 0 = continuo (indefinido)
+}
+
+export const CYCLE_DURATIONS: { value: CycleDuration; label: string }[] = [
+  { value: 'weekly', label: 'Semanal' },
+  { value: 'biweekly', label: '15 días' },
+  { value: 'monthly', label: 'Mensual' },
+  { value: 'quarterly', label: 'Trimestral' },
+  { value: 'semiannual', label: '6 meses' },
+  { value: 'annual', label: 'Anual' },
+  { value: 'custom', label: 'Personalizada' },
+]
+
+export function addMonths(d: Date, n: number): Date {
+  const x = new Date(d)
+  x.setMonth(x.getMonth() + n)
+  return x
+}
+
+// Fin (inclusive) de UNA ocurrencia a partir de su inicio, según la duración.
+// Para 'custom' se conserva la longitud actual (end - start).
+export function occurrenceEnd(duration: CycleDuration, start: Date, customEnd: Date): Date {
+  switch (duration) {
+    case 'weekly': return addDays(start, 6)
+    case 'biweekly': return addDays(start, 14)
+    case 'monthly': return addDays(addMonths(start, 1), -1)
+    case 'quarterly': return addDays(addMonths(start, 3), -1)
+    case 'semiannual': return addDays(addMonths(start, 6), -1)
+    case 'annual': return addDays(addMonths(start, 12), -1)
+    default: return customEnd
+  }
+}
+
+// Inicio de la ocurrencia i (0-based) según la duración.
+export function occurrenceStart(duration: CycleDuration, start: Date, customLenDays: number, i: number): Date {
+  switch (duration) {
+    case 'weekly': return addDays(start, 7 * i)
+    case 'biweekly': return addDays(start, 15 * i)
+    case 'monthly': return addMonths(start, i)
+    case 'quarterly': return addMonths(start, 3 * i)
+    case 'semiannual': return addMonths(start, 6 * i)
+    case 'annual': return addMonths(start, 12 * i)
+    default: return addDays(start, customLenDays * i)
+  }
+}
+
+// Ocurrencias visibles de un ciclo dentro de [.., rangeEnd]. Continuo (repeat=0)
+// se limita a lo que entra en la ventana (con tope de seguridad).
+export function cycleOccurrences(c: Cycle, rangeEnd: Date, maxN = 400): { start: Date; end: Date; i: number }[] {
+  const start0 = parseYmd(c.startsOn)
+  const end0 = parseYmd(c.endsOn)
+  const customLen = Math.max(1, dayDiff(start0, end0) + 1)
+  const count = c.repeat && c.repeat > 0 ? c.repeat : maxN
+  const out: { start: Date; end: Date; i: number }[] = []
+  for (let i = 0; i < count; i++) {
+    const s = occurrenceStart(c.duration, start0, customLen, i)
+    if (s > rangeEnd) break
+    const e = occurrenceEnd(c.duration, s, addDays(s, customLen - 1))
+    out.push({ start: s, end: e, i })
+  }
+  return out.length ? out : [{ start: start0, end: end0, i: 0 }]
 }
 
 export const DAY_MS = 86400000

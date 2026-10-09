@@ -1,14 +1,27 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { supabase } from '../lib/supabase'
-import { addDays, buildAxis, cycleDepth, DAY_MS, parseYmd, startOfDay, ymd, type Cycle } from '../lib/calendar'
+import {
+  addDays,
+  buildAxis,
+  cycleDepth,
+  cycleOccurrences,
+  CYCLE_DURATIONS,
+  DAY_MS,
+  occurrenceEnd,
+  parseYmd,
+  startOfDay,
+  ymd,
+  type Cycle,
+  type CycleDuration,
+} from '../lib/calendar'
 
 const COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#84cc16', '#f59e0b', '#ec4899', '#8b5cf6', '#ef4444']
 const LANE_H = 30
 const HEADER_H = 46
 
-// Calendario en estilo línea de tiempo: eje con zoom (horas→días→semanas→meses)
-// y ciclos como bandas de color, anidables (ciclos dentro de ciclos), con bordes
-// arrastrables para ajustar inicio/fin.
+// Calendario en línea de tiempo: eje con zoom (horas→meses) y ciclos como bandas
+// de color anidables. La duración se elige por preset (y nº de repeticiones o
+// continuo); solo se ingresa la fecha de inicio y el resto se calcula.
 export default function CalendarTimeline({ churchId, cycles }: { churchId: string; cycles: Cycle[] }) {
   const [items, setItems] = useState<Cycle[]>(cycles)
   useEffect(() => setItems(cycles), [cycles])
@@ -18,7 +31,6 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const scrollRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ id: string; mode: 'left' | 'right' | 'body'; x0: number; s0: Date; e0: Date } | null>(null)
 
-  // Ventana fija: 6 meses atrás → 18 adelante.
   const today = startOfDay(new Date())
   const rangeStart = new Date(today.getFullYear(), today.getMonth() - 6, 1)
   const rangeEnd = new Date(today.getFullYear(), today.getMonth() + 18, 1)
@@ -39,22 +51,30 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   useEffect(() => { centerToday() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const persist = async (c: Cycle) => {
-    await supabase.from('cycles').update({ name: c.name, color: c.color, starts_on: c.startsOn, ends_on: c.endsOn, goal: c.goal, parent_id: c.parentId }).eq('id', c.id)
+    await supabase.from('cycles').update({ name: c.name, color: c.color, starts_on: c.startsOn, ends_on: c.endsOn, goal: c.goal, parent_id: c.parentId, duration: c.duration, repeat: c.repeat }).eq('id', c.id)
   }
   const patch = (id: string, p: Partial<Cycle>, save = true) => {
     setItems((prev) => {
-      const next = prev.map((c) => (c.id === id ? { ...c, ...p } : c))
+      const next = prev.map((c) => {
+        if (c.id !== id) return c
+        const merged = { ...c, ...p }
+        // Si cambia la duración (preset) o el inicio, recalcular el fin de una ocurrencia.
+        if (merged.duration !== 'custom' && ('duration' in p || 'startsOn' in p)) {
+          merged.endsOn = ymd(occurrenceEnd(merged.duration, parseYmd(merged.startsOn), parseYmd(merged.endsOn)))
+        }
+        return merged
+      })
       if (save) { const c = next.find((x) => x.id === id); if (c) persist(c) }
       return next
     })
   }
   const createCycle = async () => {
     const s = ymd(today)
-    const e = ymd(addDays(today, 29))
+    const e = ymd(occurrenceEnd('quarterly', today, today))
     const color = COLORS[items.length % COLORS.length]
-    const { data, error } = await supabase.from('cycles').insert({ church_id: churchId, name: 'Nuevo ciclo', color, starts_on: s, ends_on: e }).select('id').single()
+    const { data, error } = await supabase.from('cycles').insert({ church_id: churchId, name: 'Nuevo ciclo', color, starts_on: s, ends_on: e, duration: 'quarterly', repeat: 1 }).select('id').single()
     if (error || !data) return
-    setItems((prev) => [...prev, { id: data.id, parentId: null, name: 'Nuevo ciclo', color, startsOn: s, endsOn: e, goal: null }])
+    setItems((prev) => [...prev, { id: data.id, parentId: null, name: 'Nuevo ciclo', color, startsOn: s, endsOn: e, goal: null, duration: 'quarterly', repeat: 1 }])
     setSelected(data.id)
   }
   const removeCycle = async (id: string) => {
@@ -63,7 +83,8 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     if (selected === id) setSelected(null)
   }
 
-  // Arrastre de bordes / cuerpo de un ciclo.
+  // Arrastre de bordes / cuerpo (sobre la 1ª ocurrencia). El borde derecho pasa a
+  // duración personalizada; mover/borde izquierdo recalculan el fin si es preset.
   const onDown = (c: Cycle, mode: 'left' | 'right' | 'body') => (e: RPointerEvent) => {
     e.stopPropagation()
     drag.current = { id: c.id, mode, x0: e.clientX, s0: parseYmd(c.startsOn), e0: parseYmd(c.endsOn) }
@@ -72,16 +93,22 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   }
   const onMove = (e: RPointerEvent) => {
     const d = drag.current
-    if (!d || e.buttons === 0) { if (d && e.buttons === 0) finishDrag(); return }
+    if (!d) return
+    if (e.buttons === 0) { finishDrag(); return }
     const days = Math.round((e.clientX - d.x0) / pxPerDay)
-    let s = d.s0
-    let en = d.e0
-    if (d.mode === 'left') s = addDays(d.s0, days)
-    else if (d.mode === 'right') en = addDays(d.e0, days)
-    else { s = addDays(d.s0, days); en = addDays(d.e0, days) }
-    if (s > en) { if (d.mode === 'left') s = en; else en = s }
-    patch(d.id, { startsOn: ymd(s), endsOn: ymd(en) }, false)
+    if (d.mode === 'right') {
+      const en = addDays(d.e0, days)
+      const s = parseYmd(itemStart(d.id) ?? ymd(d.s0))
+      patch(d.id, { endsOn: ymd(en < s ? s : en), duration: 'custom' }, false)
+    } else if (d.mode === 'left') {
+      let s = addDays(d.s0, days)
+      if (s > d.e0) s = d.e0
+      patch(d.id, { startsOn: ymd(s) }, false)
+    } else {
+      patch(d.id, { startsOn: ymd(addDays(d.s0, days)), endsOn: ymd(addDays(d.e0, days)) }, false)
+    }
   }
+  const itemStart = (id: string) => items.find((x) => x.id === id)?.startsOn
   const finishDrag = () => {
     const d = drag.current
     drag.current = null
@@ -91,7 +118,6 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   }
 
   const sel = items.find((c) => c.id === selected) ?? null
-  // Posibles padres: todos menos sí mismo y sus descendientes.
   const descendants = (id: string): Set<string> => {
     const out = new Set<string>()
     const walk = (pid: string) => items.filter((c) => c.parentId === pid).forEach((ch) => { if (!out.has(ch.id)) { out.add(ch.id); walk(ch.id) } })
@@ -113,48 +139,44 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
 
       <div ref={scrollRef} className="overflow-x-auto rounded-xl border border-graysage/20 bg-cream/40">
         <div className="relative touch-none" style={{ width, height: bodyH }} onPointerMove={onMove} onPointerUp={finishDrag}>
-          {/* banda superior (unidad grande) */}
           {axis.top.map((b, i) => (
-            <div key={i} style={{ left: b.x, width: b.w }} className={`absolute top-0 h-5 overflow-hidden border-l border-graysage/20 px-1 text-[0.6rem] leading-5 ${b.strong ? 'font-semibold text-charcoal' : 'text-graysage'}`}>
-              {b.label}
-            </div>
+            <div key={i} style={{ left: b.x, width: b.w }} className={`absolute top-0 h-5 overflow-hidden border-l border-graysage/20 px-1 text-[0.6rem] leading-5 ${b.strong ? 'font-semibold text-charcoal' : 'text-graysage'}`}>{b.label}</div>
           ))}
-          {/* ticks (unidad fina) */}
           {axis.ticks.map((t, i) => (
             <div key={i} style={{ left: t.x }} className="absolute top-5 text-[0.55rem] text-graysage/70">
               <span className="absolute left-0 top-0 h-2 w-px bg-graysage/20" />
               <span className="absolute left-0.5 top-2 whitespace-nowrap">{t.label}</span>
             </div>
           ))}
-          {/* línea de hoy */}
-          <span style={{ left: xOf(today) }} className="absolute top-0 z-10 w-0.5 bg-clay/70" aria-hidden />
-          <span style={{ left: xOf(today), height: bodyH }} className="absolute top-0 z-10 w-0.5 bg-clay/40" aria-hidden />
+          <span style={{ left: xOf(today), height: bodyH }} className="absolute top-0 z-10 w-0.5 bg-clay/50" aria-hidden />
 
-          {/* ciclos */}
           {items.map((c) => {
-            const left = xOf(parseYmd(c.startsOn))
-            const w = Math.max(6, xOf(addDays(parseYmd(c.endsOn), 1)) - left)
+            const occ = cycleOccurrences(c, rangeEnd)
             const topPx = HEADER_H + laneOf(c) * LANE_H
-            return (
-              <div
-                key={c.id}
-                onPointerDown={onDown(c, 'body')}
-                onPointerMove={onMove}
-                onPointerUp={finishDrag}
-                style={{ left, width: w, top: topPx, backgroundColor: c.color, borderColor: c.color }}
-                className={`absolute flex h-[26px] cursor-grab items-center overflow-hidden rounded border px-1.5 text-white active:cursor-grabbing ${selected === c.id ? 'ring-2 ring-white' : ''}`}
-                title={`${c.name} · ${c.startsOn} → ${c.endsOn}`}
-              >
-                <span onPointerDown={onDown(c, 'left')} className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize bg-black/20" />
-                <span className="truncate text-[0.7rem] font-medium">{c.name}</span>
-                <span onPointerDown={onDown(c, 'right')} className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize bg-black/20" />
-              </div>
-            )
+            return occ.map((o) => {
+              const left = xOf(o.start)
+              const w = Math.max(6, xOf(addDays(o.end, 1)) - left)
+              const first = o.i === 0
+              return (
+                <div
+                  key={`${c.id}:${o.i}`}
+                  onPointerDown={first ? onDown(c, 'body') : (e) => { e.stopPropagation(); setSelected(c.id) }}
+                  onPointerMove={first ? onMove : undefined}
+                  onPointerUp={first ? finishDrag : undefined}
+                  style={{ left, width: w, top: topPx, backgroundColor: c.color, borderColor: c.color }}
+                  className={`absolute flex h-[26px] items-center overflow-hidden rounded border px-1.5 text-white ${first ? 'cursor-grab active:cursor-grabbing' : 'opacity-70'} ${selected === c.id ? 'ring-2 ring-white' : ''}`}
+                  title={`${c.name} · ${ymd(o.start)} → ${ymd(o.end)}`}
+                >
+                  {first && <span onPointerDown={onDown(c, 'left')} className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize bg-black/20" />}
+                  <span className="truncate text-[0.7rem] font-medium">{c.name}{c.repeat !== 1 ? ` ${o.i + 1}` : ''}</span>
+                  {first && <span onPointerDown={onDown(c, 'right')} className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize bg-black/20" />}
+                </div>
+              )
+            })
           })}
         </div>
       </div>
 
-      {/* edición del ciclo seleccionado */}
       {sel && (
         <div className="mt-3 rounded-xl border border-sage/30 bg-white p-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -163,9 +185,27 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
             <button type="button" onClick={() => removeCycle(sel.id)} className="rounded-lg px-2 py-1 text-lg text-graysage hover:text-clay" title="Eliminar ciclo">🗑</button>
             <button type="button" onClick={() => setSelected(null)} className="px-2 text-lg leading-none text-graysage hover:text-charcoal" title="Cerrar">✕</button>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-graysage">
-            <label className="flex items-center gap-1">Inicio <input type="date" value={sel.startsOn} onChange={(e) => patch(sel.id, { startsOn: e.target.value })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" /></label>
-            <label className="flex items-center gap-1">Fin <input type="date" value={sel.endsOn} onChange={(e) => patch(sel.id, { endsOn: e.target.value })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" /></label>
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-graysage">
+            <label className="flex items-center gap-1">Inicio
+              <input type="date" value={sel.startsOn} onChange={(e) => patch(sel.id, { startsOn: e.target.value })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" />
+            </label>
+            <label className="flex items-center gap-1">Duración
+              <select value={sel.duration} onChange={(e) => patch(sel.id, { duration: e.target.value as CycleDuration })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal">
+                {CYCLE_DURATIONS.map((d) => (<option key={d.value} value={d.value}>{d.label}</option>))}
+              </select>
+            </label>
+            {sel.duration === 'custom' && (
+              <label className="flex items-center gap-1">Fin
+                <input type="date" value={sel.endsOn} onChange={(e) => patch(sel.id, { endsOn: e.target.value })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" />
+              </label>
+            )}
+            <label className="flex items-center gap-1">Repeticiones
+              <input type="number" min={1} value={sel.repeat === 0 ? '' : sel.repeat} disabled={sel.repeat === 0} onChange={(e) => patch(sel.id, { repeat: Math.max(1, Number(e.target.value) || 1) })} className="w-16 rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal disabled:opacity-50" />
+            </label>
+            <label className="flex items-center gap-1">
+              <input type="checkbox" checked={sel.repeat === 0} onChange={(e) => patch(sel.id, { repeat: e.target.checked ? 0 : 1 })} />
+              Continuo
+            </label>
             <label className="flex items-center gap-1">Dentro de
               <select value={sel.parentId ?? ''} onChange={(e) => patch(sel.id, { parentId: e.target.value || null })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal">
                 <option value="">— (ciclo raíz)</option>
