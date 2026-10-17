@@ -24,10 +24,11 @@ const COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#84cc16', '#f59e0b', '#ec4899'
 const LANE_H = 30
 const HEADER_H = 46
 const TIMELINE_H = 250
-const ACT_H = 22 // alto de una barra de actividad
-const ACTS_TOP = HEADER_H + 18 // bajo las letras de día
+const CARD_H = 54 // alto de una ficha de actividad
+const CARD_GAP = 4
+const ACTS_TOP = HEADER_H + 28 // bajo el día/fecha del encabezado
 const UNIT_LABEL: Record<string, string> = { hours: 'horas', days: 'días', weeks: 'semanas', months: 'meses' }
-const WEEKDAY_LETTER = ['D', 'L', 'M', 'M', 'J', 'V', 'S'] // getDay(): 0=domingo
+const hhmm =(d: Date) => `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
 
 // Calendario en línea de tiempo: proyecta las ACTIVIDADES del ritmo (recurrentes,
 // solo lectura — se editan con "Nueva actividad") y permite marcar CICLOS de color
@@ -57,32 +58,27 @@ export default function CalendarTimeline({
   const ovRef = useRef<HTMLDivElement>(null)
   const navDrag = useRef<{ x: number; sl: number; ratio: number } | null>(null)
   const [win, setWin] = useState({ left: 0, width: 100 })
-
-  const syncWin = () => {
-    const el = scrollRef.current
-    if (!el || !el.scrollWidth) return
-    setWin({ left: (el.scrollLeft / el.scrollWidth) * 100, width: Math.max(4, (el.clientWidth / el.scrollWidth) * 100) })
-  }
+  const [headLabel, setHeadLabel] = useState('')
 
   const today = startOfDay(new Date())
+  const weekStart = addDays(today, -((today.getDay() + 6) % 7)) // lunes de la semana actual
   const rangeStart = new Date(today.getFullYear(), today.getMonth() - 6, 1)
   const rangeEnd = addMonths(rangeStart, 12)
   const totalDays = Math.round((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS)
   const minPx = Math.max(0.5, containerW / totalDays)
   const maxPx = Math.max(minPx * 2, containerW)
   const pxPerDay = minPx * Math.pow(maxPx / minPx, zoomT / 100)
-  const width = totalDays * pxPerDay
-  const xOf = (d: Date) => ((d.getTime() - rangeStart.getTime()) / DAY_MS) * pxPerDay
+
+  const syncWin = () => {
+    const el = scrollRef.current
+    if (!el || !el.scrollWidth) return
+    setWin({ left: (el.scrollLeft / el.scrollWidth) * 100, width: Math.max(4, (el.clientWidth / el.scrollWidth) * 100) })
+    const leftDate = addDays(rangeStart, xToIdx(el.scrollLeft))
+    setHeadLabel(leftDate.toLocaleDateString('es', { month: 'long', year: 'numeric' }))
+  }
   const unit = chooseUnit(containerW / pxPerDay)
-  const axis = buildAxis(rangeStart, rangeEnd, pxPerDay, unit)
 
-  const byId = new Map(items.map((c) => [c.id, c]))
-  const laneOf = (c: Cycle) => cycleDepth(c, byId)
-  const maxLane = items.reduce((m, c) => Math.max(m, laneOf(c)), 0)
-  const lanesH = (maxLane + 1) * LANE_H
-
-  // Ocurrencias de las actividades del ritmo en el rango visible, apiladas en
-  // carriles cuando coinciden (solapes claros).
+  // Ocurrencias de las actividades del ritmo en el rango visible.
   interface Bar { key: string; start: Date; end: Date; title: string; color: string; scheduleId: string; timed: boolean }
   const occStart = (day: Date, s: Schedule) => {
     if (!s.startTime) return startOfDay(day)
@@ -103,27 +99,63 @@ export default function CalendarTimeline({
     }
   }
   bars.sort((a, b) => a.start.getTime() - b.start.getTime())
-  const laneEndMs: number[] = []
-  const barLane = new Map<string, number>()
-  for (const b of bars) {
-    let L = 0
-    while (L < laneEndMs.length && laneEndMs[L] > b.start.getTime()) L++
-    barLane.set(b.key, L)
-    laneEndMs[L] = b.end.getTime()
+
+  // Actividades agrupadas por día + colores de ese día.
+  const dayBars = new Map<number, Bar[]>()
+  for (const b of bars) { const k = startOfDay(b.start).getTime(); const a = dayBars.get(k) ?? []; a.push(b); dayBars.set(k, a) }
+  const dayColors = new Map<number, string[]>()
+  for (const [k, arr] of dayBars) dayColors.set(k, Array.from(new Set(arr.map((b) => b.color))))
+
+  // Deformación de días: un día SIN actividad ocupa 1/4 de uno CON actividad; el
+  // ancho total se conserva (= zoom), así los días con actividad se agrandan para
+  // llenar la vista. El eje y las barras usan este xOf deformado.
+  const activeIdx = new Set<number>()
+  for (const k of dayColors.keys()) activeIdx.add(Math.round((k - rangeStart.getTime()) / DAY_MS))
+  const weightAt = (i: number) => (activeIdx.has(i) ? 1 : 0.25)
+  let rawTotal = 0
+  for (let i = 0; i < totalDays; i++) rawTotal += weightAt(i)
+  const warpScale = rawTotal > 0 ? totalDays / rawTotal : 1
+  const xStart = new Float64Array(totalDays + 1)
+  for (let i = 0; i < totalDays; i++) xStart[i + 1] = xStart[i] + weightAt(i) * warpScale * pxPerDay
+  const width = xStart[totalDays]
+  const dayPxAt = (i: number) => xStart[i + 1] - xStart[i]
+  const xOf = (d: Date) => {
+    const f = (d.getTime() - rangeStart.getTime()) / DAY_MS
+    if (f <= 0) return 0
+    if (f >= totalDays) return width
+    const i = Math.floor(f)
+    return xStart[i] + (f - i) * dayPxAt(i)
   }
-  const barsAreaH = laneEndMs.length ? laneEndMs.length * ACT_H + 10 : 0
+  const xToIdx = (px: number) => {
+    let lo = 0, hi = totalDays - 1, idx = 0
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (xStart[mid] <= px) { idx = mid; lo = mid + 1 } else hi = mid - 1 }
+    return idx
+  }
+  const axis = buildAxis(rangeStart, rangeEnd, pxPerDay, unit, xOf)
+  // En vistas diaria/semanal, el mes/año se ancla al inicio de la barra (siempre
+  // visible); en vistas amplias usamos las etiquetas de cada banda.
+  const stickyMonth = unit !== 'months'
+
+  const byId = new Map(items.map((c) => [c.id, c]))
+  const laneOf = (c: Cycle) => cycleDepth(c, byId)
+  const maxLane = items.reduce((m, c) => Math.max(m, laneOf(c)), 0)
+  const lanesH = (maxLane + 1) * LANE_H
+
+  const maxCards = Array.from(dayBars.values()).reduce((m, a) => Math.max(m, a.length), 0)
+  const barsAreaH = maxCards ? maxCards * (CARD_H + CARD_GAP) + 10 : 0
   const bodyH = Math.max(TIMELINE_H, ACTS_TOP + barsAreaH + lanesH + 20)
   const cyclesTop = bodyH - lanesH - 10 // los ciclos se apoyan abajo
 
   // ---- navegación / zoom ----
-  const animateScrollTo = (target: number, dur = 650) => {
+  const EASE_OUT = (t: number) => 1 - Math.pow(1 - t, 3)
+  const EASE_IN_OUT = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+  const animateScrollTo = (target: number, dur = 650, ease: (t: number) => number = EASE_OUT) => {
     const el = scrollRef.current
     if (!el) return
     if (animScroll.current) cancelAnimationFrame(animScroll.current)
     const start = el.scrollLeft
     const dist = target - start
     const t0 = performance.now()
-    const ease = (t: number) => 1 - Math.pow(1 - t, 3)
     const step = (now: number) => {
       const t = Math.min(1, (now - t0) / dur)
       el.scrollLeft = start + dist * ease(t)
@@ -131,18 +163,24 @@ export default function CalendarTimeline({
     }
     animScroll.current = requestAnimationFrame(step)
   }
-  const todayToStart = (animate = false) => {
+  const weekToStart = (animate = false) => {
     const el = scrollRef.current
     if (!el) return
-    if (animate) animateScrollTo(xOf(today))
-    else el.scrollLeft = xOf(today)
+    if (animate) animateScrollTo(xOf(weekStart))
+    else el.scrollLeft = xOf(weekStart)
   }
-  const magnetToday = () => {
+  // Al soltar, encuadra el borde izquierdo al inicio del próximo LUNES, pero SOLO
+  // cuando ese lunes está a la derecha del borde y dentro de la mitad izquierda
+  // del recuadro visible (si está más allá de la mitad, no tira).
+  const magnetWeek = () => {
     const el = scrollRef.current
     if (!el) return
-    const target = xOf(today)
-    const onScreen = target - el.scrollLeft
-    if (onScreen > -el.clientWidth * 0.25 && onScreen <= el.clientWidth / 2) animateScrollTo(target, 700)
+    const leftDate = addDays(rangeStart, xToIdx(el.scrollLeft))
+    const back = (leftDate.getDay() + 6) % 7 // días desde el lunes
+    let mon = addDays(leftDate, -back)
+    if (xOf(mon) < el.scrollLeft) mon = addDays(mon, 7) // primer lunes a la derecha del borde
+    const onScreen = xOf(mon) - el.scrollLeft
+    if (onScreen >= 0 && onScreen <= el.clientWidth / 2) animateScrollTo(xOf(mon), 1000, EASE_IN_OUT)
   }
   useLayoutEffect(() => {
     const measure = () => { if (scrollRef.current) setContainerW(scrollRef.current.clientWidth) }
@@ -150,7 +188,7 @@ export default function CalendarTimeline({
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
   }, [])
-  useEffect(() => { todayToStart(); syncWin() }, [zoomT, containerW]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { weekToStart(); syncWin() }, [zoomT, containerW]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const tFor = (visibleDays: number) => {
     const px = containerW / visibleDays
@@ -194,10 +232,10 @@ export default function CalendarTimeline({
       const dt = now - last; last = now
       v *= Math.pow(0.93, dt / 16)
       const el = scrollRef.current
-      if (!el || Math.abs(v) < 0.02) { momentum.current = null; magnetToday(); return }
+      if (!el || Math.abs(v) < 0.02) { momentum.current = null; magnetWeek(); return }
       const before = el.scrollLeft
       el.scrollLeft += v * dt
-      if (el.scrollLeft === before) { momentum.current = null; magnetToday(); return }
+      if (el.scrollLeft === before) { momentum.current = null; magnetWeek(); return }
       momentum.current = requestAnimationFrame(step)
     }
     momentum.current = requestAnimationFrame(step)
@@ -269,7 +307,7 @@ export default function CalendarTimeline({
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <button type="button" onClick={createCycle} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-cream transition hover:bg-sage">+ Nuevo ciclo</button>
-        <button type="button" onClick={() => todayToStart(true)} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">Hoy</button>
+        <button type="button" onClick={() => weekToStart(true)} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">Esta semana</button>
         <div className="ml-auto flex items-center gap-2">
           <div className="flex overflow-hidden rounded-lg border border-graysage/25">
             {ZOOM_PRESETS.map((p) => (
@@ -282,53 +320,59 @@ export default function CalendarTimeline({
         </div>
       </div>
 
-      <div ref={scrollRef} onScroll={syncWin} className="overflow-x-auto rounded-xl border border-graysage/20 bg-cream/40 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="relative">
+        {stickyMonth && (
+          <div className="pointer-events-none absolute left-px top-px z-20 flex h-5 items-center bg-cream/95 pl-2 pr-3 text-[0.72rem] capitalize text-charcoal">{headLabel}</div>
+        )}
+        <div ref={scrollRef} onScroll={syncWin} className="overflow-x-auto rounded-xl border border-graysage/20 bg-cream/40 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div ref={trackRef} onPointerDown={onBgDown} onPointerMove={onMove} onPointerUp={onUp} className="relative touch-none cursor-grab select-none active:cursor-grabbing" style={{ width, height: bodyH }}>
           {axis.top.map((b, i) => (
-            <div key={i} style={{ left: b.x, width: b.w }} className={`absolute top-0 h-5 overflow-hidden border-l border-graysage/20 px-1 text-[0.6rem] leading-5 ${b.strong ? 'font-semibold text-charcoal' : 'text-graysage'}`}>{b.label}</div>
+            <div key={i} style={{ left: b.x, width: b.w }} className={`absolute top-0 h-5 overflow-hidden border-l border-graysage/20 px-1 text-[0.72rem] leading-5 ${b.strong ? 'font-semibold text-charcoal' : 'text-graysage'}`}>{stickyMonth ? '' : b.label}</div>
           ))}
-          {axis.ticks.map((t, i) => (
-            <div key={i} style={{ left: t.x }} className="absolute top-5 text-[0.55rem] text-graysage/70">
-              <span className="absolute left-0 top-0 h-2 w-px bg-graysage/20" />
-              <span className="absolute left-0.5 top-2 whitespace-nowrap">{t.label}</span>
-            </div>
-          ))}
+          {axis.ticks.map((t, i) => {
+            const sunday = t.label.startsWith('Dom')
+            return (
+              <div key={i} style={{ left: t.x }} className="absolute top-5">
+                <span className="absolute left-0 top-0 h-2 w-px bg-graysage/25" />
+                <span className={`absolute left-1 top-2.5 whitespace-nowrap text-[0.82rem] ${sunday ? 'text-red-500' : 'text-graysage'}`}>{t.label}</span>
+              </div>
+            )
+          })}
 
-          {pxPerDay >= 12 && (() => {
+          {/* divisorias verticales por día */}
+          {pxPerDay >= 10 && (() => {
             const lines: Date[] = []
             let cur = startOfDay(rangeStart)
             while (cur < rangeEnd) { lines.push(cur); cur = addDays(cur, 1) }
-            return lines.map((d, i) => {
-              const x = xOf(d)
-              const weekend = d.getDay() === 0 || d.getDay() === 6
-              return (
-                <div key={`d${i}`}>
-                  <span style={{ left: x, top: HEADER_H, height: bodyH - HEADER_H }} className="absolute w-px bg-graysage/15" />
-                  <span style={{ left: x + 2, top: HEADER_H + 2 }} className={`absolute text-[0.55rem] ${weekend ? 'text-clay/70' : 'text-graysage/60'}`}>{WEEKDAY_LETTER[d.getDay()]}</span>
-                </div>
-              )
-            })
+            return lines.map((_d, i) => (
+              <span key={`d${i}`} style={{ left: xStart[i], top: HEADER_H, height: bodyH - HEADER_H }} className="absolute w-px bg-graysage/15" />
+            ))
           })()}
 
-          <span style={{ left: xOf(today), height: bodyH }} className="absolute top-0 z-10 w-0.5 bg-clay/50" aria-hidden />
+          {(() => {
+            const ti = Math.round((today.getTime() - rangeStart.getTime()) / DAY_MS)
+            if (ti < 0 || ti >= totalDays) return null
+            return <span style={{ left: xStart[ti], width: dayPxAt(ti), top: HEADER_H, height: bodyH - HEADER_H }} className="pointer-events-none absolute rounded-md border-2 border-clay/70 bg-clay/5" aria-hidden />
+          })()}
 
-          {/* actividades del ritmo (solo lectura; clic abre su editor) */}
-          {bars.map((b) => {
-            const left = xOf(b.start)
-            const w = Math.max(10, xOf(b.end) - left)
-            const top = ACTS_TOP + (barLane.get(b.key) ?? 0) * ACT_H
-            return (
+          {/* actividades del ritmo: ficha dentro del recuadro del día (clic edita) */}
+          {Array.from(dayBars.entries()).map(([ms, arr]) => {
+            const i = Math.round((ms - rangeStart.getTime()) / DAY_MS)
+            const left = xStart[i]
+            const dp = dayPxAt(i)
+            if (dp < 26) return null // muy angosto: basta la banda de color
+            return arr.map((b, k) => (
               <div
                 key={b.key}
                 onPointerDown={(e) => { e.stopPropagation(); onEditSchedule?.(b.scheduleId) }}
-                style={{ left, width: w, top, backgroundColor: b.color, borderColor: b.color }}
-                className="absolute flex h-[20px] cursor-pointer items-center overflow-hidden rounded border px-1.5 text-white hover:brightness-110"
+                style={{ left: left + 2, width: Math.max(8, dp - 4), top: ACTS_TOP + k * (CARD_H + CARD_GAP), height: CARD_H, borderLeftColor: b.color }}
+                className="absolute flex cursor-pointer flex-col justify-center overflow-hidden rounded-md border-l-4 bg-graysage/10 px-2.5 text-charcoal hover:bg-graysage/20"
                 title={b.title}
               >
-                {b.timed && <span className="mr-1 text-[0.55rem] text-white/80">{b.start.getHours()}:{String(b.start.getMinutes()).padStart(2, '0')}</span>}
-                <span className="truncate text-[0.65rem] font-medium">{b.title}</span>
+                <span className="truncate text-sm font-semibold leading-tight">{b.title}</span>
+                <span className="truncate text-[0.72rem] leading-tight text-charcoal/70">{b.timed ? `${hhmm(b.start)}–${hhmm(b.end)}` : 'Todo el día'}</span>
               </div>
-            )
+            ))
           })}
 
           {/* ciclos (abajo) */}
@@ -351,6 +395,7 @@ export default function CalendarTimeline({
               )
             })
           })}
+        </div>
         </div>
       </div>
 

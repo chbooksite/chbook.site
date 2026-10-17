@@ -142,8 +142,8 @@ export function chooseUnit(visibleDays: number): AxisUnit {
 
 // Construye el eje (banda superior = unidad grande, ticks = unidad fina) para la
 // unidad dada. xOf convierte una fecha a píxeles desde el inicio.
-export function buildAxis(rangeStart: Date, rangeEnd: Date, pxPerDay: number, unit: AxisUnit): { top: Band[]; ticks: Tick[]; unit: AxisUnit } {
-  const xOf = (d: Date) => ((d.getTime() - rangeStart.getTime()) / DAY_MS) * pxPerDay
+export function buildAxis(rangeStart: Date, rangeEnd: Date, pxPerDay: number, unit: AxisUnit, xOfArg?: (d: Date) => number): { top: Band[]; ticks: Tick[]; unit: AxisUnit } {
+  const xOf = xOfArg ?? ((d: Date) => ((d.getTime() - rangeStart.getTime()) / DAY_MS) * pxPerDay)
   const top: Band[] = []
   const ticks: Tick[] = []
 
@@ -184,10 +184,14 @@ export function buildAxis(rangeStart: Date, rangeEnd: Date, pxPerDay: number, un
       cur = addDays(cur, 1)
     }
   } else if (unit === 'days') {
-    // top = meses, ticks = días
+    // top = meses, ticks = día de la semana (abrev. 3 letras) + número
     monthBands()
     let cur = startOfDay(rangeStart)
-    while (cur < rangeEnd) { ticks.push({ x: xOf(cur), label: String(cur.getDate()) }); cur = addDays(cur, 1) }
+    while (cur < rangeEnd) {
+      const wd = cur.toLocaleDateString('es', { weekday: 'short' }).replace('.', '')
+      ticks.push({ x: xOf(cur), label: `${wd.charAt(0).toUpperCase()}${wd.slice(1)} ${cur.getDate()}` })
+      cur = addDays(cur, 1)
+    }
   } else if (unit === 'weeks') {
     // top = meses, ticks = semanas (lunes)
     monthBands()
