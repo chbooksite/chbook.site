@@ -9,10 +9,12 @@ import {
   cycleOccurrences,
   CYCLE_DURATIONS,
   DAY_MS,
+  eventBounds,
   occurrenceEnd,
   parseYmd,
   startOfDay,
   ymd,
+  type CalEvent,
   type Cycle,
   type CycleDuration,
 } from '../lib/calendar'
@@ -24,13 +26,18 @@ const COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#84cc16', '#f59e0b', '#ec4899'
 const LANE_H = 30
 const HEADER_H = 46
 const TIMELINE_H = 250 // ~3× la altura anterior
+const EV_H = 22 // alto de una barra de evento
+const EVENTS_TOP = HEADER_H + 18 // bajo las letras de día
 
 // Calendario en línea de tiempo: eje con zoom (horas→meses) y ciclos como bandas
 // de color anidables. La duración se elige por preset (y nº de repeticiones o
 // continuo); solo se ingresa la fecha de inicio y el resto se calcula.
-export default function CalendarTimeline({ churchId, cycles }: { churchId: string; cycles: Cycle[] }) {
+export default function CalendarTimeline({ churchId, cycles, events }: { churchId: string; cycles: Cycle[]; events: CalEvent[] }) {
   const [items, setItems] = useState<Cycle[]>(cycles)
   useEffect(() => setItems(cycles), [cycles])
+  const [evItems, setEvItems] = useState<CalEvent[]>(events)
+  useEffect(() => setEvItems(events), [events])
+  const [selEvent, setSelEvent] = useState<string | null>(null)
 
   const [zoomT, setZoomT] = useState(67) // por defecto ~ vista de semana (0=año, 100=día)
   const [containerW, setContainerW] = useState(900)
@@ -83,7 +90,19 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const laneOf = (c: Cycle) => cycleDepth(c, byId)
   const maxLane = items.reduce((m, c) => Math.max(m, laneOf(c)), 0)
   const lanesH = (maxLane + 1) * LANE_H
-  const bodyH = Math.max(TIMELINE_H, HEADER_H + lanesH + 16)
+  // Empaca eventos en carriles para que los solapes se apilen (no se tapen).
+  const evSorted = [...evItems].sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt))
+  const laneEndMs: number[] = []
+  const evLane = new Map<string, number>()
+  for (const e of evSorted) {
+    const { start, end } = eventBounds(e)
+    let L = 0
+    while (L < laneEndMs.length && laneEndMs[L] > start.getTime()) L++
+    evLane.set(e.id, L)
+    laneEndMs[L] = end.getTime()
+  }
+  const eventsAreaH = laneEndMs.length ? laneEndMs.length * EV_H + 10 : 0
+  const bodyH = Math.max(TIMELINE_H, EVENTS_TOP + eventsAreaH + lanesH + 20)
   const cyclesTop = bodyH - lanesH - 10 // los ciclos se apoyan en la parte de abajo
 
   // Por defecto HOY en el "cero" (borde izquierdo) de la barra.
@@ -158,6 +177,39 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     if (selected === id) setSelected(null)
   }
 
+  // ---- Eventos ----
+  const persistEv = async (e: CalEvent) => {
+    await supabase.from('events').update({ title: e.title, color: e.color, starts_at: e.startsAt, ends_at: e.endsAt, all_day: e.allDay, event_type: e.type }).eq('id', e.id)
+  }
+  const patchEv = (id: string, p: Partial<CalEvent>) => {
+    setEvItems((prev) => {
+      const next = prev.map((e) => (e.id === id ? { ...e, ...p } : e))
+      const e = next.find((x) => x.id === id)
+      if (e) persistEv(e)
+      return next
+    })
+  }
+  const createEvent = async () => {
+    const s = new Date(); s.setHours(0, 0, 0, 0)
+    const iso = s.toISOString()
+    const color = COLORS[(items.length + evItems.length) % COLORS.length]
+    const { data, error } = await supabase.from('events').insert({ church_id: churchId, title: 'Nuevo evento', color, starts_at: iso, ends_at: iso, all_day: true, event_type: 'special' }).select('id').single()
+    if (error || !data) return
+    setEvItems((prev) => [...prev, { id: data.id, title: 'Nuevo evento', color, startsAt: iso, endsAt: iso, allDay: true, type: 'special' }])
+    setSelEvent(data.id); setSelected(null)
+  }
+  const removeEvent = async (id: string) => {
+    await supabase.from('events').delete().eq('id', id)
+    setEvItems((prev) => prev.filter((e) => e.id !== id))
+    if (selEvent === id) setSelEvent(null)
+  }
+  // ISO ↔ valores de input (en hora local)
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  const toDateInput = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}` }
+  const toDTInput = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}` }
+  const fromDateInput = (v: string) => { const [y, m, dd] = v.split('-').map(Number); return new Date(y, (m || 1) - 1, dd || 1).toISOString() }
+  const fromDTInput = (v: string) => new Date(v).toISOString()
+
   // Los ciclos NO se arrastran (se editan por fechas en el panel). El arrastre de
   // la barra solo sirve para desplazarse en el tiempo (1:1, sin seleccionar texto).
   const onBgDown = (e: RPointerEvent) => {
@@ -230,6 +282,14 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const onNavUp = () => { navDrag.current = null }
 
   const sel = items.find((c) => c.id === selected) ?? null
+  const selEv = evItems.find((e) => e.id === selEvent) ?? null
+  const EVENT_TYPES = [
+    { value: 'special', label: 'Especial' },
+    { value: 'service', label: 'Servicio' },
+    { value: 'rehearsal', label: 'Ensayo' },
+    { value: 'cell', label: 'Célula' },
+    { value: 'other', label: 'Otro' },
+  ]
   const descendants = (id: string): Set<string> => {
     const out = new Set<string>()
     const walk = (pid: string) => items.filter((c) => c.parentId === pid).forEach((ch) => { if (!out.has(ch.id)) { out.add(ch.id); walk(ch.id) } })
@@ -241,7 +301,8 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <button type="button" onClick={createCycle} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-cream transition hover:bg-sage">+ Nuevo ciclo</button>
+        <button type="button" onClick={createEvent} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-cream transition hover:bg-sage">+ Evento</button>
+        <button type="button" onClick={createCycle} className="rounded-lg border border-sage/40 px-3 py-1.5 text-sm font-medium text-sage-dark transition hover:bg-sage/10">+ Ciclo</button>
         <button type="button" onClick={() => todayToStart(true)} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">Hoy</button>
         <div className="ml-auto flex items-center gap-2">
           <div className="flex overflow-hidden rounded-lg border border-graysage/25">
@@ -286,6 +347,27 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
 
           <span style={{ left: xOf(today), height: bodyH }} className="absolute top-0 z-10 w-0.5 bg-clay/50" aria-hidden />
 
+          {/* eventos (un día o multi-día), apilados por carriles cuando se solapan */}
+          {evItems.map((e) => {
+            const { start, end } = eventBounds(e)
+            const left = xOf(start)
+            const w = Math.max(10, xOf(end) - left)
+            const top = EVENTS_TOP + (evLane.get(e.id) ?? 0) * EV_H
+            const col = e.color || '#64748b'
+            return (
+              <div
+                key={e.id}
+                onPointerDown={(ev) => { ev.stopPropagation(); setSelEvent(e.id); setSelected(null) }}
+                style={{ left, width: w, top, backgroundColor: col, borderColor: col }}
+                className={`absolute flex h-[20px] cursor-pointer items-center overflow-hidden rounded border px-1.5 text-white ${selEvent === e.id ? 'ring-2 ring-white' : ''}`}
+                title={`${e.title}`}
+              >
+                {!e.allDay && <span className="mr-1 text-[0.55rem] text-white/80">{toDTInput(e.startsAt).slice(11)}</span>}
+                <span className="truncate text-[0.65rem] font-medium">{e.title}</span>
+              </div>
+            )
+          })}
+
           {items.map((c) => {
             const occ = cycleOccurrences(c, rangeEnd)
             const topPx = cyclesTop + laneOf(c) * LANE_H
@@ -295,7 +377,7 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
               return (
                 <div
                   key={`${c.id}:${o.i}`}
-                  onPointerDown={(e) => { e.stopPropagation(); setSelected(c.id) }}
+                  onPointerDown={(e) => { e.stopPropagation(); setSelected(c.id); setSelEvent(null) }}
                   style={{ left, width: w, top: topPx, backgroundColor: c.color, borderColor: c.color }}
                   className={`absolute flex h-[26px] cursor-pointer items-center overflow-hidden rounded border px-1.5 text-white ${o.i === 0 ? '' : 'opacity-70'} ${selected === c.id ? 'ring-2 ring-white' : ''}`}
                   title={`${c.name} · ${ymd(o.start)} → ${ymd(o.end)}`}
@@ -312,6 +394,39 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
       <div ref={ovRef} onPointerDown={onNavDown} onPointerMove={onNavMove} onPointerUp={onNavUp} className="relative mt-1.5 h-3 cursor-pointer touch-none rounded bg-graysage/10">
         <div style={{ left: `${win.left}%`, width: `${win.width}%` }} className="absolute top-0 h-3 min-w-[32px] rounded bg-graysage/40 hover:bg-graysage/55" />
       </div>
+
+      {selEv && (
+        <div className="mt-3 rounded-xl border border-sage/30 bg-white p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <input type="color" value={selEv.color ?? '#64748b'} onChange={(e) => patchEv(selEv.id, { color: e.target.value })} className="h-7 w-8 cursor-pointer rounded border border-graysage/25" title="Color" />
+            <input value={selEv.title} onChange={(e) => patchEv(selEv.id, { title: e.target.value })} className="min-w-40 flex-1 rounded-lg border border-graysage/25 bg-cream/40 px-2.5 py-1.5 text-sm outline-none focus:border-sage" />
+            <button type="button" onClick={() => removeEvent(selEv.id)} className="rounded-lg px-2 py-1 text-lg text-graysage hover:text-clay" title="Eliminar evento">🗑</button>
+            <button type="button" onClick={() => setSelEvent(null)} className="px-2 text-lg leading-none text-graysage hover:text-charcoal" title="Cerrar">✕</button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-graysage">
+            <label className="flex items-center gap-1">
+              <input type="checkbox" checked={selEv.allDay} onChange={(e) => patchEv(selEv.id, { allDay: e.target.checked })} />
+              Todo el día
+            </label>
+            {selEv.allDay ? (
+              <>
+                <label className="flex items-center gap-1">Inicio <input type="date" value={toDateInput(selEv.startsAt)} onChange={(e) => patchEv(selEv.id, { startsAt: fromDateInput(e.target.value) })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" /></label>
+                <label className="flex items-center gap-1">Fin <input type="date" value={toDateInput(selEv.endsAt ?? selEv.startsAt)} onChange={(e) => patchEv(selEv.id, { endsAt: fromDateInput(e.target.value) })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" /></label>
+              </>
+            ) : (
+              <>
+                <label className="flex items-center gap-1">Inicio <input type="datetime-local" value={toDTInput(selEv.startsAt)} onChange={(e) => patchEv(selEv.id, { startsAt: fromDTInput(e.target.value) })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" /></label>
+                <label className="flex items-center gap-1">Fin <input type="datetime-local" value={toDTInput(selEv.endsAt ?? selEv.startsAt)} onChange={(e) => patchEv(selEv.id, { endsAt: fromDTInput(e.target.value) })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" /></label>
+              </>
+            )}
+            <label className="flex items-center gap-1">Tipo
+              <select value={selEv.type ?? 'special'} onChange={(e) => patchEv(selEv.id, { type: e.target.value })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal">
+                {EVENT_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
+              </select>
+            </label>
+          </div>
+        </div>
+      )}
 
       {sel && (
         <div className="mt-3 rounded-xl border border-sage/30 bg-white p-3">

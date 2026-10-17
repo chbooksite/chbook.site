@@ -77,6 +77,32 @@ export function cycleOccurrences(c: Cycle, rangeEnd: Date, maxN = 400): { start:
 
 export const DAY_MS = 86400000
 
+// Evento del calendario (un día o varios), con hora o de todo el día.
+export interface CalEvent {
+  id: string
+  title: string
+  color: string | null
+  startsAt: string // ISO
+  endsAt: string | null // ISO
+  allDay: boolean
+  type: string | null
+}
+
+// Límites [inicio, fin) de un evento como fechas. Para "todo el día" el fin es
+// exclusivo (día siguiente al último). Timed sin fin: +1 hora.
+export function eventBounds(e: CalEvent): { start: Date; end: Date } {
+  const s = new Date(e.startsAt)
+  const end = e.endsAt ? new Date(e.endsAt) : null
+  if (e.allDay) {
+    const s0 = new Date(s.getFullYear(), s.getMonth(), s.getDate())
+    const le = end ?? s
+    const e0 = new Date(le.getFullYear(), le.getMonth(), le.getDate())
+    return { start: s0, end: new Date(e0.getFullYear(), e0.getMonth(), e0.getDate() + 1) }
+  }
+  if (!end || end <= s) return { start: s, end: new Date(s.getTime() + 3600000) }
+  return { start: s, end }
+}
+
 export function ymd(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
