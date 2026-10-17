@@ -9,35 +9,42 @@ import {
   cycleOccurrences,
   CYCLE_DURATIONS,
   DAY_MS,
-  eventBounds,
   occurrenceEnd,
   parseYmd,
   startOfDay,
   ymd,
-  type CalEvent,
   type Cycle,
   type CycleDuration,
 } from '../lib/calendar'
+import { occursOn, type Schedule } from '../lib/activity'
 
-const UNIT_LABEL: Record<string, string> = { hours: 'horas', days: 'días', weeks: 'semanas', months: 'meses' }
-const WEEKDAY_LETTER = ['D', 'L', 'M', 'M', 'J', 'V', 'S'] // getDay(): 0=domingo
+type RecSchedule = Schedule & { color: string }
 
 const COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#84cc16', '#f59e0b', '#ec4899', '#8b5cf6', '#ef4444']
 const LANE_H = 30
 const HEADER_H = 46
-const TIMELINE_H = 250 // ~3× la altura anterior
-const EV_H = 22 // alto de una barra de evento
-const EVENTS_TOP = HEADER_H + 18 // bajo las letras de día
+const TIMELINE_H = 250
+const ACT_H = 22 // alto de una barra de actividad
+const ACTS_TOP = HEADER_H + 18 // bajo las letras de día
+const UNIT_LABEL: Record<string, string> = { hours: 'horas', days: 'días', weeks: 'semanas', months: 'meses' }
+const WEEKDAY_LETTER = ['D', 'L', 'M', 'M', 'J', 'V', 'S'] // getDay(): 0=domingo
 
-// Calendario en línea de tiempo: eje con zoom (horas→meses) y ciclos como bandas
-// de color anidables. La duración se elige por preset (y nº de repeticiones o
-// continuo); solo se ingresa la fecha de inicio y el resto se calcula.
-export default function CalendarTimeline({ churchId, cycles, events }: { churchId: string; cycles: Cycle[]; events: CalEvent[] }) {
+// Calendario en línea de tiempo: proyecta las ACTIVIDADES del ritmo (recurrentes,
+// solo lectura — se editan con "Nueva actividad") y permite marcar CICLOS de color
+// anidables. Eje con zoom (año→día), navegación con inercia e imán a hoy.
+export default function CalendarTimeline({
+  churchId,
+  cycles,
+  recurring,
+  onEditSchedule,
+}: {
+  churchId: string
+  cycles: Cycle[]
+  recurring: RecSchedule[]
+  onEditSchedule?: (id: string) => void
+}) {
   const [items, setItems] = useState<Cycle[]>(cycles)
   useEffect(() => setItems(cycles), [cycles])
-  const [evItems, setEvItems] = useState<CalEvent[]>(events)
-  useEffect(() => setEvItems(events), [events])
-  const [selEvent, setSelEvent] = useState<string | null>(null)
 
   const [zoomT, setZoomT] = useState(67) // por defecto ~ vista de semana (0=año, 100=día)
   const [containerW, setContainerW] = useState(900)
@@ -49,7 +56,7 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
   const animScroll = useRef<number | null>(null)
   const ovRef = useRef<HTMLDivElement>(null)
   const navDrag = useRef<{ x: number; sl: number; ratio: number } | null>(null)
-  const [win, setWin] = useState({ left: 0, width: 100 }) // ventana visible (% del total) para la barra de navegación
+  const [win, setWin] = useState({ left: 0, width: 100 })
 
   const syncWin = () => {
     const el = scrollRef.current
@@ -57,7 +64,58 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
     setWin({ left: (el.scrollLeft / el.scrollWidth) * 100, width: Math.max(4, (el.clientWidth / el.scrollWidth) * 100) })
   }
 
-  // Desplazamiento animado (ease-out suave, estilo inercia) hasta un objetivo.
+  const today = startOfDay(new Date())
+  const rangeStart = new Date(today.getFullYear(), today.getMonth() - 6, 1)
+  const rangeEnd = addMonths(rangeStart, 12)
+  const totalDays = Math.round((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS)
+  const minPx = Math.max(0.5, containerW / totalDays)
+  const maxPx = Math.max(minPx * 2, containerW)
+  const pxPerDay = minPx * Math.pow(maxPx / minPx, zoomT / 100)
+  const width = totalDays * pxPerDay
+  const xOf = (d: Date) => ((d.getTime() - rangeStart.getTime()) / DAY_MS) * pxPerDay
+  const unit = chooseUnit(containerW / pxPerDay)
+  const axis = buildAxis(rangeStart, rangeEnd, pxPerDay, unit)
+
+  const byId = new Map(items.map((c) => [c.id, c]))
+  const laneOf = (c: Cycle) => cycleDepth(c, byId)
+  const maxLane = items.reduce((m, c) => Math.max(m, laneOf(c)), 0)
+  const lanesH = (maxLane + 1) * LANE_H
+
+  // Ocurrencias de las actividades del ritmo en el rango visible, apiladas en
+  // carriles cuando coinciden (solapes claros).
+  interface Bar { key: string; start: Date; end: Date; title: string; color: string; scheduleId: string; timed: boolean }
+  const occStart = (day: Date, s: Schedule) => {
+    if (!s.startTime) return startOfDay(day)
+    const [h, m] = s.startTime.split(':').map(Number)
+    const d = new Date(day); d.setHours(h || 0, m || 0, 0, 0); return d
+  }
+  const occEnd = (start: Date, s: Schedule) => {
+    if (!s.startTime) return addDays(startOfDay(start), 1)
+    if (s.endTime) { const [h, m] = s.endTime.split(':').map(Number); const d = new Date(start); d.setHours(h || 0, m || 0, 0, 0); if (d > start) return d }
+    return new Date(start.getTime() + 3600000)
+  }
+  const bars: Bar[] = []
+  for (const r of recurring) {
+    let cur = startOfDay(rangeStart)
+    while (cur < rangeEnd) {
+      if (occursOn(r, cur)) { const start = occStart(cur, r); const end = occEnd(start, r); bars.push({ key: `${r.id}:${ymd(cur)}`, start, end, title: r.name, color: r.color, scheduleId: r.id, timed: !!r.startTime }) }
+      cur = addDays(cur, 1)
+    }
+  }
+  bars.sort((a, b) => a.start.getTime() - b.start.getTime())
+  const laneEndMs: number[] = []
+  const barLane = new Map<string, number>()
+  for (const b of bars) {
+    let L = 0
+    while (L < laneEndMs.length && laneEndMs[L] > b.start.getTime()) L++
+    barLane.set(b.key, L)
+    laneEndMs[L] = b.end.getTime()
+  }
+  const barsAreaH = laneEndMs.length ? laneEndMs.length * ACT_H + 10 : 0
+  const bodyH = Math.max(TIMELINE_H, ACTS_TOP + barsAreaH + lanesH + 20)
+  const cyclesTop = bodyH - lanesH - 10 // los ciclos se apoyan abajo
+
+  // ---- navegación / zoom ----
   const animateScrollTo = (target: number, dur = 650) => {
     const el = scrollRef.current
     if (!el) return
@@ -73,55 +131,18 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
     }
     animScroll.current = requestAnimationFrame(step)
   }
-
-  const today = startOfDay(new Date())
-  const rangeStart = new Date(today.getFullYear(), today.getMonth() - 6, 1)
-  const rangeEnd = addMonths(rangeStart, 12) // ventana de un año
-  const totalDays = Math.round((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS)
-  const minPx = Math.max(0.5, containerW / totalDays) // zoom máx. de alejamiento: el año entra justo
-  const maxPx = Math.max(minPx * 2, containerW) // zoom máx. de acercamiento: ~un día ocupa el ancho
-  const pxPerDay = minPx * Math.pow(maxPx / minPx, zoomT / 100)
-  const width = totalDays * pxPerDay
-  const xOf = (d: Date) => ((d.getTime() - rangeStart.getTime()) / DAY_MS) * pxPerDay
-  const unit = chooseUnit(containerW / pxPerDay)
-  const axis = buildAxis(rangeStart, rangeEnd, pxPerDay, unit)
-
-  const byId = new Map(items.map((c) => [c.id, c]))
-  const laneOf = (c: Cycle) => cycleDepth(c, byId)
-  const maxLane = items.reduce((m, c) => Math.max(m, laneOf(c)), 0)
-  const lanesH = (maxLane + 1) * LANE_H
-  // Empaca eventos en carriles para que los solapes se apilen (no se tapen).
-  const evSorted = [...evItems].sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt))
-  const laneEndMs: number[] = []
-  const evLane = new Map<string, number>()
-  for (const e of evSorted) {
-    const { start, end } = eventBounds(e)
-    let L = 0
-    while (L < laneEndMs.length && laneEndMs[L] > start.getTime()) L++
-    evLane.set(e.id, L)
-    laneEndMs[L] = end.getTime()
-  }
-  const eventsAreaH = laneEndMs.length ? laneEndMs.length * EV_H + 10 : 0
-  const bodyH = Math.max(TIMELINE_H, EVENTS_TOP + eventsAreaH + lanesH + 20)
-  const cyclesTop = bodyH - lanesH - 10 // los ciclos se apoyan en la parte de abajo
-
-  // Por defecto HOY en el "cero" (borde izquierdo) de la barra.
   const todayToStart = (animate = false) => {
     const el = scrollRef.current
     if (!el) return
     if (animate) animateScrollTo(xOf(today))
     else el.scrollLeft = xOf(today)
   }
-  // Imán: si la línea de HOY queda de la mitad de la barra hacia la izquierda,
-  // se acomoda a cero (borde izquierdo) con un movimiento suave.
   const magnetToday = () => {
     const el = scrollRef.current
     if (!el) return
     const target = xOf(today)
-    const onScreen = target - el.scrollLeft // posición de "hoy" dentro del viewport
-    if (onScreen > -el.clientWidth * 0.25 && onScreen <= el.clientWidth / 2) {
-      animateScrollTo(target, 700)
-    }
+    const onScreen = target - el.scrollLeft
+    if (onScreen > -el.clientWidth * 0.25 && onScreen <= el.clientWidth / 2) animateScrollTo(target, 700)
   }
   useLayoutEffect(() => {
     const measure = () => { if (scrollRef.current) setContainerW(scrollRef.current.clientWidth) }
@@ -131,7 +152,6 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
   }, [])
   useEffect(() => { todayToStart(); syncWin() }, [zoomT, containerW]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Presets de zoom: selecciona directamente una temporalidad.
   const tFor = (visibleDays: number) => {
     const px = containerW / visibleDays
     const t = (100 * Math.log(px / minPx)) / Math.log(maxPx / minPx)
@@ -144,21 +164,80 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
     { label: 'Año', days: 365 },
   ]
 
+  // pan por arrastre de zonas vacías con inercia
+  const onBgDown = (e: RPointerEvent) => {
+    const el = scrollRef.current
+    if (!el) return
+    e.preventDefault()
+    if (momentum.current) { cancelAnimationFrame(momentum.current); momentum.current = null }
+    if (animScroll.current) { cancelAnimationFrame(animScroll.current); animScroll.current = null }
+    pan.current = { sl: el.scrollLeft, x: e.clientX, lastX: e.clientX, lastT: performance.now(), v: 0 }
+    trackRef.current?.setPointerCapture(e.pointerId)
+  }
+  const onMove = (e: RPointerEvent) => {
+    const p = pan.current
+    if (!p) return
+    if (e.buttons === 0) { releasePan(); return }
+    const el = scrollRef.current
+    if (el) el.scrollLeft = p.sl - (e.clientX - p.x)
+    const now = performance.now()
+    const dt = now - p.lastT
+    if (dt > 0) { p.v = p.v * 0.7 + (-(e.clientX - p.lastX) / dt) * 0.3; p.lastX = e.clientX; p.lastT = now }
+  }
+  const releasePan = () => {
+    const p = pan.current
+    pan.current = null
+    if (!p) return
+    let v = p.v
+    let last = performance.now()
+    const step = (now: number) => {
+      const dt = now - last; last = now
+      v *= Math.pow(0.93, dt / 16)
+      const el = scrollRef.current
+      if (!el || Math.abs(v) < 0.02) { momentum.current = null; magnetToday(); return }
+      const before = el.scrollLeft
+      el.scrollLeft += v * dt
+      if (el.scrollLeft === before) { momentum.current = null; magnetToday(); return }
+      momentum.current = requestAnimationFrame(step)
+    }
+    momentum.current = requestAnimationFrame(step)
+  }
+  const onUp = () => { if (pan.current) releasePan() }
+
+  const onNavDown = (e: RPointerEvent) => {
+    const ov = ovRef.current
+    const el = scrollRef.current
+    if (!ov || !el) return
+    e.preventDefault()
+    if (momentum.current) { cancelAnimationFrame(momentum.current); momentum.current = null }
+    const r = ov.getBoundingClientRect()
+    el.scrollLeft = ((e.clientX - r.left) / r.width) * el.scrollWidth - el.clientWidth / 2
+    navDrag.current = { x: e.clientX, sl: el.scrollLeft, ratio: el.scrollWidth / ov.clientWidth }
+    ov.setPointerCapture(e.pointerId)
+    syncWin()
+  }
+  const onNavMove = (e: RPointerEvent) => {
+    const d = navDrag.current
+    if (!d) return
+    if (e.buttons === 0) { navDrag.current = null; return }
+    const el = scrollRef.current
+    if (el) el.scrollLeft = d.sl + (e.clientX - d.x) * d.ratio
+  }
+  const onNavUp = () => { navDrag.current = null }
+
+  // ---- ciclos ----
   const persist = async (c: Cycle) => {
     await supabase.from('cycles').update({ name: c.name, color: c.color, starts_on: c.startsOn, ends_on: c.endsOn, goal: c.goal, parent_id: c.parentId, duration: c.duration, repeat: c.repeat }).eq('id', c.id)
   }
-  const patch = (id: string, p: Partial<Cycle>, save = true) => {
+  const patch = (id: string, p: Partial<Cycle>) => {
     setItems((prev) => {
       const next = prev.map((c) => {
         if (c.id !== id) return c
         const merged = { ...c, ...p }
-        // Si cambia la duración (preset) o el inicio, recalcular el fin de una ocurrencia.
-        if (merged.duration !== 'custom' && ('duration' in p || 'startsOn' in p)) {
-          merged.endsOn = ymd(occurrenceEnd(merged.duration, parseYmd(merged.startsOn), parseYmd(merged.endsOn)))
-        }
+        if (merged.duration !== 'custom' && ('duration' in p || 'startsOn' in p)) merged.endsOn = ymd(occurrenceEnd(merged.duration, parseYmd(merged.startsOn), parseYmd(merged.endsOn)))
         return merged
       })
-      if (save) { const c = next.find((x) => x.id === id); if (c) persist(c) }
+      const c = next.find((x) => x.id === id); if (c) persist(c)
       return next
     })
   }
@@ -177,119 +256,7 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
     if (selected === id) setSelected(null)
   }
 
-  // ---- Eventos ----
-  const persistEv = async (e: CalEvent) => {
-    await supabase.from('events').update({ title: e.title, color: e.color, starts_at: e.startsAt, ends_at: e.endsAt, all_day: e.allDay, event_type: e.type }).eq('id', e.id)
-  }
-  const patchEv = (id: string, p: Partial<CalEvent>) => {
-    setEvItems((prev) => {
-      const next = prev.map((e) => (e.id === id ? { ...e, ...p } : e))
-      const e = next.find((x) => x.id === id)
-      if (e) persistEv(e)
-      return next
-    })
-  }
-  const createEvent = async () => {
-    const s = new Date(); s.setHours(0, 0, 0, 0)
-    const iso = s.toISOString()
-    const color = COLORS[(items.length + evItems.length) % COLORS.length]
-    const { data, error } = await supabase.from('events').insert({ church_id: churchId, title: 'Nuevo evento', color, starts_at: iso, ends_at: iso, all_day: true, event_type: 'special' }).select('id').single()
-    if (error || !data) return
-    setEvItems((prev) => [...prev, { id: data.id, title: 'Nuevo evento', color, startsAt: iso, endsAt: iso, allDay: true, type: 'special' }])
-    setSelEvent(data.id); setSelected(null)
-  }
-  const removeEvent = async (id: string) => {
-    await supabase.from('events').delete().eq('id', id)
-    setEvItems((prev) => prev.filter((e) => e.id !== id))
-    if (selEvent === id) setSelEvent(null)
-  }
-  // ISO ↔ valores de input (en hora local)
-  const p2 = (n: number) => String(n).padStart(2, '0')
-  const toDateInput = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}` }
-  const toDTInput = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}` }
-  const fromDateInput = (v: string) => { const [y, m, dd] = v.split('-').map(Number); return new Date(y, (m || 1) - 1, dd || 1).toISOString() }
-  const fromDTInput = (v: string) => new Date(v).toISOString()
-
-  // Los ciclos NO se arrastran (se editan por fechas en el panel). El arrastre de
-  // la barra solo sirve para desplazarse en el tiempo (1:1, sin seleccionar texto).
-  const onBgDown = (e: RPointerEvent) => {
-    const el = scrollRef.current
-    if (!el) return
-    e.preventDefault() // evita selección de texto al arrastrar
-    if (momentum.current) { cancelAnimationFrame(momentum.current); momentum.current = null }
-    if (animScroll.current) { cancelAnimationFrame(animScroll.current); animScroll.current = null }
-    pan.current = { sl: el.scrollLeft, x: e.clientX, lastX: e.clientX, lastT: performance.now(), v: 0 }
-    trackRef.current?.setPointerCapture(e.pointerId)
-  }
-  const onMove = (e: RPointerEvent) => {
-    const p = pan.current
-    if (!p) return
-    if (e.buttons === 0) { releasePan(); return }
-    const el = scrollRef.current
-    if (el) el.scrollLeft = p.sl - (e.clientX - p.x)
-    const now = performance.now()
-    const dt = now - p.lastT
-    if (dt > 0) {
-      const inst = -(e.clientX - p.lastX) / dt // px de scroll por ms
-      p.v = p.v * 0.7 + inst * 0.3 // suavizado
-      p.lastX = e.clientX
-      p.lastT = now
-    }
-  }
-  // Al soltar: continuar el movimiento con la última velocidad y frenar suave.
-  const releasePan = () => {
-    const p = pan.current
-    pan.current = null
-    if (!p) return
-    let v = p.v
-    let last = performance.now()
-    const step = (now: number) => {
-      const dt = now - last
-      last = now
-      v *= Math.pow(0.93, dt / 16) // fricción
-      const el = scrollRef.current
-      if (!el || Math.abs(v) < 0.02) { momentum.current = null; magnetToday(); return }
-      const before = el.scrollLeft
-      el.scrollLeft += v * dt
-      if (el.scrollLeft === before) { momentum.current = null; magnetToday(); return } // tope
-      momentum.current = requestAnimationFrame(step)
-    }
-    momentum.current = requestAnimationFrame(step)
-  }
-  const onUp = () => { if (pan.current) releasePan() }
-
-  // Barra de navegación propia (tirador cómodo): clic para ir y arrastrar.
-  const onNavDown = (e: RPointerEvent) => {
-    const ov = ovRef.current
-    const el = scrollRef.current
-    if (!ov || !el) return
-    e.preventDefault()
-    if (momentum.current) { cancelAnimationFrame(momentum.current); momentum.current = null }
-    const r = ov.getBoundingClientRect()
-    const frac = (e.clientX - r.left) / r.width
-    el.scrollLeft = frac * el.scrollWidth - el.clientWidth / 2 // centra la ventana donde haces clic
-    navDrag.current = { x: e.clientX, sl: el.scrollLeft, ratio: el.scrollWidth / ov.clientWidth }
-    ov.setPointerCapture(e.pointerId)
-    syncWin()
-  }
-  const onNavMove = (e: RPointerEvent) => {
-    const d = navDrag.current
-    if (!d) return
-    if (e.buttons === 0) { navDrag.current = null; return }
-    const el = scrollRef.current
-    if (el) el.scrollLeft = d.sl + (e.clientX - d.x) * d.ratio
-  }
-  const onNavUp = () => { navDrag.current = null }
-
   const sel = items.find((c) => c.id === selected) ?? null
-  const selEv = evItems.find((e) => e.id === selEvent) ?? null
-  const EVENT_TYPES = [
-    { value: 'special', label: 'Especial' },
-    { value: 'service', label: 'Servicio' },
-    { value: 'rehearsal', label: 'Ensayo' },
-    { value: 'cell', label: 'Célula' },
-    { value: 'other', label: 'Otro' },
-  ]
   const descendants = (id: string): Set<string> => {
     const out = new Set<string>()
     const walk = (pid: string) => items.filter((c) => c.parentId === pid).forEach((ch) => { if (!out.has(ch.id)) { out.add(ch.id); walk(ch.id) } })
@@ -301,8 +268,7 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <button type="button" onClick={createEvent} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-cream transition hover:bg-sage">+ Evento</button>
-        <button type="button" onClick={createCycle} className="rounded-lg border border-sage/40 px-3 py-1.5 text-sm font-medium text-sage-dark transition hover:bg-sage/10">+ Ciclo</button>
+        <button type="button" onClick={createCycle} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-cream transition hover:bg-sage">+ Nuevo ciclo</button>
         <button type="button" onClick={() => todayToStart(true)} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">Hoy</button>
         <div className="ml-auto flex items-center gap-2">
           <div className="flex overflow-hidden rounded-lg border border-graysage/25">
@@ -310,7 +276,6 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
               <button key={p.label} type="button" onClick={() => setZoomT(tFor(p.days))} className={`px-2 py-1 text-xs transition ${Math.abs(tFor(p.days) - zoomT) < 7 ? 'bg-sage text-cream' : 'text-graysage hover:bg-sage/10'}`}>{p.label}</button>
             ))}
           </div>
-          {/* slider: Día (izq) → Año (der), invierte zoomT */}
           <span className="text-[0.65rem] text-graysage">Día</span>
           <input type="range" min={0} max={100} step={1} value={100 - zoomT} onChange={(e) => setZoomT(100 - Number(e.target.value))} className="h-1 w-36 cursor-pointer accent-sage" title={`Zoom: ${UNIT_LABEL[unit]}`} />
           <span className="text-[0.65rem] text-graysage">Año</span>
@@ -328,7 +293,7 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
               <span className="absolute left-0.5 top-2 whitespace-nowrap">{t.label}</span>
             </div>
           ))}
-          {/* líneas verticales por día + inicial del día (referencia) */}
+
           {pxPerDay >= 12 && (() => {
             const lines: Date[] = []
             let cur = startOfDay(rangeStart)
@@ -347,27 +312,26 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
 
           <span style={{ left: xOf(today), height: bodyH }} className="absolute top-0 z-10 w-0.5 bg-clay/50" aria-hidden />
 
-          {/* eventos (un día o multi-día), apilados por carriles cuando se solapan */}
-          {evItems.map((e) => {
-            const { start, end } = eventBounds(e)
-            const left = xOf(start)
-            const w = Math.max(10, xOf(end) - left)
-            const top = EVENTS_TOP + (evLane.get(e.id) ?? 0) * EV_H
-            const col = e.color || '#64748b'
+          {/* actividades del ritmo (solo lectura; clic abre su editor) */}
+          {bars.map((b) => {
+            const left = xOf(b.start)
+            const w = Math.max(10, xOf(b.end) - left)
+            const top = ACTS_TOP + (barLane.get(b.key) ?? 0) * ACT_H
             return (
               <div
-                key={e.id}
-                onPointerDown={(ev) => { ev.stopPropagation(); setSelEvent(e.id); setSelected(null) }}
-                style={{ left, width: w, top, backgroundColor: col, borderColor: col }}
-                className={`absolute flex h-[20px] cursor-pointer items-center overflow-hidden rounded border px-1.5 text-white ${selEvent === e.id ? 'ring-2 ring-white' : ''}`}
-                title={`${e.title}`}
+                key={b.key}
+                onPointerDown={(e) => { e.stopPropagation(); onEditSchedule?.(b.scheduleId) }}
+                style={{ left, width: w, top, backgroundColor: b.color, borderColor: b.color }}
+                className="absolute flex h-[20px] cursor-pointer items-center overflow-hidden rounded border px-1.5 text-white hover:brightness-110"
+                title={b.title}
               >
-                {!e.allDay && <span className="mr-1 text-[0.55rem] text-white/80">{toDTInput(e.startsAt).slice(11)}</span>}
-                <span className="truncate text-[0.65rem] font-medium">{e.title}</span>
+                {b.timed && <span className="mr-1 text-[0.55rem] text-white/80">{b.start.getHours()}:{String(b.start.getMinutes()).padStart(2, '0')}</span>}
+                <span className="truncate text-[0.65rem] font-medium">{b.title}</span>
               </div>
             )
           })}
 
+          {/* ciclos (abajo) */}
           {items.map((c) => {
             const occ = cycleOccurrences(c, rangeEnd)
             const topPx = cyclesTop + laneOf(c) * LANE_H
@@ -377,7 +341,7 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
               return (
                 <div
                   key={`${c.id}:${o.i}`}
-                  onPointerDown={(e) => { e.stopPropagation(); setSelected(c.id); setSelEvent(null) }}
+                  onPointerDown={(e) => { e.stopPropagation(); setSelected(c.id) }}
                   style={{ left, width: w, top: topPx, backgroundColor: c.color, borderColor: c.color }}
                   className={`absolute flex h-[26px] cursor-pointer items-center overflow-hidden rounded border px-1.5 text-white ${o.i === 0 ? '' : 'opacity-70'} ${selected === c.id ? 'ring-2 ring-white' : ''}`}
                   title={`${c.name} · ${ymd(o.start)} → ${ymd(o.end)}`}
@@ -390,43 +354,10 @@ export default function CalendarTimeline({ churchId, cycles, events }: { churchI
         </div>
       </div>
 
-      {/* barra de navegación propia (tirador cómodo, menos sensible) */}
+      {/* barra de navegación propia */}
       <div ref={ovRef} onPointerDown={onNavDown} onPointerMove={onNavMove} onPointerUp={onNavUp} className="relative mt-1.5 h-3 cursor-pointer touch-none rounded bg-graysage/10">
         <div style={{ left: `${win.left}%`, width: `${win.width}%` }} className="absolute top-0 h-3 min-w-[32px] rounded bg-graysage/40 hover:bg-graysage/55" />
       </div>
-
-      {selEv && (
-        <div className="mt-3 rounded-xl border border-sage/30 bg-white p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <input type="color" value={selEv.color ?? '#64748b'} onChange={(e) => patchEv(selEv.id, { color: e.target.value })} className="h-7 w-8 cursor-pointer rounded border border-graysage/25" title="Color" />
-            <input value={selEv.title} onChange={(e) => patchEv(selEv.id, { title: e.target.value })} className="min-w-40 flex-1 rounded-lg border border-graysage/25 bg-cream/40 px-2.5 py-1.5 text-sm outline-none focus:border-sage" />
-            <button type="button" onClick={() => removeEvent(selEv.id)} className="rounded-lg px-2 py-1 text-lg text-graysage hover:text-clay" title="Eliminar evento">🗑</button>
-            <button type="button" onClick={() => setSelEvent(null)} className="px-2 text-lg leading-none text-graysage hover:text-charcoal" title="Cerrar">✕</button>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-graysage">
-            <label className="flex items-center gap-1">
-              <input type="checkbox" checked={selEv.allDay} onChange={(e) => patchEv(selEv.id, { allDay: e.target.checked })} />
-              Todo el día
-            </label>
-            {selEv.allDay ? (
-              <>
-                <label className="flex items-center gap-1">Inicio <input type="date" value={toDateInput(selEv.startsAt)} onChange={(e) => patchEv(selEv.id, { startsAt: fromDateInput(e.target.value) })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" /></label>
-                <label className="flex items-center gap-1">Fin <input type="date" value={toDateInput(selEv.endsAt ?? selEv.startsAt)} onChange={(e) => patchEv(selEv.id, { endsAt: fromDateInput(e.target.value) })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" /></label>
-              </>
-            ) : (
-              <>
-                <label className="flex items-center gap-1">Inicio <input type="datetime-local" value={toDTInput(selEv.startsAt)} onChange={(e) => patchEv(selEv.id, { startsAt: fromDTInput(e.target.value) })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" /></label>
-                <label className="flex items-center gap-1">Fin <input type="datetime-local" value={toDTInput(selEv.endsAt ?? selEv.startsAt)} onChange={(e) => patchEv(selEv.id, { endsAt: fromDTInput(e.target.value) })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" /></label>
-              </>
-            )}
-            <label className="flex items-center gap-1">Tipo
-              <select value={selEv.type ?? 'special'} onChange={(e) => patchEv(selEv.id, { type: e.target.value })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal">
-                {EVENT_TYPES.map((t) => (<option key={t.value} value={t.value}>{t.label}</option>))}
-              </select>
-            </label>
-          </div>
-        </div>
-      )}
 
       {sel && (
         <div className="mt-3 rounded-xl border border-sage/30 bg-white p-3">
