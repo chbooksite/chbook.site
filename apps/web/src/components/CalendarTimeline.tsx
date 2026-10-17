@@ -40,6 +40,15 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   const pan = useRef<{ sl: number; x: number; lastX: number; lastT: number; v: number } | null>(null)
   const momentum = useRef<number | null>(null)
   const animScroll = useRef<number | null>(null)
+  const ovRef = useRef<HTMLDivElement>(null)
+  const navDrag = useRef<{ x: number; sl: number; ratio: number } | null>(null)
+  const [win, setWin] = useState({ left: 0, width: 100 }) // ventana visible (% del total) para la barra de navegación
+
+  const syncWin = () => {
+    const el = scrollRef.current
+    if (!el || !el.scrollWidth) return
+    setWin({ left: (el.scrollLeft / el.scrollWidth) * 100, width: Math.max(4, (el.clientWidth / el.scrollWidth) * 100) })
+  }
 
   // Desplazamiento animado (ease-out suave, estilo inercia) hasta un objetivo.
   const animateScrollTo = (target: number, dur = 650) => {
@@ -101,7 +110,7 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
   }, [])
-  useEffect(() => { todayToStart() }, [zoomT, containerW]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { todayToStart(); syncWin() }, [zoomT, containerW]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Presets de zoom: selecciona directamente una temporalidad.
   const tFor = (visibleDays: number) => {
@@ -197,6 +206,29 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
   }
   const onUp = () => { if (pan.current) releasePan() }
 
+  // Barra de navegación propia (tirador cómodo): clic para ir y arrastrar.
+  const onNavDown = (e: RPointerEvent) => {
+    const ov = ovRef.current
+    const el = scrollRef.current
+    if (!ov || !el) return
+    e.preventDefault()
+    if (momentum.current) { cancelAnimationFrame(momentum.current); momentum.current = null }
+    const r = ov.getBoundingClientRect()
+    const frac = (e.clientX - r.left) / r.width
+    el.scrollLeft = frac * el.scrollWidth - el.clientWidth / 2 // centra la ventana donde haces clic
+    navDrag.current = { x: e.clientX, sl: el.scrollLeft, ratio: el.scrollWidth / ov.clientWidth }
+    ov.setPointerCapture(e.pointerId)
+    syncWin()
+  }
+  const onNavMove = (e: RPointerEvent) => {
+    const d = navDrag.current
+    if (!d) return
+    if (e.buttons === 0) { navDrag.current = null; return }
+    const el = scrollRef.current
+    if (el) el.scrollLeft = d.sl + (e.clientX - d.x) * d.ratio
+  }
+  const onNavUp = () => { navDrag.current = null }
+
   const sel = items.find((c) => c.id === selected) ?? null
   const descendants = (id: string): Set<string> => {
     const out = new Set<string>()
@@ -224,7 +256,7 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
         </div>
       </div>
 
-      <div ref={scrollRef} className="overflow-x-auto rounded-xl border border-graysage/20 bg-cream/40">
+      <div ref={scrollRef} onScroll={syncWin} className="overflow-x-auto rounded-xl border border-graysage/20 bg-cream/40 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div ref={trackRef} onPointerDown={onBgDown} onPointerMove={onMove} onPointerUp={onUp} className="relative touch-none cursor-grab select-none active:cursor-grabbing" style={{ width, height: bodyH }}>
           {axis.top.map((b, i) => (
             <div key={i} style={{ left: b.x, width: b.w }} className={`absolute top-0 h-5 overflow-hidden border-l border-graysage/20 px-1 text-[0.6rem] leading-5 ${b.strong ? 'font-semibold text-charcoal' : 'text-graysage'}`}>{b.label}</div>
@@ -274,6 +306,11 @@ export default function CalendarTimeline({ churchId, cycles }: { churchId: strin
             })
           })}
         </div>
+      </div>
+
+      {/* barra de navegación propia (tirador cómodo, menos sensible) */}
+      <div ref={ovRef} onPointerDown={onNavDown} onPointerMove={onNavMove} onPointerUp={onNavUp} className="relative mt-1.5 h-3 cursor-pointer touch-none rounded bg-graysage/10">
+        <div style={{ left: `${win.left}%`, width: `${win.width}%` }} className="absolute top-0 h-3 min-w-[32px] rounded bg-graysage/40 hover:bg-graysage/55" />
       </div>
 
       {sel && (
