@@ -34,6 +34,7 @@ export interface Schedule {
   audience: Audience
   location: string | null
   responsibleTeamId: string | null
+  assignees: Assignee[] // encargados de la actividad (Capa 2)
   sortOrder: number
   enabled: boolean
 }
@@ -53,9 +54,11 @@ export interface ScheduleTeam {
   memberIds: string[]
 }
 
-// Encargado de una actividad: un equipo o un rol, con miembros específicos.
+// Encargado: un equipo o un rol (con miembros específicos opcionales) o una
+// persona concreta (kind 'member', id = id del miembro).
+export type AssigneeKind = 'team' | 'role' | 'member'
 export interface Assignee {
-  kind: 'team' | 'role'
+  kind: AssigneeKind
   id: string
   memberIds: string[]
 }
@@ -64,8 +67,8 @@ export function readAssignees(json: unknown): Assignee[] {
   if (!Array.isArray(json)) return []
   return json
     .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
-    .filter((a) => (a.kind === 'team' || a.kind === 'role') && typeof a.id === 'string')
-    .map((a) => ({ kind: a.kind as 'team' | 'role', id: a.id as string, memberIds: Array.isArray(a.memberIds) ? (a.memberIds as string[]) : [] }))
+    .filter((a) => (a.kind === 'team' || a.kind === 'role' || a.kind === 'member') && typeof a.id === 'string')
+    .map((a) => ({ kind: a.kind as AssigneeKind, id: a.id as string, memberIds: Array.isArray(a.memberIds) ? (a.memberIds as string[]) : [] }))
 }
 
 // Capa 2: segmento de la línea de tiempo (no se solapa, va en orden).

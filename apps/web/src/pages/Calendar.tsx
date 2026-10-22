@@ -45,6 +45,7 @@ export default function Calendar() {
   const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
   const [cycles, setCycles] = useState<Cycle[]>([])
   const [templates, setTemplates] = useState<ActivityTemplate[]>([])
+  const [members, setMembers] = useState<Opt[]>([])
   const [membersByTeam, setMembersByTeam] = useState<Map<string, Opt[]>>(new Map())
   const [membersByRole, setMembersByRole] = useState<Map<string, Opt[]>>(new Map())
   const [teamsBySchedule, setTeamsBySchedule] = useState<Map<string, ScheduleTeam[]>>(new Map())
@@ -86,6 +87,7 @@ export default function Calendar() {
         audience: readAudience(r.audience),
         location: r.location,
         responsibleTeamId: r.responsible_team_id,
+        assignees: readAssignees(r.assignees),
         sortOrder: r.sort_order ?? 0,
         enabled: r.enabled ?? true,
       })),
@@ -99,6 +101,7 @@ export default function Calendar() {
     setCycles((cycRes.data ?? []).map((c) => ({ id: c.id, parentId: c.parent_id, name: c.name, color: c.color, startsOn: c.starts_on, endsOn: c.ends_on, goal: c.goal, duration: (c.duration as Cycle['duration']) ?? 'custom', repeat: c.repeat ?? 1 })))
 
     // miembros por equipo / rol
+    setMembers((memRes.data ?? []).map((m) => ({ id: m.id, name: m.full_name })))
     const memName = new Map((memRes.data ?? []).map((m) => [m.id, m.full_name]))
     const byTeam = new Map<string, Opt[]>()
     for (const row of mtRes.data ?? []) {
@@ -155,6 +158,11 @@ export default function Calendar() {
   const typeById = useMemo(() => new Map(types.map((t) => [t.id, t])), [types])
   const teamById = useMemo(() => new Map(teams.map((t) => [t.id, t.name])), [teams])
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r.name])), [roles])
+  const memberById = useMemo(() => new Map(members.map((m) => [m.id, m.name])), [members])
+
+  const assigneeName = (a: { kind: string; id: string }): string =>
+    a.kind === 'member' ? memberById.get(a.id) ?? 'Persona' : a.kind === 'team' ? teamById.get(a.id) ?? 'Equipo' : roleById.get(a.id) ?? 'Rol'
+  const encargadosLabel = (s: Schedule): string => s.assignees.map((a) => assigneeName(a)).join(' · ')
 
   const colorOf = (s: Schedule) => typeById.get(s.typeId ?? '')?.color ?? '#94a3b8'
 
@@ -280,6 +288,7 @@ export default function Calendar() {
                   <span className="text-sm text-graysage">· {recurrenceLabel(s)}</span>
                   {s.startTime && <span className="font-mono text-xs text-graysage">· {formatTime(s.startTime)}{s.endTime ? `–${formatTime(s.endTime)}` : ''}</span>}
                   <span className="rounded-full bg-sage-water/10 px-2 py-0.5 text-xs text-sage-dark">{audienceLabel(s.audience)}</span>
+                  {s.assignees.length > 0 && <span className="text-xs text-graysage" title="Encargados">· 👤 {encargadosLabel(s)}</span>}
                   {nTeams > 0 && <span className="text-xs text-graysage">{nTeams} equipo{nTeams > 1 ? 's' : ''}</span>}
                   {nSegs > 0 && <span className="text-xs text-graysage">{nSegs} actividad{nSegs > 1 ? 'es' : ''}</span>}
                   <div className="ml-auto flex items-center gap-3">
@@ -305,6 +314,7 @@ export default function Calendar() {
           roles={roles}
           ageRanges={ageRanges}
           tags={tags}
+          members={members}
           membersByTeam={membersByTeam}
           membersByRole={membersByRole}
           templates={templates}

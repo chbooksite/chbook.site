@@ -164,6 +164,7 @@ export default function ActivityForm({
   roles,
   ageRanges,
   tags,
+  members,
   membersByTeam,
   membersByRole,
   templates,
@@ -181,6 +182,7 @@ export default function ActivityForm({
   roles: Opt[]
   ageRanges: AgeRangeDef[]
   tags: Tag[]
+  members: Opt[]
   membersByTeam: Map<string, Opt[]>
   membersByRole: Map<string, Opt[]>
   templates: ActivityTemplate[]
@@ -192,6 +194,17 @@ export default function ActivityForm({
   const typeById = new Map(types.map((t) => [t.id, t]))
   const teamName = (id: string) => teams.find((t) => t.id === id)?.name ?? '—'
   const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? 'Rol'
+  const memberName = (id: string) => members.find((m) => m.id === id)?.name ?? 'Persona'
+
+  // Encargados de la ACTIVIDAD (Capa 2): equipo / rol / persona responsable.
+  const [actAssignees, setActAssignees] = useState<Assignee[]>(editing?.assignees ?? [])
+  const actLabel = (a: Assignee) => (a.kind === 'team' ? teamName(a.id) : a.kind === 'role' ? roleName(a.id) : memberName(a.id))
+  const actMembersOf = (a: Assignee): Opt[] => (a.kind === 'team' ? membersByTeam.get(a.id) : a.kind === 'role' ? membersByRole.get(a.id) : undefined) ?? []
+  const actAdd = (kind: Assignee['kind'], id: string) =>
+    setActAssignees((prev) => (prev.some((a) => a.kind === kind && a.id === id) ? prev : [...prev, { kind, id, memberIds: [] }]))
+  const actRemove = (idx: number) => setActAssignees((prev) => prev.filter((_, i) => i !== idx))
+  const actToggleMember = (idx: number, memberId: string) =>
+    setActAssignees((prev) => prev.map((a, i) => (i === idx ? { ...a, memberIds: toggleArr(a.memberIds, memberId) } : a)))
 
   const [name, setName] = useState(editing?.name ?? '')
   const [typeId, setTypeId] = useState(editing?.typeId ?? '')
@@ -470,6 +483,7 @@ export default function ActivityForm({
       start_time: startTime || null,
       end_time: endTime || null,
       audience: audience as never,
+      assignees: actAssignees as never,
       enabled: editing?.enabled ?? true,
     }
 
@@ -521,7 +535,7 @@ export default function ActivityForm({
   }
 
   // Confirmar al cerrar si hay cambios sin guardar (evita perder trabajo por toques accidentales).
-  const snapshot = () => JSON.stringify({ name, typeId, weekday, freq, nth, startTime, endTime, audScope, audIds, audKeys, partTeams, segments })
+  const snapshot = () => JSON.stringify({ name, typeId, weekday, freq, nth, startTime, endTime, audScope, audIds, audKeys, actAssignees, partTeams, segments })
   const initialSnap = useRef<string | null>(null)
   if (initialSnap.current === null) initialSnap.current = snapshot()
   const handleClose = () => {
@@ -627,6 +641,44 @@ export default function ActivityForm({
             {audScope === 'teams' && (<div className="mt-2 flex flex-wrap gap-2">{teams.map((t) => (<button key={t.id} type="button" onClick={() => setAudIds(toggleArr(audIds, t.id))} className={chipCls(audIds.includes(t.id))}>{t.name}</button>))}</div>)}
             {audScope === 'roles' && (<div className="mt-2 flex flex-wrap gap-2">{roles.map((r) => (<button key={r.id} type="button" onClick={() => setAudIds(toggleArr(audIds, r.id))} className={chipCls(audIds.includes(r.id))}>{r.name}</button>))}</div>)}
             {audScope === 'ages' && (<div className="mt-2 flex flex-wrap gap-2">{ageRanges.filter((r) => r.enabled).map((r) => (<button key={r.key} type="button" onClick={() => setAudKeys(toggleArr(audKeys, r.key))} className={chipCls(audKeys.includes(r.key))}>{r.name}</button>))}</div>)}
+          </div>
+
+          {/* Capa 2: encargados de la actividad (equipo / rol / persona) */}
+          <div className="rounded-xl bg-cream/50 p-4">
+            <p className="text-sm font-medium text-charcoal">Encargados de la actividad</p>
+            <p className="mb-3 text-xs text-graysage">Quién es responsable de esta actividad. Asigna un equipo, un rol o personas concretas; en equipos y roles puedes marcar a quién específicamente.</p>
+            {actAssignees.length === 0 && <p className="mb-2 text-xs text-graysage/60">Aún sin encargados.</p>}
+            <div className="space-y-2">
+              {actAssignees.map((a, ai) => {
+                const mem = actMembersOf(a)
+                const badge = a.kind === 'team' ? 'bg-clay/10 text-clay' : a.kind === 'role' ? 'bg-sage-water/15 text-sage-dark' : 'bg-sage/15 text-sage-dark'
+                const kindLabel = a.kind === 'team' ? 'Equipo' : a.kind === 'role' ? 'Rol' : 'Persona'
+                return (
+                  <div key={`${a.kind}:${a.id}`} className="rounded-lg bg-white p-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${badge}`}>{kindLabel}: {actLabel(a)}</span>
+                      <button type="button" onClick={() => actRemove(ai)} className="ml-auto text-xs text-graysage hover:text-clay">✕</button>
+                    </div>
+                    {a.kind !== 'member' && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {mem.length === 0 && <span className="text-xs text-graysage/50">Sin miembros disponibles.</span>}
+                        {mem.map((m) => (<button key={m.id} type="button" onClick={() => actToggleMember(ai, m.id)} className={chipCls(a.memberIds.includes(m.id))}>{m.name}</button>))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            <select
+              value=""
+              onChange={(e) => { const v = e.target.value; const [k, id] = v.split(':'); if (k === 'team' || k === 'role' || k === 'member') actAdd(k, id) }}
+              className="mt-2 w-full rounded-lg border border-sage/40 bg-white px-2 py-1.5 text-sm text-sage-dark outline-none focus:border-sage"
+            >
+              <option value="">+ Añadir encargado…</option>
+              <optgroup label="Equipos">{teams.map((t) => (<option key={t.id} value={`team:${t.id}`}>{t.name}</option>))}</optgroup>
+              <optgroup label="Roles">{roles.map((r) => (<option key={r.id} value={`role:${r.id}`}>{r.name}</option>))}</optgroup>
+              <optgroup label="Personas">{members.map((m) => (<option key={m.id} value={`member:${m.id}`}>{m.name}</option>))}</optgroup>
+            </select>
           </div>
 
           {/* Capa 1: equipos participantes (en formato etiqueta) */}

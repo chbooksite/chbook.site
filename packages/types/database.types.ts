@@ -41,6 +41,7 @@ export type Database = {
     Tables: {
       activity_schedules: {
         Row: {
+          assignees: Json
           audience: Json
           church_id: string
           created_at: string | null
@@ -59,6 +60,7 @@ export type Database = {
           weekday: number
         }
         Insert: {
+          assignees?: Json
           audience?: Json
           church_id: string
           created_at?: string | null
@@ -77,6 +79,7 @@ export type Database = {
           weekday: number
         }
         Update: {
+          assignees?: Json
           audience?: Json
           church_id?: string
           created_at?: string | null
