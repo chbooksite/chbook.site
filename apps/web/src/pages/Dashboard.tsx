@@ -97,10 +97,12 @@ export default function Dashboard() {
       {/* Pista de scroll: calendario [0,1] · neutral [1,1.5] · dashboard [1.5,2.5] (+1 viewport) */}
       <div className="h-[350vh]" aria-hidden />
 
-      {/* PRINCIPAL (hero) — en el medio, fija detrás */}
-      <section className="fixed inset-0 z-0 flex flex-col overflow-hidden bg-gradient-to-b from-[#333d36] via-[#2a322c] to-[#232b26] text-white">
-        <div className="pointer-events-none absolute -right-32 -top-40 h-[32rem] w-[32rem] rounded-full bg-sage/25 blur-[130px]" aria-hidden />
-        <div className="pointer-events-none absolute -left-40 bottom-10 h-[26rem] w-[26rem] rounded-full bg-sage-dark/30 blur-[130px]" aria-hidden />
+      {/* PRINCIPAL (hero) — en el medio, fija detrás; foto + capa oscura translúcida */}
+      <section className="fixed inset-0 z-0 flex flex-col overflow-hidden text-white">
+        <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('/hero-bg.webp')" }} aria-hidden />
+        <div className="absolute inset-0 bg-[#1b221d]/[0.88]" aria-hidden />
+        <div className="pointer-events-none absolute -right-32 -top-40 h-[32rem] w-[32rem] rounded-full bg-sage/20 blur-[130px]" aria-hidden />
+        <div className="pointer-events-none absolute -left-40 bottom-10 h-[26rem] w-[26rem] rounded-full bg-sage-dark/25 blur-[130px]" aria-hidden />
 
         <div className="relative">
           <AppHeader dark />
