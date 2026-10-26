@@ -202,7 +202,7 @@ export default function MemberProfile() {
 
   if (membershipLoading || loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-cream">
+      <div className="flex min-h-screen items-center justify-center bg-white">
         <p className="font-mono text-sm text-graysage">Cargando…</p>
       </div>
     )
@@ -210,7 +210,7 @@ export default function MemberProfile() {
 
   if (notFound) {
     return (
-      <div className="min-h-screen bg-cream">
+      <div className="min-h-screen bg-white">
         <AppHeader />
         <main className="mx-auto max-w-3xl px-6 py-16 text-center">
           <p className="text-graysage">No se encontró ese miembro.</p>
@@ -407,7 +407,7 @@ export default function MemberProfile() {
     'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
 
   return (
-    <div className="min-h-screen bg-cream">
+    <div className="min-h-screen bg-white">
       <AppHeader />
       <main className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
         <Link to="/miembros" className="text-sm text-sage underline-offset-2 hover:underline">

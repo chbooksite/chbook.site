@@ -346,7 +346,7 @@ export default function Settings() {
 
   if (membershipLoading || loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-cream">
+      <div className="flex min-h-screen items-center justify-center bg-white">
         <p className="font-mono text-sm text-graysage">Cargando…</p>
       </div>
     )
@@ -417,7 +417,7 @@ export default function Settings() {
   }
 
   return (
-    <div className="min-h-screen bg-cream">
+    <div className="min-h-screen bg-white">
       <AppHeader />
       <main className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
         <h1 className="mb-1 font-serif text-2xl text-charcoal">Ajustes</h1>

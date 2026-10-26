@@ -1,27 +1,28 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
+import Logo from './Logo'
 
 // Encabezado con navegación, compartido por las páginas protegidas.
-export default function AppHeader() {
+// `dark`: variante sobre fondo oscuro (p. ej. el hero del Panel).
+export default function AppHeader({ dark = false }: { dark?: boolean }) {
   const { user, signOut } = useAuth()
 
   const linkCls = ({ isActive }: { isActive: boolean }) =>
-    `text-sm transition ${
-      isActive ? 'font-medium text-sage-dark' : 'text-graysage hover:text-sage-dark'
+    `rounded-lg px-2.5 py-1.5 text-sm transition ${
+      dark
+        ? isActive
+          ? 'bg-white/15 font-medium text-white'
+          : 'text-white/80 hover:bg-white/10 hover:text-white'
+        : isActive
+          ? 'bg-sage/15 font-medium text-sage-dark'
+          : 'text-graysage hover:bg-sage/10 hover:text-sage-dark'
     }`
 
   return (
-    <header className="flex items-center justify-between border-b border-clay-light/30 bg-white px-6 py-4">
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-charcoal">
-            <span className="font-serif text-lg text-gold">
-              Ch<span className="align-top text-[0.6rem]">+</span>
-            </span>
-          </div>
-          <span className="font-serif text-lg text-sage-dark">ChBook</span>
-        </div>
-        <nav className="flex items-center gap-4">
+    <header className={`flex items-center justify-between px-6 py-3 ${dark ? 'border-b border-white/10 bg-transparent' : 'border-b border-black/5 bg-white'}`}>
+      <div className="flex items-center gap-7">
+        <Logo size={34} onDark={dark} />
+        <nav className="flex items-center gap-1">
           <NavLink to="/" end className={linkCls}>
             Panel
           </NavLink>
@@ -37,11 +38,11 @@ export default function AppHeader() {
         </nav>
       </div>
       <div className="flex items-center gap-4">
-        <span className="hidden font-mono text-xs text-graysage sm:inline">{user?.email}</span>
+        <span className={`hidden text-xs sm:inline ${dark ? 'text-white/60' : 'text-graysage'}`}>{user?.email}</span>
         <button
           type="button"
           onClick={signOut}
-          className="rounded-lg border border-graysage/25 px-3 py-1.5 text-sm text-graysage transition hover:bg-cream"
+          className={`rounded-lg border px-3 py-1.5 text-sm transition ${dark ? 'border-white/20 text-white hover:bg-white/10' : 'border-black/10 text-graysage hover:bg-sage/10'}`}
         >
           Salir
         </button>

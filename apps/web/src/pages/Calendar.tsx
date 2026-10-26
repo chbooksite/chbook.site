@@ -196,8 +196,8 @@ export default function Calendar() {
 
   if (membershipLoading || loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-cream">
-        <p className="font-mono text-sm text-graysage">Cargando…</p>
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <p className="text-sm text-graysage">Cargando…</p>
       </div>
     )
   }
@@ -211,7 +211,7 @@ export default function Calendar() {
     .sort((a, b) => a.weekday - b.weekday || (a.startTime ?? '').localeCompare(b.startTime ?? ''))
 
   return (
-    <div className="min-h-screen bg-cream">
+    <div className="min-h-screen bg-white">
       <AppHeader />
       <main className="mx-auto max-w-none px-6 py-10 lg:px-10">
         <div className="mb-6 flex items-end justify-between gap-4">

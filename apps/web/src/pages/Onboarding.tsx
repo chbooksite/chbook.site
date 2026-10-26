@@ -31,7 +31,7 @@ export default function Onboarding() {
   // Gate: si ya tiene iglesia, no debe estar aquí.
   if (membershipLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-cream">
+      <div className="flex min-h-screen items-center justify-center bg-white">
         <p className="font-mono text-sm text-graysage">Cargando…</p>
       </div>
     )
@@ -74,7 +74,7 @@ export default function Onboarding() {
     'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
 
   return (
-    <div className="min-h-screen bg-cream px-4 py-10">
+    <div className="min-h-screen bg-white px-4 py-10">
       <div className="mx-auto max-w-lg">
         <header className="mb-8 text-center">
           <h1 className="font-serif text-2xl text-sage-dark">Registra tu iglesia</h1>

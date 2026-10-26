@@ -198,7 +198,7 @@ export default function Members() {
 
   if (membershipLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-cream">
+      <div className="flex min-h-screen items-center justify-center bg-white">
         <p className="font-mono text-sm text-graysage">Cargando…</p>
       </div>
     )
@@ -447,7 +447,7 @@ export default function Members() {
     'rounded-lg border border-graysage/25 bg-cream/40 px-2.5 py-2 text-sm text-charcoal outline-none focus:border-sage'
 
   return (
-    <div className="min-h-screen bg-cream">
+    <div className="min-h-screen bg-white">
       <AppHeader />
       <main className="mx-auto max-w-none px-6 py-10 lg:px-10">
         <div className="mb-6 flex items-center justify-between">

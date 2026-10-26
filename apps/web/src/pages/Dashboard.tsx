@@ -18,17 +18,34 @@ interface Metrics {
   avg_attendance: number | null
 }
 
-// Tarjeta de métrica (KPI centrado en personas).
+// Tarjeta de métrica (KPI) con tinte verde suave sobre la lámina blanca.
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-2xl border border-clay-light/40 bg-white p-5">
-      <p className="font-serif text-3xl text-sage-water">{value}</p>
+    <div className="rounded-2xl border border-sage/15 bg-sage-light/50 p-5">
+      <p className="font-serif text-3xl font-semibold text-sage-dark">{value}</p>
       <p className="mt-1 text-sm text-graysage">{label}</p>
     </div>
   )
 }
 
-// Panel del pastor con métricas reales (vista church_dashboard).
+// Acceso rápido. `tone`: 'beige' (cálido puntual), 'sage' (tinte verde) o 'plain'.
+function QuickLink({ to, title, desc, tone = 'plain' }: { to: string; title: string; desc: string; tone?: 'beige' | 'sage' | 'plain' }) {
+  const bg =
+    tone === 'beige' ? 'border-transparent bg-beige hover:brightness-[0.98]'
+    : tone === 'sage' ? 'border-sage/15 bg-sage-light/60 hover:brightness-[0.98]'
+    : 'border-black/5 bg-white hover:border-sage/40 hover:shadow-sm'
+  return (
+    <Link to={to} className={`group flex flex-col rounded-2xl border p-6 transition ${bg}`}>
+      <p className="font-serif text-lg font-semibold text-charcoal">{title}</p>
+      <p className="mt-1 text-sm text-graysage">{desc}</p>
+      <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-sage-dark">
+        Abrir <span className="transition group-hover:translate-x-0.5">→</span>
+      </span>
+    </Link>
+  )
+}
+
+// Panel del pastor: hero oscuro + panel claro flotante con métricas reales.
 export default function Dashboard() {
   const { membership, membershipLoading } = useAuth()
   const [church, setChurch] = useState<Church | null>(null)
@@ -37,71 +54,132 @@ export default function Dashboard() {
   useEffect(() => {
     if (!membership) return
     const id = membership.churchId
-    supabase
-      .from('churches')
-      .select('name, code, plan, country')
-      .eq('id', id)
-      .maybeSingle()
-      .then(({ data }) => setChurch(data))
-    supabase
-      .from('church_dashboard')
-      .select('total_members, active_members, active_pct, avg_attendance')
-      .eq('church_id', id)
-      .maybeSingle()
-      .then(({ data }) => setMetrics(data))
+    supabase.from('churches').select('name, code, plan, country').eq('id', id).maybeSingle().then(({ data }) => setChurch(data))
+    supabase.from('church_dashboard').select('total_members, active_members, active_pct, avg_attendance').eq('church_id', id).maybeSingle().then(({ data }) => setMetrics(data))
   }, [membership])
 
-  // Gate: con sesión pero sin iglesia → onboarding.
+  // Stack vertical: CALENDARIO arriba · PRINCIPAL (hero) en medio · DASHBOARD
+  // abajo. Arrancamos en el medio (la principal). Scroll abajo → sube el
+  // dashboard (de abajo hacia arriba); scroll arriba → baja el calendario (de
+  // arriba hacia abajo). Ambos cubren la principal; en el medio no se ve ninguno.
+  const [dashY, setDashY] = useState(100) // 100 oculto abajo → 0 cubriendo
+  const [calY, setCalY] = useState(-100) // -100 oculto arriba → 0 cubriendo
+  useEffect(() => {
+    if (membershipLoading || !membership) return // esperar a que exista la pista de scroll
+    const vh = () => window.innerHeight
+    // Banda neutral de MEDIA pantalla [h, 1.5h] donde se ve SOLO la principal
+    // (fácil de encuadrar). Debajo de h → baja el calendario; por encima de 1.5h → sube el dashboard.
+    const onScroll = () => {
+      const h = vh()
+      const y = window.scrollY
+      if (y <= h) { const p = Math.min(1, (h - y) / h); setCalY(-100 + p * 100); setDashY(100) }
+      else if (y >= 1.5 * h) { const p = Math.min(1, (y - 1.5 * h) / h); setDashY(100 - p * 100); setCalY(-100) }
+      else { setCalY(-100); setDashY(100) } // zona neutral: la principal
+    }
+    window.scrollTo(0, vh() * 1.25) // arrancar en el centro de la banda neutral
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll) }
+  }, [membershipLoading, membership])
+
   if (membershipLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-cream">
-        <p className="font-mono text-sm text-graysage">Cargando…</p>
+      <div className="flex min-h-screen items-center justify-center bg-[#262e29]">
+        <p className="text-sm text-white/60">Cargando…</p>
       </div>
     )
   }
   if (!membership) return <Navigate to="/onboarding" replace />
 
   return (
-    <div className="min-h-screen bg-cream">
-      <AppHeader />
+    <>
+      {/* Pista de scroll: calendario [0,1] · neutral [1,1.5] · dashboard [1.5,2.5] (+1 viewport) */}
+      <div className="h-[350vh]" aria-hidden />
 
-      <main className="mx-auto max-w-none px-6 py-12 lg:px-10">
-        <h1 className="font-serif text-3xl text-charcoal">
-          {church ? church.name : 'Bienvenido'}
-        </h1>
-        {church && (
-          <p className="mt-2 flex flex-wrap items-center gap-3 text-graysage">
-            <span className="font-mono text-sm text-sage-dark">{church.code}</span>
-            {church.plan && (
-              <span className="rounded-full bg-sage-water/15 px-2.5 py-0.5 text-xs font-medium capitalize text-sage-dark">
-                {church.plan.replace('_', ' ')}
-              </span>
-            )}
-            {church.country && <span className="text-sm">{church.country}</span>}
-          </p>
-        )}
+      {/* PRINCIPAL (hero) — en el medio, fija detrás */}
+      <section className="fixed inset-0 z-0 flex flex-col overflow-hidden bg-gradient-to-b from-[#333d36] via-[#2a322c] to-[#232b26] text-white">
+        <div className="pointer-events-none absolute -right-32 -top-40 h-[32rem] w-[32rem] rounded-full bg-sage/25 blur-[130px]" aria-hidden />
+        <div className="pointer-events-none absolute -left-40 bottom-10 h-[26rem] w-[26rem] rounded-full bg-sage-dark/30 blur-[130px]" aria-hidden />
 
-        {/* Métricas centradas en personas */}
-        <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Stat label="Miembros" value={metrics?.total_members ?? 0} />
-          <Stat label="Activos" value={metrics?.active_members ?? 0} />
-          <Stat label="% Activos" value={`${metrics?.active_pct ?? 0}%`} />
-          <Stat label="Asistencia prom." value={metrics?.avg_attendance ?? 0} />
+        <div className="relative">
+          <AppHeader dark />
         </div>
+        <div className="relative flex flex-1 items-center justify-center px-6 pb-16">
+          <div className="max-w-3xl text-center">
+            <span className="inline-block rounded-full bg-sage px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wider text-charcoal">
+              Panel del pastor
+            </span>
+            <h1 className="mt-5 font-serif text-4xl font-semibold leading-tight text-white sm:text-5xl">
+              {church ? church.name : 'Bienvenido'}
+            </h1>
+            <p className="mx-auto mt-3 max-w-md text-white/70">Tu comunidad, en un vistazo.</p>
+            <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+              <Link to="/miembros" className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-charcoal transition hover:bg-white/90">
+                Ver miembros
+              </Link>
+              <Link to="/calendario" className="rounded-full border border-white/25 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-white/10">
+                Calendario
+              </Link>
+            </div>
+            {church && (
+              <p className="mt-5 text-sm text-sage">
+                <span className="font-mono">{church.code}</span>
+                {church.plan && <span className="capitalize text-white/50"> · {church.plan.replace('_', ' ')}</span>}
+                {church.country && <span className="text-white/50"> · {church.country}</span>}
+              </p>
+            )}
+            <p className="mt-10 text-xs text-white/40">↑ Calendario&nbsp;&nbsp;·&nbsp;&nbsp;Resumen ↓</p>
+          </div>
+        </div>
+      </section>
 
-        <div className="mt-4">
-          <Link
-            to="/miembros"
-            className="block rounded-2xl border border-clay-light/40 bg-white p-6 transition hover:border-sage hover:shadow-sm"
-          >
-            <p className="font-serif text-lg text-sage-dark">Miembros</p>
-            <p className="mt-1 text-sm text-graysage">
-              Gestiona tu comunidad: agrega personas, asigna roles y equipos, y
-              aprueba prospectos.
-            </p>
+      {/* CALENDARIO — arriba; BAJA al hacer scroll hacia arriba (fondo blanco) */}
+      <section
+        style={{ transform: `translateY(${calY}%)`, pointerEvents: calY <= -99 ? 'none' : 'auto' }}
+        className="fixed inset-0 z-10 flex items-center justify-center overflow-hidden rounded-b-[2.5rem] bg-white shadow-[0_14px_40px_-14px_rgba(0,0,0,0.4)] will-change-transform"
+      >
+        <div className="max-w-2xl px-6 py-16 text-center">
+          <span className="inline-block rounded-full bg-sage px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wider text-charcoal">
+            Calendario
+          </span>
+          <h2 className="mt-5 font-serif text-3xl font-semibold leading-tight text-charcoal sm:text-4xl">
+            El ritmo de la iglesia
+          </h2>
+          <p className="mx-auto mt-3 max-w-md text-graysage">
+            Define tus actividades una vez y el sistema proyecta la semana, con encargados y ciclos.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-5 text-sm text-graysage">
+            <span>Semana · Día · Mes</span>
+            <span className="text-sage-dark">Encargados</span>
+            <span>Ciclos</span>
+          </div>
+          <Link to="/calendario" className="mt-8 inline-block rounded-full bg-sage-dark px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-110">
+            Abrir calendario
           </Link>
         </div>
-      </main>
-    </div>
+      </section>
+
+      {/* DASHBOARD (resumen) — abajo; SUBE al hacer scroll hacia abajo */}
+      <section
+        style={{ transform: `translateY(${dashY}%)`, pointerEvents: dashY >= 99 ? 'none' : 'auto' }}
+        className="fixed inset-0 z-10 flex items-center overflow-hidden rounded-t-[2.5rem] bg-white shadow-[0_-14px_40px_-14px_rgba(0,0,0,0.4)] will-change-transform"
+      >
+        <div className="mx-auto w-full max-w-6xl px-6 py-10">
+          <h2 className="mb-5 font-serif text-xl font-semibold text-charcoal">Resumen</h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Stat label="Miembros" value={metrics?.total_members ?? 0} />
+            <Stat label="Activos" value={metrics?.active_members ?? 0} />
+            <Stat label="% Activos" value={`${metrics?.active_pct ?? 0}%`} />
+            <Stat label="Asistencia prom." value={metrics?.avg_attendance ?? 0} />
+          </div>
+          <div className="mt-5 grid gap-4 sm:grid-cols-3">
+            <QuickLink to="/miembros" tone="beige" title="Miembros" desc="Agrega personas, asigna roles y equipos, y aprueba prospectos." />
+            <QuickLink to="/calendario" tone="sage" title="Calendario" desc="El ritmo de la iglesia: actividades, encargados y ciclos." />
+            <QuickLink to="/ajustes" title="Ajustes" desc="Datos de la iglesia, equipos, roles y reglas." />
+          </div>
+        </div>
+      </section>
+    </>
   )
 }

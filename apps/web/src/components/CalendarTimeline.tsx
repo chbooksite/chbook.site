@@ -375,6 +375,7 @@ export default function CalendarTimeline({
         )}
         <div className="ml-auto flex items-center gap-2">
           <div className="flex overflow-hidden rounded-lg border border-graysage/25">
+            <button type="button" onClick={() => enterDay(today)} className={`px-3 py-1 text-xs transition ${mode === 'day' ? 'bg-sage text-cream' : 'text-graysage hover:bg-sage/10'}`}>Día</button>
             <button type="button" onClick={goWeek} className={`px-3 py-1 text-xs transition ${mode === 'week' ? 'bg-sage text-cream' : 'text-graysage hover:bg-sage/10'}`}>Semana</button>
             <button type="button" onClick={goMonth} className={`px-3 py-1 text-xs transition ${mode === 'month' ? 'bg-sage text-cream' : 'text-graysage hover:bg-sage/10'}`}>Mes</button>
           </div>
