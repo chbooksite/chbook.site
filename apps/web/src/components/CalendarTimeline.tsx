@@ -28,14 +28,16 @@ const TIMELINE_H = 250
 const CARD_H = 54 // alto de una ficha de actividad
 const CARD_GAP = 4
 const ACTS_TOP = HEADER_H + 28 // bajo el encabezado
+const MONTH_DOW = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do']
 const hhmm = (d: Date) => `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
-// Calendario con tres modos sobre la MISMA línea de tiempo de días deformados:
-// SEMANA (zoom 1–2 semanas; la regla muestra el día, p.ej. "Mié 21"), MES (zoom
-// 1–6 meses; la regla muestra el MES y cada cuadro muestra el número del día) y
-// DÍA (horas del día, zoom 1h–24h; se entra tocando un día en la regla).
-// Navegación con inercia, imán al lunes en semana y transición al cambiar de modo.
+// Calendario con tres modos: SEMANA (línea de días deformada; la regla muestra el
+// día, p.ej. "Mié 21"; zoom 1–2 semanas, imán al lunes), MES (tira de tarjetas-mes
+// con mini-calendario; la regla/encabezado muestra el mes; zoom 1–6 meses) y DÍA
+// (horas del día, zoom 1h–24h; se entra tocando un día). Navegación con inercia y
+// transición al cambiar de modo. Tocar un día (en semana o en el mini-calendario)
+// abre el modo día.
 export default function CalendarTimeline({
   churchId,
   cycles,
@@ -68,11 +70,9 @@ export default function CalendarTimeline({
 
   const today = startOfDay(new Date())
   const weekStart = addDays(today, -((today.getDay() + 6) % 7)) // lunes de la semana actual
-  const monthStartToday = new Date(today.getFullYear(), today.getMonth(), 1)
   const rangeStart = new Date(today.getFullYear(), today.getMonth() - 6, 1)
   const rangeEnd = addMonths(rangeStart, 12)
   const totalDays = Math.round((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS)
-  const grid = mode === 'week' || mode === 'month' // vistas sobre la línea de días
 
   // ---- actividades del ritmo en el rango (compartido por los modos) ----
   interface Bar { key: string; start: Date; end: Date; title: string; color: string; scheduleId: string; timed: boolean }
@@ -100,10 +100,10 @@ export default function CalendarTimeline({
   const dayColors = new Map<number, string[]>()
   for (const [k, arr] of dayBars) dayColors.set(k, Array.from(new Set(arr.map((b) => b.color))))
 
-  // ---- línea de días deformada (SEMANA y MES); el zoom define la escala ----
-  const scaleMin = mode === 'month' ? containerW / 183 : containerW / 14 // alejado: 6 meses / 2 semanas
-  const scaleMax = mode === 'month' ? containerW / 30 : containerW / 7 // acercado: 1 mes / 1 semana
-  const pxPerDay = Math.max(0.5, scaleMin) * Math.pow(Math.max(scaleMax, scaleMin * 1.01) / Math.max(0.5, scaleMin), zoomT / 100)
+  // ---- SEMANA: línea de días deformada, zoom 1–2 semanas ----
+  const scaleMin = Math.max(0.5, containerW / 14) // 2 semanas (alejado)
+  const scaleMax = Math.max(scaleMin * 1.01, containerW / 7) // 1 semana (acercado)
+  const pxPerDay = scaleMin * Math.pow(scaleMax / scaleMin, zoomT / 100)
   const activeIdx = new Set<number>()
   for (const k of dayColors.keys()) activeIdx.add(Math.round((k - rangeStart.getTime()) / DAY_MS))
   const weightAt = (i: number) => (activeIdx.has(i) ? 1 : 0.25)
@@ -128,8 +128,18 @@ export default function CalendarTimeline({
   }
   const wUnit = chooseUnit(containerW / pxPerDay)
   const wAxis = buildAxis(rangeStart, rangeEnd, pxPerDay, wUnit, xOf)
-  const monthStarts: Date[] = []
-  { let m = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1); while (m < rangeEnd) { monthStarts.push(new Date(m)); m = addMonths(m, 1) } }
+
+  // ---- MES: tira de tarjetas-mes (mini-calendario), zoom 1 mes – 6 meses ----
+  const months: Date[] = []
+  { let m = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1); while (m < rangeEnd) { months.push(new Date(m)); m = addMonths(m, 1) } }
+  const monthGap = 10
+  const mOutW = Math.max(60, (containerW - monthGap * 6) / 6) // 6 meses visibles (alejado)
+  const mInW = Math.max(mOutW + 1, containerW - 16) // 1 mes (acercado)
+  const cardW = mOutW * Math.pow(mInW / mOutW, zoomT / 100)
+  const xMonthAt = (i: number) => i * (cardW + monthGap)
+  const monthWidth = months.length * (cardW + monthGap)
+  const monthBodyH = 300
+  const curMonthIdx = (today.getFullYear() - rangeStart.getFullYear()) * 12 + (today.getMonth() - rangeStart.getMonth())
 
   // ---- DÍA: horas del día, zoom 1h (acercado) – 24h (alejado) ----
   const dOutPx = containerW / 24
@@ -154,11 +164,11 @@ export default function CalendarTimeline({
   const lanesH = (maxLane + 1) * LANE_H
   const maxCards = Array.from(dayBars.values()).reduce((m, a) => Math.max(m, a.length), 0)
   const barsAreaH = maxCards ? maxCards * (CARD_H + CARD_GAP) + 10 : 0
-  const gridBodyH = Math.max(TIMELINE_H, ACTS_TOP + barsAreaH + (mode === 'week' ? lanesH : 0) + 20)
-  const cyclesTop = gridBodyH - lanesH - 10
+  const weekBodyH = Math.max(TIMELINE_H, ACTS_TOP + barsAreaH + lanesH + 20)
+  const cyclesTop = weekBodyH - lanesH - 10
 
-  const width = grid ? gridWidth : dayWidth
-  const bodyH = grid ? gridBodyH : dayBodyH
+  const width = mode === 'day' ? dayWidth : mode === 'month' ? monthWidth : gridWidth
+  const bodyH = mode === 'day' ? dayBodyH : mode === 'month' ? monthBodyH : weekBodyH
 
   // ---- navegación / zoom ----
   const EASE_OUT = (t: number) => 1 - Math.pow(1 - t, 3)
@@ -179,7 +189,7 @@ export default function CalendarTimeline({
   }
   const homeTarget = () => {
     if (mode === 'week') return xOf(weekStart)
-    if (mode === 'month') return xOf(monthStartToday)
+    if (mode === 'month') return xMonthAt(Math.max(0, curMonthIdx))
     return Math.max(0, 6 * pxPerHour)
   }
   const resetHome = (animate = false) => {
@@ -188,8 +198,7 @@ export default function CalendarTimeline({
     const t = homeTarget()
     if (animate) animateScrollTo(t); else el.scrollLeft = t
   }
-  // Imán al lunes (solo semana): encuadra el próximo lunes a la derecha del borde
-  // cuando cae en la mitad izquierda del recuadro.
+  // Imán al lunes (solo semana).
   const magnetWeek = () => {
     if (mode !== 'week') return
     const el = scrollRef.current
@@ -207,15 +216,20 @@ export default function CalendarTimeline({
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
   }, [])
-  useEffect(() => { resetHome(); syncWin() }, [mode, dayDate, containerW]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Posicionar el scroll ANTES de pintar, para que la animación de "crecimiento"
+  // del cambio de modo se vea en su sitio (sin un salto de desplazamiento previo).
+  useLayoutEffect(() => { resetHome(); syncWin() }, [mode, dayDate, containerW]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { syncWin() }, [zoomT]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function syncWin() {
     const el = scrollRef.current
     if (!el || !el.scrollWidth) return
     setWin({ left: (el.scrollLeft / el.scrollWidth) * 100, width: Math.max(4, (el.clientWidth / el.scrollWidth) * 100) })
-    if (grid) {
+    if (mode === 'week') {
       setHeadLabel(cap(addDays(rangeStart, xToIdx(el.scrollLeft)).toLocaleDateString('es', { month: 'long', year: 'numeric' })))
+    } else if (mode === 'month') {
+      const i = Math.max(0, Math.min(months.length - 1, Math.floor(el.scrollLeft / (cardW + monthGap))))
+      setHeadLabel(cap(months[i]?.toLocaleDateString('es', { month: 'long', year: 'numeric' }) ?? ''))
     } else {
       setHeadLabel(cap(dayDate.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })))
     }
@@ -223,7 +237,7 @@ export default function CalendarTimeline({
 
   const bump = () => setAnimKey((k) => k + 1)
   const goWeek = () => { setMode('week'); setZoomT(100); bump() }
-  const goMonth = () => { setMode('month'); setZoomT(100); bump() }
+  const goMonth = () => { setMode('month'); setZoomT(0); bump() } // por defecto 6 meses
   const enterDay = (d: Date) => { setDayDate(startOfDay(d)); setMode('day'); setZoomT(0); bump() }
 
   // ---- pan con inercia + detección de toque (entrar a un día) ----
@@ -379,61 +393,29 @@ export default function CalendarTimeline({
             onPointerDown={onBgDown}
             onPointerMove={onMove}
             onPointerUp={onUp}
-            style={{ width, height: bodyH, animation: 'calIn 520ms cubic-bezier(.22,1,.36,1)', transformOrigin: 'center' }}
+            style={{ width, height: bodyH, animation: 'calIn 520ms cubic-bezier(.22,1,.36,1)', transformOrigin: `${Math.max(0, Math.min(homeTarget(), width - containerW)) + containerW / 2}px center` }}
             className="relative touch-none cursor-grab select-none active:cursor-grabbing"
           >
-            {/* ============ SEMANA / MES ============ */}
-            {grid && (
+            {/* ============ SEMANA ============ */}
+            {mode === 'week' && (
               <>
-                {/* regla: SEMANA = día (Mié 21); MES = nombre del mes */}
-                {mode === 'week' ? (
-                  wAxis.ticks.map((t, i) => {
-                    const sunday = t.label.startsWith('Dom')
-                    return (
-                      <div key={i} style={{ left: t.x }} className="absolute top-5">
-                        <span className="absolute left-0 top-0 h-2 w-px bg-graysage/25" />
-                        <span className={`absolute left-1 top-2.5 whitespace-nowrap text-[0.82rem] ${sunday ? 'text-red-500' : 'text-graysage'}`}>{t.label}</span>
-                      </div>
-                    )
-                  })
-                ) : (
-                  monthStarts.map((ms, i) => (
-                    <div key={i} style={{ left: xOf(ms) }} className="absolute top-0">
-                      <span style={{ height: bodyH }} className="absolute top-0 w-px bg-graysage/30" />
-                      <span className="absolute left-1.5 top-1 whitespace-nowrap font-serif text-[0.9rem] capitalize text-charcoal">{cap(ms.toLocaleDateString('es', { month: 'long' }))}</span>
-                    </div>
-                  ))
-                )}
-
-                {/* divisorias por día */}
-                {pxPerDay >= 10 && Array.from({ length: totalDays }, (_, i) => (
-                  <span key={`d${i}`} style={{ left: xStart[i], top: HEADER_H, height: bodyH - HEADER_H }} className="absolute w-px bg-graysage/15" />
-                ))}
-
-                {/* MES: tinte del día con actividad + número del día dentro del cuadro */}
-                {mode === 'month' && Array.from({ length: totalDays }, (_, i) => {
-                  const d = addDays(rangeStart, i)
-                  const dp = dayPxAt(i)
-                  const cols = dayColors.get(startOfDay(d).getTime())
-                  const sunday = d.getDay() === 0
-                  const isToday = d.getTime() === today.getTime()
+                {wAxis.ticks.map((t, i) => {
+                  const sunday = t.label.startsWith('Dom')
                   return (
-                    <div key={`n${i}`}>
-                      {cols && <span style={{ left: xStart[i], width: dp, top: HEADER_H, height: bodyH - HEADER_H, backgroundColor: `${cols[0]}1f` }} className="absolute" aria-hidden />}
-                      {dp >= 11 && <span style={{ left: xStart[i], width: dp, top: HEADER_H + 4 }} className={`absolute text-center text-[0.82rem] ${isToday ? 'font-bold text-clay' : sunday ? 'text-red-500' : 'text-charcoal/80'}`}>{d.getDate()}</span>}
+                    <div key={i} style={{ left: t.x }} className="absolute top-5">
+                      <span className="absolute left-0 top-0 h-2 w-px bg-graysage/25" />
+                      <span className={`absolute left-1 top-2.5 whitespace-nowrap text-[0.82rem] ${sunday ? 'text-red-500' : 'text-graysage'}`}>{t.label}</span>
                     </div>
                   )
                 })}
 
-                {/* zonas clicables para abrir el día: en Semana sobre la regla; en Mes el cuadro entero */}
+                {pxPerDay >= 10 && Array.from({ length: totalDays }, (_, i) => (
+                  <span key={`d${i}`} style={{ left: xStart[i], top: HEADER_H, height: bodyH - HEADER_H }} className="absolute w-px bg-graysage/15" />
+                ))}
+
+                {/* regla clicable para abrir el día */}
                 {Array.from({ length: totalDays }, (_, i) => (
-                  <span
-                    key={`hit${i}`}
-                    data-day={ymd(addDays(rangeStart, i))}
-                    style={mode === 'week' ? { left: xStart[i], width: dayPxAt(i), top: 0, height: HEADER_H } : { left: xStart[i], width: dayPxAt(i), top: HEADER_H, height: bodyH - HEADER_H }}
-                    className="absolute cursor-pointer"
-                    title="Abrir este día"
-                  />
+                  <span key={`hit${i}`} data-day={ymd(addDays(rangeStart, i))} style={{ left: xStart[i], width: dayPxAt(i), top: 0, height: HEADER_H }} className="absolute cursor-pointer" title="Abrir este día" />
                 ))}
 
                 {(() => {
@@ -442,18 +424,16 @@ export default function CalendarTimeline({
                   return <span style={{ left: xStart[ti], width: dayPxAt(ti), top: HEADER_H, height: bodyH - HEADER_H }} className="pointer-events-none absolute rounded-md border-2 border-clay/70 bg-clay/5" aria-hidden />
                 })()}
 
-                {/* fichas de actividad (se ocultan cuando el cuadro es muy angosto) */}
                 {Array.from(dayBars.entries()).map(([ms, arr]) => {
                   const i = Math.round((ms - rangeStart.getTime()) / DAY_MS)
                   const left = xStart[i]
                   const dp = dayPxAt(i)
                   if (dp < 26) return null
-                  const top0 = mode === 'month' ? ACTS_TOP + 6 : ACTS_TOP
                   return arr.map((b, k) => (
                     <div
                       key={b.key}
                       onPointerDown={(e) => { e.stopPropagation(); onEditSchedule?.(b.scheduleId) }}
-                      style={{ left: left + 2, width: Math.max(8, dp - 4), top: top0 + k * (CARD_H + CARD_GAP), height: CARD_H, borderLeftColor: b.color }}
+                      style={{ left: left + 2, width: Math.max(8, dp - 4), top: ACTS_TOP + k * (CARD_H + CARD_GAP), height: CARD_H, borderLeftColor: b.color }}
                       className="absolute flex cursor-pointer flex-col justify-center overflow-hidden rounded-md border-l-4 bg-graysage/10 px-2.5 text-charcoal hover:bg-graysage/20"
                       title={b.title}
                     >
@@ -463,8 +443,7 @@ export default function CalendarTimeline({
                   ))
                 })}
 
-                {/* ciclos (solo semana) */}
-                {mode === 'week' && items.map((c) => {
+                {items.map((c) => {
                   const occ = cycleOccurrences(c, rangeEnd)
                   const topPx = cyclesTop + laneOf(c) * LANE_H
                   return occ.map((o) => {
@@ -485,6 +464,52 @@ export default function CalendarTimeline({
                 })}
               </>
             )}
+
+            {/* ============ MES: tarjetas-mes con mini-calendario ============ */}
+            {mode === 'month' && months.map((m, mi) => {
+              const y = m.getFullYear()
+              const mo = m.getMonth()
+              const lead = (new Date(y, mo, 1).getDay() + 6) % 7 // lunes=0
+              const last = new Date(y, mo + 1, 0).getDate()
+              const left = xMonthAt(mi)
+              const pad = 8
+              const headerH = 28
+              const dowH = 18
+              const gridTop = headerH + dowH
+              const cw = (cardW - pad * 2) / 7
+              const ch = (monthBodyH - 12 - gridTop - pad) / 6
+              const sz = Math.max(14, Math.min(cw - 4, ch - 4, 30))
+              return (
+                <div key={mi} style={{ left, width: cardW, top: 6, height: monthBodyH - 12 }} className="absolute overflow-hidden rounded-xl border border-graysage/25 bg-white/70">
+                  <div style={{ height: headerH }} className="flex items-center justify-center font-serif text-[0.95rem] font-semibold capitalize text-charcoal">
+                    {cap(m.toLocaleDateString('es', { month: 'long' }))}{cardW > 230 ? ` ${y}` : ''}
+                  </div>
+                  {MONTH_DOW.map((d, di) => (
+                    <span key={di} style={{ left: pad + di * cw, top: headerH, width: cw }} className={`absolute text-center text-[0.62rem] font-medium ${di === 6 ? 'text-red-500' : 'text-graysage/70'}`}>{d}</span>
+                  ))}
+                  {Array.from({ length: last }, (_, di) => {
+                    const dayN = di + 1
+                    const cell = lead + di
+                    const col = cell % 7
+                    const row = Math.floor(cell / 7)
+                    const date = new Date(y, mo, dayN)
+                    const cols = dayColors.get(startOfDay(date).getTime())
+                    const isToday = date.getTime() === today.getTime()
+                    const isSun = col === 6
+                    return (
+                      <div key={dayN} data-day={ymd(date)} style={{ left: pad + col * cw, top: gridTop + row * ch, width: cw, height: ch }} className="absolute flex cursor-pointer flex-col items-center justify-start pt-0.5">
+                        <span style={{ width: sz, height: sz }} className={`flex items-center justify-center rounded-md text-[0.8rem] leading-none ${isToday ? 'bg-clay font-semibold text-white' : isSun ? 'text-red-500' : 'text-charcoal/85'}`}>{dayN}</span>
+                        {cols && (
+                          <span className="mt-0.5 flex gap-0.5">
+                            {cols.slice(0, 3).map((c, ci) => (<span key={ci} style={{ backgroundColor: c }} className="h-1 w-1 rounded-full" />))}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
 
             {/* ============ DÍA ============ */}
             {mode === 'day' && (
