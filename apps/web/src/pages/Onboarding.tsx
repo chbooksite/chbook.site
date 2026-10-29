@@ -71,7 +71,7 @@ export default function Onboarding() {
   }
 
   const inputCls =
-    'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+    'w-full rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
 
   return (
     <div className="min-h-screen bg-white px-4 py-10">
@@ -141,7 +141,7 @@ export default function Onboarding() {
           </div>
 
           {/* GPS del auditorio */}
-          <div className="rounded-lg border border-graysage/20 bg-cream/40 p-3">
+          <div className="rounded-lg border border-graysage/20 bg-cream p-3">
             <p className="mb-2 text-sm font-medium text-graysage">Ubicación del auditorio</p>
             <MapPicker value={coords} onChange={setCoords} />
           </div>
@@ -158,7 +158,7 @@ export default function Onboarding() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-lg bg-sage-dark px-4 py-2.5 font-medium text-cream transition hover:bg-sage disabled:opacity-60"
+            className="w-full rounded-lg bg-sage-dark px-4 py-2.5 font-medium text-white transition hover:brightness-95 disabled:opacity-60"
           >
             {submitting ? 'Creando…' : 'Crear iglesia'}
           </button>

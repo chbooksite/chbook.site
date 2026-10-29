@@ -4,14 +4,17 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Marca Chbook: verde salvia + beige + gris del logo.
-        sage:     { dark: "#5C7A67", DEFAULT: "#9FBCA6", water: "#C8DACD", light: "#E7EEE8" },
-        clay:     { DEFAULT: "#B98C63", light: "#E4D9C6" }, // acento cálido / bordes beige
-        beige:    { DEFAULT: "#E9E0CE", light: "#F6F1E8" },
-        cream:    "#F6F1E8",   // superficie beige muy clara (los fondos de página van en blanco)
-        charcoal: "#34403A",   // texto principal (gris verdoso oscuro)
-        graysage: "#5E6A64",   // texto secundario = gris del logo
-        gold:     "#B98C63",
+        // Marca Chbook: verde vivo #559670 + grises suaves (#383835, #7E807B,
+        // #D8D8D8) y blanco.
+        // Verde: dark=oscuro #559670 (botones) · DEFAULT=vivo · light=claro.
+        sage:     { dark: "#5CA27B", DEFAULT: "#88C0A4", water: "#C4DFD2", light: "#E2EFE9" },
+        clay:     { DEFAULT: "#B5897A", light: "#D8D8D8" }, // acento/alertas + bordes gris claro
+        beige:    { DEFAULT: "#EDE4D3", light: "#F4EEE2" }, // beige cálido (protagonista)
+        sand:     "#E0CCBE", // arena/terracota claro — acento selectivo (p. ej. una métrica)
+        cream:    "#EFEFEE",   // gris muy claro (fondo de inputs/superficies)
+        charcoal: "#383835",   // gris oscuro (texto / oscuros)
+        graysage: "#7E807B",   // gris medio (texto secundario)
+        gold:     "#9DA99B",
       },
       fontFamily: {
         serif: ["Poppins", "ui-sans-serif", "sans-serif"], // marca / títulos (redondeada)

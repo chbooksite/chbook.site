@@ -19,7 +19,7 @@ import {
 const COUNTRIES = ['Colombia', 'Venezuela', 'México', 'USA/Europa', 'Otro']
 
 const inputCls =
-  'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+  'w-full rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
 
 interface Option {
   id: string
@@ -75,7 +75,7 @@ function CatalogSection({
   const [error, setError] = useState<string | null>(null)
 
   const chip = accent === 'sage' ? 'bg-sage-water/10 text-sage-dark' : 'bg-clay/10 text-clay'
-  const addBtn = accent === 'sage' ? 'bg-sage hover:bg-sage-dark' : 'bg-clay hover:bg-clay/80'
+  const addBtn = accent === 'sage' ? 'bg-sage-dark text-white hover:brightness-95' : 'bg-clay text-white hover:bg-clay/80'
 
   const nameOf = (id: string) =>
     allRoles.find((r) => r.id === id)?.name ?? allTeams.find((t) => t.id === id)?.name ?? '—'
@@ -127,7 +127,7 @@ function CatalogSection({
                     <input
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
-                      className="flex-1 rounded-lg border border-graysage/25 bg-cream/40 px-3 py-1.5 text-sm outline-none focus:border-sage"
+                      className="flex-1 rounded-lg border border-graysage/25 bg-cream px-3 py-1.5 text-sm outline-none focus:border-sage"
                       autoFocus
                     />
                     <button type="button" onClick={() => saveEdit(it.id)} disabled={busy} className="text-sm font-medium text-sage-dark hover:underline">
@@ -227,13 +227,13 @@ function CatalogSection({
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
           placeholder={`Nuevo ${title.toLowerCase().slice(0, -1)}…`}
-          className="flex-1 rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm outline-none focus:border-sage focus:ring-2 focus:ring-sage/20"
+          className="flex-1 rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-sm outline-none focus:border-sage focus:ring-2 focus:ring-sage/20"
         />
         <button
           type="button"
           onClick={add}
           disabled={busy}
-          className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium text-cream transition disabled:opacity-60 ${addBtn}`}
+          className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-60 ${addBtn}`}
         >
           Agregar
         </button>
@@ -473,7 +473,7 @@ export default function Settings() {
                 type="button"
                 onClick={saveChurch}
                 disabled={savingChurch}
-                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60"
+                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60"
               >
                 {savingChurch ? 'Guardando…' : 'Guardar cambios'}
               </button>

@@ -11,11 +11,11 @@ export default function AppHeader({ dark = false }: { dark?: boolean }) {
     `rounded-lg px-2.5 py-1.5 text-sm transition ${
       dark
         ? isActive
-          ? 'bg-white/15 font-medium text-white'
+          ? 'bg-sage-dark font-medium text-white'
           : 'text-white/80 hover:bg-white/10 hover:text-white'
         : isActive
-          ? 'bg-sage/15 font-medium text-sage-dark'
-          : 'text-graysage hover:bg-sage/10 hover:text-sage-dark'
+          ? 'bg-sage-light font-medium text-sage-dark'
+          : 'text-graysage hover:bg-sage-light/60 hover:text-sage-dark'
     }`
 
   return (

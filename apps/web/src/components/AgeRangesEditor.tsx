@@ -125,7 +125,7 @@ export default function AgeRangesEditor({
             <input
               value={r.name}
               onChange={(e) => patch(r.key, { name: e.target.value })}
-              className="min-w-32 flex-1 rounded-lg border border-graysage/25 bg-cream/40 px-2.5 py-1.5 text-sm outline-none focus:border-sage"
+              className="min-w-32 flex-1 rounded-lg border border-graysage/25 bg-cream px-2.5 py-1.5 text-sm outline-none focus:border-sage"
             />
             <span className="text-xs text-graysage">desde</span>
             <input
@@ -134,7 +134,7 @@ export default function AgeRangesEditor({
               max={MAX}
               value={r.start}
               onChange={(e) => patch(r.key, { start: Math.max(0, Math.min(MAX, Number(e.target.value))) })}
-              className="w-16 rounded-lg border border-graysage/25 bg-cream/40 px-2 py-1.5 text-sm outline-none focus:border-sage"
+              className="w-16 rounded-lg border border-graysage/25 bg-cream px-2 py-1.5 text-sm outline-none focus:border-sage"
             />
             <span className="text-xs text-graysage">años</span>
             <button

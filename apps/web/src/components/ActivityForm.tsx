@@ -29,10 +29,10 @@ type Seg = Segment & { _k: string }
 const DEFAULT_TEAM_KEYS = ['multimedia', 'diaconos', 'musica', 'finanzas']
 
 const inputCls =
-  'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+  'w-full rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
 
 function chipCls(active: boolean): string {
-  return `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-sage text-cream' : 'bg-cream text-graysage hover:bg-sage/10'}`
+  return `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-sage-light text-sage-dark' : 'bg-cream text-graysage hover:bg-sage/10'}`
 }
 // Chip del catálogo de actividades: en uso (ya en la línea) cambia de color.
 function catalogChipCls(used: boolean): string {
@@ -157,6 +157,7 @@ function reorderWithinLevel(arr: Seg[], level: number, key: string, toIdx: numbe
 export default function ActivityForm({
   churchId,
   editing,
+  defaultWeekday,
   editingTeams,
   editingSegments,
   types,
@@ -175,6 +176,7 @@ export default function ActivityForm({
 }: {
   churchId: string
   editing: Schedule | null
+  defaultWeekday?: number
   editingTeams: ScheduleTeam[]
   editingSegments: Segment[]
   types: ActivityType[]
@@ -208,7 +210,7 @@ export default function ActivityForm({
 
   const [name, setName] = useState(editing?.name ?? '')
   const [typeId, setTypeId] = useState(editing?.typeId ?? '')
-  const [weekday, setWeekday] = useState(editing?.weekday ?? 0)
+  const [weekday, setWeekday] = useState(editing?.weekday ?? defaultWeekday ?? 0)
   const [freq, setFreq] = useState<Freq>(editing?.freq ?? 'weekly')
   const [nth, setNth] = useState(editing?.nth && editing.nth !== 0 ? editing.nth : 1)
   const [startTime, setStartTime] = useState(editing?.startTime ? editing.startTime.slice(0, 5) : '')
@@ -753,7 +755,7 @@ export default function ActivityForm({
                         <button type="button" onClick={() => closeCard(c.key)} className="px-2 text-lg leading-none text-graysage hover:text-charcoal" title="Cerrar">✕</button>
                       </div>
                       <div className="mt-2 flex items-center gap-2">
-                        <input type="number" min={1} value={seg.durationMin ?? ''} onChange={(e) => patchSeg(seg._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream/40 px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
+                        <input type="number" min={1} value={seg.durationMin ?? ''} onChange={(e) => patchSeg(seg._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
                         <span className="text-xs text-graysage">min</span>
                         <button type="button" onClick={() => deleteSeg(c.key)} className="ml-auto rounded-lg px-2.5 py-1 text-xl text-graysage transition hover:bg-clay/10 hover:text-clay" title="Eliminar actividad">🗑</button>
                       </div>
@@ -761,7 +763,7 @@ export default function ActivityForm({
                       <div className="mt-2 flex items-center gap-2">
                         <span className="text-xs text-graysage">Nivel (simultáneo):</span>
                         {[1, 2, 3].map((L) => (
-                          <button key={L} type="button" onClick={() => moveToLevel(seg._k, L)} className={`h-6 w-6 rounded-full text-xs transition ${(seg.level ?? 1) === L ? 'bg-sage text-cream' : 'border border-graysage/30 text-graysage hover:bg-sage/10'}`} title={L === 1 ? 'Principal' : `Nivel ${L} (paralelo)`}>{L}</button>
+                          <button key={L} type="button" onClick={() => moveToLevel(seg._k, L)} className={`h-6 w-6 rounded-full text-xs transition ${(seg.level ?? 1) === L ? 'bg-sage-light text-sage-dark' : 'border border-graysage/30 text-graysage hover:bg-sage/10'}`} title={L === 1 ? 'Principal' : `Nivel ${L} (paralelo)`}>{L}</button>
                         ))}
                       </div>
 
@@ -891,7 +893,7 @@ export default function ActivityForm({
         ) : (
           <div className="mt-6 flex items-center justify-end gap-3">
             <button type="button" onClick={handleClose} className="text-sm text-graysage hover:underline">Cancelar</button>
-            <button type="button" onClick={save} disabled={saving} className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60">
+            <button type="button" onClick={save} disabled={saving} className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60">
               {saving ? 'Guardando…' : 'Guardar'}
             </button>
           </div>

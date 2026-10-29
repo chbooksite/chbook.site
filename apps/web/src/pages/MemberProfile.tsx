@@ -214,7 +214,7 @@ export default function MemberProfile() {
         <AppHeader />
         <main className="mx-auto max-w-3xl px-6 py-16 text-center">
           <p className="text-graysage">No se encontró ese miembro.</p>
-          <Link to="/miembros" className="mt-3 inline-block text-sm text-sage underline-offset-2 hover:underline">
+          <Link to="/miembros" className="mt-3 inline-block text-sm text-sage-dark underline-offset-2 hover:underline">
             ← Volver a miembros
           </Link>
         </main>
@@ -404,13 +404,13 @@ export default function MemberProfile() {
   const rangoEdad = displayAgeRange(birthDate, ageGroup, ageRanges)
 
   const inputCls =
-    'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+    'w-full rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
 
   return (
     <div className="min-h-screen bg-white">
       <AppHeader />
       <main className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
-        <Link to="/miembros" className="text-sm text-sage underline-offset-2 hover:underline">
+        <Link to="/miembros" className="text-sm text-sage-dark underline-offset-2 hover:underline">
           ← Miembros
         </Link>
 
@@ -475,7 +475,7 @@ export default function MemberProfile() {
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage"
+                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95"
               >
                 Editar
               </button>
@@ -534,7 +534,7 @@ export default function MemberProfile() {
                     <dd className="mt-1">
                       <Link
                         to={`/miembros/${guardianId}`}
-                        className="text-sage underline-offset-2 hover:underline"
+                        className="text-sage-dark underline-offset-2 hover:underline"
                       >
                         {guardianName ?? 'Ver representante'}
                       </Link>
@@ -604,7 +604,7 @@ export default function MemberProfile() {
                     <button
                       type="submit"
                       disabled={depSaving}
-                      className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60"
+                      className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60"
                     >
                       {depSaving ? 'Guardando…' : 'Guardar dependiente'}
                     </button>
@@ -762,7 +762,7 @@ export default function MemberProfile() {
                         title={title}
                         className={`rounded-full border px-3 py-1 text-xs transition ${
                           on
-                            ? 'border-sage bg-sage text-cream'
+                            ? 'border-sage bg-sage-light text-sage-dark'
                             : 'border-graysage/25 text-graysage hover:border-sage'
                         } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
                       >
@@ -828,7 +828,7 @@ export default function MemberProfile() {
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60"
+                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60"
               >
                 {saving ? 'Guardando…' : 'Guardar cambios'}
               </button>

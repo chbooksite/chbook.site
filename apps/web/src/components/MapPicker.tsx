@@ -104,12 +104,12 @@ export default function MapPicker({ value, onChange }: Props) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Busca la dirección del templo…"
-          className="w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20"
+          className="w-full rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20"
         />
         <button
           type="submit"
           disabled={searching}
-          className="shrink-0 rounded-lg bg-sage px-3 py-2 text-sm font-medium text-cream transition hover:bg-sage-dark disabled:opacity-60"
+          className="shrink-0 rounded-lg bg-sage-dark px-3 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60"
         >
           {searching ? '…' : 'Buscar'}
         </button>

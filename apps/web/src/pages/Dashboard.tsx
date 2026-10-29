@@ -19,9 +19,10 @@ interface Metrics {
 }
 
 // Tarjeta de métrica (KPI) con tinte verde suave sobre la lámina blanca.
-function Stat({ label, value }: { label: string; value: string | number }) {
+function Stat({ label, value, tone = 'plain' }: { label: string; value: string | number; tone?: 'plain' | 'sand' | 'beige' }) {
+  const bg = tone === 'sand' ? 'bg-sand' : tone === 'beige' ? 'bg-beige' : 'bg-white'
   return (
-    <div className="rounded-2xl border border-sage/15 bg-sage-light/50 p-5">
+    <div className={`rounded-2xl border border-black/5 p-5 shadow-sm ${bg}`}>
       <p className="font-serif text-3xl font-semibold text-sage-dark">{value}</p>
       <p className="mt-1 text-sm text-graysage">{label}</p>
     </div>
@@ -85,7 +86,7 @@ export default function Dashboard() {
 
   if (membershipLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#262e29]">
+      <div className="flex min-h-screen items-center justify-center bg-[#383835]">
         <p className="text-sm text-white/60">Cargando…</p>
       </div>
     )
@@ -100,7 +101,7 @@ export default function Dashboard() {
       {/* PRINCIPAL (hero) — en el medio, fija detrás; foto + capa oscura translúcida */}
       <section className="fixed inset-0 z-0 flex flex-col overflow-hidden text-white">
         <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('/hero-bg.webp')" }} aria-hidden />
-        <div className="absolute inset-0 bg-[#1b221d]/[0.88]" aria-hidden />
+        <div className="absolute inset-0 bg-[#383835]/[0.88]" aria-hidden />
         <div className="pointer-events-none absolute -right-32 -top-40 h-[32rem] w-[32rem] rounded-full bg-sage/20 blur-[130px]" aria-hidden />
         <div className="pointer-events-none absolute -left-40 bottom-10 h-[26rem] w-[26rem] rounded-full bg-sage-dark/25 blur-[130px]" aria-hidden />
 
@@ -109,7 +110,7 @@ export default function Dashboard() {
         </div>
         <div className="relative flex flex-1 items-center justify-center px-6 pb-16">
           <div className="max-w-3xl text-center">
-            <span className="inline-block rounded-full bg-sage px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wider text-charcoal">
+            <span className="inline-block rounded-full bg-sage-dark px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wider text-white">
               Panel del pastor
             </span>
             <h1 className="mt-5 font-serif text-4xl font-semibold leading-tight text-white sm:text-5xl">
@@ -142,7 +143,7 @@ export default function Dashboard() {
         className="fixed inset-0 z-10 flex items-center justify-center overflow-hidden rounded-b-[2.5rem] bg-white shadow-[0_14px_40px_-14px_rgba(0,0,0,0.4)] will-change-transform"
       >
         <div className="max-w-2xl px-6 py-16 text-center">
-          <span className="inline-block rounded-full bg-sage px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wider text-charcoal">
+          <span className="inline-block rounded-full bg-sage-dark px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wider text-white">
             Calendario
           </span>
           <h2 className="mt-5 font-serif text-3xl font-semibold leading-tight text-charcoal sm:text-4xl">
@@ -156,7 +157,7 @@ export default function Dashboard() {
             <span className="text-sage-dark">Encargados</span>
             <span>Ciclos</span>
           </div>
-          <Link to="/calendario" className="mt-8 inline-block rounded-full bg-sage-dark px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-110">
+          <Link to="/calendario" className="mt-8 inline-block rounded-full bg-sage-dark px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-95">
             Abrir calendario
           </Link>
         </div>
@@ -172,7 +173,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Stat label="Miembros" value={metrics?.total_members ?? 0} />
             <Stat label="Activos" value={metrics?.active_members ?? 0} />
-            <Stat label="% Activos" value={`${metrics?.active_pct ?? 0}%`} />
+            <Stat label="% Activos" value={`${metrics?.active_pct ?? 0}%`} tone="sand" />
             <Stat label="Asistencia prom." value={metrics?.avg_attendance ?? 0} />
           </div>
           <div className="mt-5 grid gap-4 sm:grid-cols-3">

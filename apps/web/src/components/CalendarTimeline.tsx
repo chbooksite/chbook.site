@@ -3,8 +3,6 @@ import { supabase } from '../lib/supabase'
 import {
   addDays,
   addMonths,
-  buildAxis,
-  chooseUnit,
   cycleDepth,
   cycleOccurrences,
   CYCLE_DURATIONS,
@@ -18,7 +16,7 @@ import {
 } from '../lib/calendar'
 import { occursOn, type Schedule } from '../lib/activity'
 
-type RecSchedule = Schedule & { color: string }
+type RecSchedule = Schedule & { color: string; responsibles?: string | null; preacher?: string | null }
 type Mode = 'week' | 'day' | 'month'
 
 const COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#84cc16', '#f59e0b', '#ec4899', '#8b5cf6', '#ef4444']
@@ -29,8 +27,19 @@ const CARD_H = 54 // alto de una ficha de actividad
 const CARD_GAP = 4
 const ACTS_TOP = HEADER_H + 28 // bajo el encabezado
 const MONTH_DOW = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do']
-const hhmm = (d: Date) => `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+// Hora en formato 12 horas: "9:00 a.m.".
+const h12 = (d: Date) => {
+  let h = d.getHours(); const m = d.getMinutes(); const ap = h < 12 ? 'a.m.' : 'p.m.'
+  h = h % 12 || 12
+  return `${h}:${String(m).padStart(2, '0')} ${ap}`
+}
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+// Color del usuario (equipos/actividades) con transparencia, para que no resalte tanto.
+function withAlpha(hex: string, a: number): string {
+  const h = hex.replace('#', '')
+  const n = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  return `rgba(${parseInt(n.slice(0, 2), 16) || 0}, ${parseInt(n.slice(2, 4), 16) || 0}, ${parseInt(n.slice(4, 6), 16) || 0}, ${a})`
+}
 
 // Calendario con tres modos: SEMANA (línea de días deformada; la regla muestra el
 // día, p.ej. "Mié 21"; zoom 1–2 semanas, imán al lunes), MES (tira de tarjetas-mes
@@ -43,11 +52,13 @@ export default function CalendarTimeline({
   cycles,
   recurring,
   onEditSchedule,
+  onAddDay,
 }: {
   churchId: string
   cycles: Cycle[]
   recurring: RecSchedule[]
   onEditSchedule?: (id: string) => void
+  onAddDay?: (d: Date) => void
 }) {
   const [items, setItems] = useState<Cycle[]>(cycles)
   useEffect(() => setItems(cycles), [cycles])
@@ -75,7 +86,7 @@ export default function CalendarTimeline({
   const totalDays = Math.round((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS)
 
   // ---- actividades del ritmo en el rango (compartido por los modos) ----
-  interface Bar { key: string; start: Date; end: Date; title: string; color: string; scheduleId: string; timed: boolean }
+  interface Bar { key: string; start: Date; end: Date; title: string; color: string; scheduleId: string; timed: boolean; responsibles: string | null; preacher: string | null }
   const occStart = (day: Date, s: Schedule) => {
     if (!s.startTime) return startOfDay(day)
     const [h, m] = s.startTime.split(':').map(Number)
@@ -90,7 +101,7 @@ export default function CalendarTimeline({
   for (const r of recurring) {
     let cur = startOfDay(rangeStart)
     while (cur < rangeEnd) {
-      if (occursOn(r, cur)) { const start = occStart(cur, r); const end = occEnd(start, r); bars.push({ key: `${r.id}:${ymd(cur)}`, start, end, title: r.name, color: r.color, scheduleId: r.id, timed: !!r.startTime }) }
+      if (occursOn(r, cur)) { const start = occStart(cur, r); const end = occEnd(start, r); bars.push({ key: `${r.id}:${ymd(cur)}`, start, end, title: r.name, color: r.color, scheduleId: r.id, timed: !!r.startTime, responsibles: r.responsibles ?? null, preacher: r.preacher ?? null }) }
       cur = addDays(cur, 1)
     }
   }
@@ -106,7 +117,7 @@ export default function CalendarTimeline({
   const pxPerDay = scaleMin * Math.pow(scaleMax / scaleMin, zoomT / 100)
   const activeIdx = new Set<number>()
   for (const k of dayColors.keys()) activeIdx.add(Math.round((k - rangeStart.getTime()) / DAY_MS))
-  const weightAt = (i: number) => (activeIdx.has(i) ? 1 : 0.25)
+  const weightAt = (i: number) => (activeIdx.has(i) ? 1 : 0.45)
   let rawTotal = 0
   for (let i = 0; i < totalDays; i++) rawTotal += weightAt(i)
   const warpScale = rawTotal > 0 ? totalDays / rawTotal : 1
@@ -126,9 +137,6 @@ export default function CalendarTimeline({
     while (lo <= hi) { const mid = (lo + hi) >> 1; if (xStart[mid] <= px) { idx = mid; lo = mid + 1 } else hi = mid - 1 }
     return idx
   }
-  const wUnit = chooseUnit(containerW / pxPerDay)
-  const wAxis = buildAxis(rangeStart, rangeEnd, pxPerDay, wUnit, xOf)
-
   // ---- MES: tira de tarjetas-mes (mini-calendario), zoom 1 mes – 6 meses ----
   const months: Date[] = []
   { let m = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1); while (m < rangeEnd) { months.push(new Date(m)); m = addMonths(m, 1) } }
@@ -166,6 +174,8 @@ export default function CalendarTimeline({
   const barsAreaH = maxCards ? maxCards * (CARD_H + CARD_GAP) + 10 : 0
   const weekBodyH = Math.max(TIMELINE_H, ACTS_TOP + barsAreaH + lanesH + 20)
   const cyclesTop = weekBodyH - lanesH - 10
+  const cardTop = 24 // las tarjetas-día arrancan bajo la etiqueta de mes
+  const cardH = Math.max(90, cyclesTop - cardTop - 6)
 
   const width = mode === 'day' ? dayWidth : mode === 'month' ? monthWidth : gridWidth
   const bodyH = mode === 'day' ? dayBodyH : mode === 'month' ? monthBodyH : weekBodyH
@@ -369,15 +379,15 @@ export default function CalendarTimeline({
           </>
         ) : (
           <>
-            <button type="button" onClick={createCycle} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-cream transition hover:bg-sage">+ Nuevo ciclo</button>
+            <button type="button" onClick={createCycle} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-95">+ Nuevo ciclo</button>
             <button type="button" onClick={() => resetHome(true)} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">{mode === 'week' ? 'Esta semana' : 'Este mes'}</button>
           </>
         )}
         <div className="ml-auto flex items-center gap-2">
           <div className="flex overflow-hidden rounded-lg border border-graysage/25">
-            <button type="button" onClick={() => enterDay(today)} className={`px-3 py-1 text-xs transition ${mode === 'day' ? 'bg-sage text-cream' : 'text-graysage hover:bg-sage/10'}`}>Día</button>
-            <button type="button" onClick={goWeek} className={`px-3 py-1 text-xs transition ${mode === 'week' ? 'bg-sage text-cream' : 'text-graysage hover:bg-sage/10'}`}>Semana</button>
-            <button type="button" onClick={goMonth} className={`px-3 py-1 text-xs transition ${mode === 'month' ? 'bg-sage text-cream' : 'text-graysage hover:bg-sage/10'}`}>Mes</button>
+            <button type="button" onClick={() => enterDay(today)} className={`px-3 py-1 text-xs transition ${mode === 'day' ? 'bg-sage-light text-sage-dark' : 'text-graysage hover:bg-sage/10'}`}>Día</button>
+            <button type="button" onClick={goWeek} className={`px-3 py-1 text-xs transition ${mode === 'week' ? 'bg-sage-light text-sage-dark' : 'text-graysage hover:bg-sage/10'}`}>Semana</button>
+            <button type="button" onClick={goMonth} className={`px-3 py-1 text-xs transition ${mode === 'month' ? 'bg-sage-light text-sage-dark' : 'text-graysage hover:bg-sage/10'}`}>Mes</button>
           </div>
           <span className="text-[0.65rem] text-graysage">{zoomEnds[0]}</span>
           <input type="range" min={0} max={100} step={1} value={100 - zoomT} onChange={(e) => setZoomT(100 - Number(e.target.value))} className="h-1 w-36 cursor-pointer accent-sage" title="Zoom" />
@@ -386,8 +396,8 @@ export default function CalendarTimeline({
       </div>
 
       <div className="relative">
-        <div className="pointer-events-none absolute left-px top-px z-20 flex h-5 items-center bg-cream/95 pl-2 pr-3 text-[0.72rem] capitalize text-charcoal">{headLabel}</div>
-        <div ref={scrollRef} onScroll={syncWin} className="overflow-x-auto rounded-xl border border-graysage/20 bg-cream/40 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="pointer-events-none absolute left-px top-px z-20 flex h-5 items-center bg-white/95 pl-2 pr-3 text-[0.72rem] capitalize text-charcoal">{headLabel}</div>
+        <div ref={scrollRef} onScroll={syncWin} className={`overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${mode === 'week' ? '' : 'rounded-xl border border-graysage/20 bg-cream'}`}>
           <div
             key={animKey}
             ref={trackRef}
@@ -400,48 +410,64 @@ export default function CalendarTimeline({
             {/* ============ SEMANA ============ */}
             {mode === 'week' && (
               <>
-                {wAxis.ticks.map((t, i) => {
-                  const sunday = t.label.startsWith('Dom')
+                {/* cada día = una tarjeta separada sobre blanco (sin líneas de rejilla) */}
+                {Array.from({ length: totalDays }, (_, i) => {
+                  const dp = dayPxAt(i)
+                  if (dp < 12) return null
+                  const d = addDays(rangeStart, i)
+                  const acts = dayBars.get(startOfDay(d).getTime()) ?? []
+                  const isToday = d.getTime() === today.getTime()
+                  const dow = d.getDay()
+                  const weekend = dow === 0 || dow === 6
+                  const gap = 5
+                  const wide = dp >= 40
                   return (
-                    <div key={i} style={{ left: t.x }} className="absolute top-5">
-                      <span className="absolute left-0 top-0 h-2 w-px bg-graysage/25" />
-                      <span className={`absolute left-1 top-2.5 whitespace-nowrap text-[0.82rem] ${sunday ? 'text-red-500' : 'text-graysage'}`}>{t.label}</span>
+                    <div
+                      key={`day${i}`}
+                      data-day={ymd(d)}
+                      style={{ left: xStart[i] + gap, width: Math.max(8, dp - gap * 2), top: cardTop, height: cardH }}
+                      className={`absolute cursor-pointer overflow-hidden rounded-xl bg-white transition hover:shadow-md ${isToday ? 'shadow-[0_0_0_1.5px_rgba(92,122,103,0.6),0_1px_3px_rgba(0,0,0,0.08)]' : 'border border-black/5 shadow-sm'}`}
+                      title={d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })}
+                    >
+                      {/* cabecera gris oscuro con la fecha en verde (fin de semana en negrita) */}
+                      <div className="flex items-baseline gap-1.5 bg-charcoal px-2.5 pb-5 pt-2 text-sage-light">
+                        {wide && <span className={`text-[0.72rem] capitalize ${weekend ? 'font-bold' : 'font-semibold'}`}>{d.toLocaleDateString('es', { weekday: 'short' }).replace('.', '')}</span>}
+                        <span className={`text-base leading-none ${weekend ? 'font-bold' : 'font-semibold'}`}>{d.getDate()}</span>
+                      </div>
+                      {/* cuerpo blanco superpuesto (hoja) con esquinas superiores redondeadas */}
+                      <div className="relative -mt-3 space-y-0.5 rounded-t-xl bg-white px-1.5 pb-8 pt-2">
+                        {acts.map((b) => (
+                          <button
+                            key={b.key}
+                            onPointerDown={(e) => { e.stopPropagation(); onEditSchedule?.(b.scheduleId) }}
+                            className="flex w-full items-start gap-1.5 rounded-md px-1 py-1 text-left transition hover:bg-graysage/10"
+                            title={b.title}
+                          >
+                            <span className="mt-[5px] h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: withAlpha(b.color, 0.3) }} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[0.8rem] font-medium leading-tight text-charcoal">{b.title}</span>
+                              <span className="block truncate text-[0.68rem] leading-tight text-graysage">{b.timed ? `${h12(b.start)} – ${h12(b.end)}` : 'Todo el día'}</span>
+                              {b.responsibles && <span className="block truncate text-[0.66rem] leading-tight text-graysage/90">Encargado: {b.responsibles}</span>}
+                              {b.preacher && <span className="block truncate text-[0.66rem] leading-tight text-graysage/90">Predicador: {b.preacher}</span>}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* botón para añadir actividad a este día */}
+                      {dp >= 28 && (
+                        <button
+                          type="button"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => { e.stopPropagation(); onAddDay?.(d) }}
+                          className="absolute bottom-1.5 left-1/2 flex h-6 w-6 -translate-x-1/2 items-center justify-center rounded-full bg-sage-dark text-lg leading-none text-white shadow-sm transition hover:brightness-95"
+                          title="Añadir actividad a este día"
+                        >
+                          +
+                        </button>
+                      )}
                     </div>
                   )
-                })}
-
-                {pxPerDay >= 10 && Array.from({ length: totalDays }, (_, i) => (
-                  <span key={`d${i}`} style={{ left: xStart[i], top: HEADER_H, height: bodyH - HEADER_H }} className="absolute w-px bg-graysage/15" />
-                ))}
-
-                {/* regla clicable para abrir el día */}
-                {Array.from({ length: totalDays }, (_, i) => (
-                  <span key={`hit${i}`} data-day={ymd(addDays(rangeStart, i))} style={{ left: xStart[i], width: dayPxAt(i), top: 0, height: HEADER_H }} className="absolute cursor-pointer" title="Abrir este día" />
-                ))}
-
-                {(() => {
-                  const ti = Math.round((today.getTime() - rangeStart.getTime()) / DAY_MS)
-                  if (ti < 0 || ti >= totalDays) return null
-                  return <span style={{ left: xStart[ti], width: dayPxAt(ti), top: HEADER_H, height: bodyH - HEADER_H }} className="pointer-events-none absolute rounded-md border-2 border-clay/70 bg-clay/5" aria-hidden />
-                })()}
-
-                {Array.from(dayBars.entries()).map(([ms, arr]) => {
-                  const i = Math.round((ms - rangeStart.getTime()) / DAY_MS)
-                  const left = xStart[i]
-                  const dp = dayPxAt(i)
-                  if (dp < 26) return null
-                  return arr.map((b, k) => (
-                    <div
-                      key={b.key}
-                      onPointerDown={(e) => { e.stopPropagation(); onEditSchedule?.(b.scheduleId) }}
-                      style={{ left: left + 2, width: Math.max(8, dp - 4), top: ACTS_TOP + k * (CARD_H + CARD_GAP), height: CARD_H, borderLeftColor: b.color }}
-                      className="absolute flex cursor-pointer flex-col justify-center overflow-hidden rounded-md border-l-4 bg-graysage/10 px-2.5 text-charcoal hover:bg-graysage/20"
-                      title={b.title}
-                    >
-                      <span className="truncate text-sm font-semibold leading-tight">{b.title}</span>
-                      <span className="truncate text-[0.72rem] leading-tight text-charcoal/70">{b.timed ? `${hhmm(b.start)}–${hhmm(b.end)}` : 'Todo el día'}</span>
-                    </div>
-                  ))
                 })}
 
                 {items.map((c) => {
@@ -454,8 +480,8 @@ export default function CalendarTimeline({
                       <div
                         key={`${c.id}:${o.i}`}
                         onPointerDown={(e) => { e.stopPropagation(); setSelected(c.id) }}
-                        style={{ left, width: w, top: topPx, backgroundColor: c.color, borderColor: c.color }}
-                        className={`absolute flex h-[26px] cursor-pointer items-center overflow-hidden rounded border px-1.5 text-white ${o.i === 0 ? '' : 'opacity-70'} ${selected === c.id ? 'ring-2 ring-white' : ''}`}
+                        style={{ left, width: w, top: topPx, backgroundColor: withAlpha(c.color, 0.3) }}
+                        className={`absolute flex h-[26px] cursor-pointer items-center overflow-hidden rounded px-1.5 text-graysage ${o.i === 0 ? '' : 'opacity-70'} ${selected === c.id ? 'ring-2 ring-sage' : ''}`}
                         title={`${c.name} · ${ymd(o.start)} → ${ymd(o.end)}`}
                       >
                         <span className="truncate text-[0.7rem] font-medium">{c.name}{c.repeat !== 1 ? ` ${o.i + 1}` : ''}</span>
@@ -502,7 +528,7 @@ export default function CalendarTimeline({
                         <span style={{ width: sz, height: sz }} className={`flex items-center justify-center rounded-md text-[0.8rem] leading-none ${isToday ? 'bg-clay font-semibold text-white' : isSun ? 'text-red-500' : 'text-charcoal/85'}`}>{dayN}</span>
                         {cols && (
                           <span className="mt-0.5 flex gap-0.5">
-                            {cols.slice(0, 3).map((c, ci) => (<span key={ci} style={{ backgroundColor: c }} className="h-1 w-1 rounded-full" />))}
+                            {cols.slice(0, 3).map((c, ci) => (<span key={ci} style={{ backgroundColor: withAlpha(c, 0.3) }} className="h-1 w-1 rounded-full" />))}
                           </span>
                         )}
                       </div>
@@ -529,7 +555,7 @@ export default function CalendarTimeline({
                 })()}
 
                 {dayAllDay.map((b, k) => (
-                  <div key={b.key} onPointerDown={(e) => { e.stopPropagation(); onEditSchedule?.(b.scheduleId) }} style={{ left: 2, right: 2, top: dayAllTop + k * 26, borderLeftColor: b.color }} className="absolute flex h-[22px] cursor-pointer items-center overflow-hidden rounded-md border-l-4 bg-graysage/10 px-2 text-charcoal hover:bg-graysage/20">
+                  <div key={b.key} onPointerDown={(e) => { e.stopPropagation(); onEditSchedule?.(b.scheduleId) }} style={{ left: 2, right: 2, top: dayAllTop + k * 26, borderLeftColor: withAlpha(b.color, 0.3) }} className="absolute flex h-[22px] cursor-pointer items-center overflow-hidden rounded-md border-l-4 bg-graysage/10 px-2 text-charcoal hover:bg-graysage/20">
                     <span className="truncate text-[0.8rem] font-medium">{b.title}</span>
                     <span className="ml-2 text-[0.68rem] text-charcoal/60">Todo el día</span>
                   </div>
@@ -540,9 +566,9 @@ export default function CalendarTimeline({
                   const w = Math.max(28, xHour(b.end) - left)
                   const top = dayTimedTop + (dLaneOf.get(b.key) ?? 0) * (CARD_H + CARD_GAP)
                   return (
-                    <div key={b.key} onPointerDown={(e) => { e.stopPropagation(); onEditSchedule?.(b.scheduleId) }} style={{ left, width: w, top, height: CARD_H, borderLeftColor: b.color }} className="absolute flex cursor-pointer flex-col justify-center overflow-hidden rounded-md border-l-4 bg-graysage/10 px-2.5 text-charcoal hover:bg-graysage/20">
+                    <div key={b.key} onPointerDown={(e) => { e.stopPropagation(); onEditSchedule?.(b.scheduleId) }} style={{ left, width: w, top, height: CARD_H, borderLeftColor: withAlpha(b.color, 0.3) }} className="absolute flex cursor-pointer flex-col justify-center overflow-hidden rounded-md border-l-4 bg-graysage/10 px-2.5 text-charcoal hover:bg-graysage/20">
                       <span className="truncate text-sm font-semibold leading-tight">{b.title}</span>
-                      <span className="truncate text-[0.72rem] leading-tight text-charcoal/70">{hhmm(b.start)}–{hhmm(b.end)}</span>
+                      <span className="truncate text-[0.72rem] leading-tight text-charcoal/70">{h12(b.start)} – {h12(b.end)}</span>
                     </div>
                   )
                 })}
@@ -565,39 +591,39 @@ export default function CalendarTimeline({
         <div className="mt-3 rounded-xl border border-sage/30 bg-white p-3">
           <div className="flex flex-wrap items-center gap-2">
             <input type="color" value={sel.color} onChange={(e) => patch(sel.id, { color: e.target.value })} className="h-7 w-8 cursor-pointer rounded border border-graysage/25" title="Color" />
-            <input value={sel.name} onChange={(e) => patch(sel.id, { name: e.target.value })} className="min-w-40 flex-1 rounded-lg border border-graysage/25 bg-cream/40 px-2.5 py-1.5 text-sm outline-none focus:border-sage" />
+            <input value={sel.name} onChange={(e) => patch(sel.id, { name: e.target.value })} className="min-w-40 flex-1 rounded-lg border border-graysage/25 bg-cream px-2.5 py-1.5 text-sm outline-none focus:border-sage" />
             <button type="button" onClick={() => removeCycle(sel.id)} className="rounded-lg px-2 py-1 text-lg text-graysage hover:text-clay" title="Eliminar ciclo">🗑</button>
             <button type="button" onClick={() => setSelected(null)} className="px-2 text-lg leading-none text-graysage hover:text-charcoal" title="Cerrar">✕</button>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-graysage">
             <label className="flex items-center gap-1">Inicio
-              <input type="date" value={sel.startsOn} onChange={(e) => patch(sel.id, { startsOn: e.target.value })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" />
+              <input type="date" value={sel.startsOn} onChange={(e) => patch(sel.id, { startsOn: e.target.value })} className="rounded border border-graysage/25 bg-cream px-1.5 py-1 text-sm text-charcoal" />
             </label>
             <label className="flex items-center gap-1">Duración
-              <select value={sel.duration} onChange={(e) => patch(sel.id, { duration: e.target.value as CycleDuration })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal">
+              <select value={sel.duration} onChange={(e) => patch(sel.id, { duration: e.target.value as CycleDuration })} className="rounded border border-graysage/25 bg-cream px-1.5 py-1 text-sm text-charcoal">
                 {CYCLE_DURATIONS.map((d) => (<option key={d.value} value={d.value}>{d.label}</option>))}
               </select>
             </label>
             {sel.duration === 'custom' && (
               <label className="flex items-center gap-1">Fin
-                <input type="date" value={sel.endsOn} onChange={(e) => patch(sel.id, { endsOn: e.target.value })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal" />
+                <input type="date" value={sel.endsOn} onChange={(e) => patch(sel.id, { endsOn: e.target.value })} className="rounded border border-graysage/25 bg-cream px-1.5 py-1 text-sm text-charcoal" />
               </label>
             )}
             <label className="flex items-center gap-1">Repeticiones
-              <input type="number" min={1} value={sel.repeat === 0 ? '' : sel.repeat} disabled={sel.repeat === 0} onChange={(e) => patch(sel.id, { repeat: Math.max(1, Number(e.target.value) || 1) })} className="w-16 rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal disabled:opacity-50" />
+              <input type="number" min={1} value={sel.repeat === 0 ? '' : sel.repeat} disabled={sel.repeat === 0} onChange={(e) => patch(sel.id, { repeat: Math.max(1, Number(e.target.value) || 1) })} className="w-16 rounded border border-graysage/25 bg-cream px-1.5 py-1 text-sm text-charcoal disabled:opacity-50" />
             </label>
             <label className="flex items-center gap-1">
               <input type="checkbox" checked={sel.repeat === 0} onChange={(e) => patch(sel.id, { repeat: e.target.checked ? 0 : 1 })} />
               Continuo
             </label>
             <label className="flex items-center gap-1">Dentro de
-              <select value={sel.parentId ?? ''} onChange={(e) => patch(sel.id, { parentId: e.target.value || null })} className="rounded border border-graysage/25 bg-cream/40 px-1.5 py-1 text-sm text-charcoal">
+              <select value={sel.parentId ?? ''} onChange={(e) => patch(sel.id, { parentId: e.target.value || null })} className="rounded border border-graysage/25 bg-cream px-1.5 py-1 text-sm text-charcoal">
                 <option value="">— (ciclo raíz)</option>
                 {parentOptions.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
               </select>
             </label>
           </div>
-          <input value={sel.goal ?? ''} onChange={(e) => patch(sel.id, { goal: e.target.value || null })} placeholder="Meta del ciclo (opcional)…" className="mt-2 w-full rounded-lg border border-graysage/25 bg-cream/40 px-2.5 py-1.5 text-sm outline-none focus:border-sage" />
+          <input value={sel.goal ?? ''} onChange={(e) => patch(sel.id, { goal: e.target.value || null })} placeholder="Meta del ciclo (opcional)…" className="mt-2 w-full rounded-lg border border-graysage/25 bg-cream px-2.5 py-1.5 text-sm outline-none focus:border-sage" />
         </div>
       )}
     </div>

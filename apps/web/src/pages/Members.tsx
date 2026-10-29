@@ -95,7 +95,7 @@ function FilterRow({
             type="button"
             onClick={() => onToggle(o.value)}
             className={`rounded-full border px-2.5 py-0.5 text-xs transition ${
-              on ? 'border-sage bg-sage text-cream' : 'border-graysage/25 text-graysage hover:border-sage'
+              on ? 'border-sage bg-sage-light text-sage-dark' : 'border-graysage/25 text-graysage hover:border-sage'
             }`}
           >
             {o.label}
@@ -385,7 +385,7 @@ export default function Members() {
   }
 
   const inputCls =
-    'w-full rounded-lg border border-graysage/25 bg-cream/40 px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+    'w-full rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
 
   const selectedRoleKeys = roleIds
     .map((rid) => roles.find((r) => r.id === rid)?.key)
@@ -444,7 +444,7 @@ export default function Members() {
     })
 
   const selectCls =
-    'rounded-lg border border-graysage/25 bg-cream/40 px-2.5 py-2 text-sm text-charcoal outline-none focus:border-sage'
+    'rounded-lg border border-graysage/25 bg-cream px-2.5 py-2 text-sm text-charcoal outline-none focus:border-sage'
 
   return (
     <div className="min-h-screen bg-white">
@@ -465,7 +465,7 @@ export default function Members() {
               resetForm()
               setShowForm((v) => !v)
             }}
-            className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage"
+            className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95"
           >
             {showForm ? 'Cancelar' : '+ Agregar miembro'}
           </button>
@@ -583,7 +583,7 @@ export default function Members() {
                         }
                         className={`rounded-full border px-3 py-1 text-xs transition ${
                           on
-                            ? 'border-sage bg-sage text-cream'
+                            ? 'border-sage bg-sage-light text-sage-dark'
                             : 'border-graysage/25 text-graysage hover:border-sage'
                         } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
                       >
@@ -698,7 +698,7 @@ export default function Members() {
             <button
               type="submit"
               disabled={saving}
-              className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage disabled:opacity-60"
+              className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60"
             >
               {saving ? 'Guardando…' : 'Guardar miembro'}
             </button>
@@ -865,7 +865,7 @@ export default function Members() {
                   </div>
 
                   {expanded && deps.length > 0 && (
-                    <ul className="border-t border-clay-light/20 bg-cream/40 py-1">
+                    <ul className="border-t border-clay-light/20 bg-cream py-1">
                       {deps.map((d) => (
                         <li
                           key={d.id}

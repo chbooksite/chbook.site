@@ -55,6 +55,7 @@ export default function Calendar() {
 
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Schedule | null>(null)
+  const [newWeekday, setNewWeekday] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     if (!churchId) return
@@ -163,6 +164,13 @@ export default function Calendar() {
   const assigneeName = (a: { kind: string; id: string }): string =>
     a.kind === 'member' ? memberById.get(a.id) ?? 'Persona' : a.kind === 'team' ? teamById.get(a.id) ?? 'Equipo' : roleById.get(a.id) ?? 'Rol'
   const encargadosLabel = (s: Schedule): string => s.assignees.map((a) => assigneeName(a)).join(' · ')
+  // Predicador: encargado cuyo rol se llama "Predicador" (sus personas, si las hay).
+  const preacherOf = (s: Schedule): string | null => {
+    const a = s.assignees.find((x) => x.kind === 'role' && (roleById.get(x.id) ?? '').toLowerCase().includes('predicador'))
+    if (!a) return null
+    const names = a.memberIds.map((id) => memberById.get(id)).filter(Boolean) as string[]
+    return names.length ? names.join(', ') : roleById.get(a.id) ?? 'Predicador'
+  }
 
   const colorOf = (s: Schedule) => typeById.get(s.typeId ?? '')?.color ?? '#94a3b8'
 
@@ -178,6 +186,12 @@ export default function Calendar() {
 
   const openNew = () => {
     setEditing(null)
+    setNewWeekday(null)
+    setShowForm(true)
+  }
+  const openNewForDay = (d: Date) => {
+    setEditing(null)
+    setNewWeekday(d.getDay())
     setShowForm(true)
   }
   const openEdit = (s: Schedule) => {
@@ -219,7 +233,7 @@ export default function Calendar() {
             <h1 className="mb-1 font-serif text-2xl text-charcoal">El ritmo de la iglesia</h1>
             <p className="text-sm text-graysage">Define las actividades recurrentes una vez; el sistema proyecta tu semana.</p>
           </div>
-          <button type="button" onClick={openNew} className="shrink-0 rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-cream transition hover:bg-sage">
+          <button type="button" onClick={openNew} className="shrink-0 rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95">
             + Nueva actividad
           </button>
         </div>
@@ -232,8 +246,9 @@ export default function Calendar() {
             <CalendarTimeline
               churchId={churchId}
               cycles={cycles}
-              recurring={schedules.filter((s) => !s.parentId && s.enabled).map((s) => ({ ...s, color: typeById.get(s.typeId ?? '')?.color ?? '#94a3b8' }))}
+              recurring={schedules.filter((s) => !s.parentId && s.enabled).map((s) => ({ ...s, color: typeById.get(s.typeId ?? '')?.color ?? '#94a3b8', responsibles: s.assignees.length ? encargadosLabel(s) : null, preacher: preacherOf(s) }))}
               onEditSchedule={(id) => { const s = schedules.find((x) => x.id === id); if (s) openEdit(s) }}
+              onAddDay={openNewForDay}
             />
           )}
         </section>
@@ -307,6 +322,7 @@ export default function Calendar() {
         <ActivityForm
           churchId={churchId!}
           editing={editing}
+          defaultWeekday={newWeekday ?? undefined}
           editingTeams={editing ? teamsBySchedule.get(editing.id) ?? [] : []}
           editingSegments={editing ? segmentsBySchedule.get(editing.id) ?? [] : []}
           types={types}
