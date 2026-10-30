@@ -4,19 +4,14 @@ import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
 import ActivityForm from '../components/ActivityForm'
-import CalendarTimeline from '../components/CalendarTimeline'
-import { type Cycle } from '../lib/calendar'
+import AgendaView, { type NewActivityAttrs } from '../components/AgendaView'
 import { DEFAULT_AGE_RANGES, readAgeRanges, type AgeRangeDef } from '../lib/member'
 import {
-  WEEKDAYS_SHORT,
-  addDays,
   formatTime,
-  projectWeek,
   readActivityTemplates,
   readAssignees,
   readAudience,
   recurrenceLabel,
-  weekStart,
   type ActivityType,
   type Audience,
   type Freq,
@@ -43,23 +38,22 @@ export default function Calendar() {
   const [roles, setRoles] = useState<Opt[]>([])
   const [tags, setTags] = useState<Tag[]>([])
   const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
-  const [cycles, setCycles] = useState<Cycle[]>([])
   const [templates, setTemplates] = useState<ActivityTemplate[]>([])
   const [members, setMembers] = useState<Opt[]>([])
   const [membersByTeam, setMembersByTeam] = useState<Map<string, Opt[]>>(new Map())
   const [membersByRole, setMembersByRole] = useState<Map<string, Opt[]>>(new Map())
   const [teamsBySchedule, setTeamsBySchedule] = useState<Map<string, ScheduleTeam[]>>(new Map())
   const [segmentsBySchedule, setSegmentsBySchedule] = useState<Map<string, Segment[]>>(new Map())
-  const [weekRef, setWeekRef] = useState<Date>(new Date())
   const [loading, setLoading] = useState(true)
 
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Schedule | null>(null)
   const [newWeekday, setNewWeekday] = useState<number | null>(null)
+  const [newStart, setNewStart] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!churchId) return
-    const [schRes, typeRes, teamRes, roleRes, tagRes, churchRes, memRes, mtRes, mrRes, stRes, ssRes, cycRes] = await Promise.all([
+    const [schRes, typeRes, teamRes, roleRes, tagRes, churchRes, memRes, mtRes, mrRes, stRes, ssRes] = await Promise.all([
       supabase.from('activity_schedules').select('*').eq('church_id', churchId),
       supabase.from('activity_types').select('id, key, name, color, is_system').order('is_system', { ascending: false }).order('name'),
       supabase.from('teams').select('id, name, key').order('name'),
@@ -71,7 +65,6 @@ export default function Calendar() {
       supabase.from('member_roles').select('member_id, role_id'),
       supabase.from('schedule_teams').select('*').eq('church_id', churchId),
       supabase.from('schedule_segments').select('*').eq('church_id', churchId).order('sort_order'),
-      supabase.from('cycles').select('*').eq('church_id', churchId).order('starts_on'),
     ])
 
     setSchedules(
@@ -89,6 +82,7 @@ export default function Calendar() {
         location: r.location,
         responsibleTeamId: r.responsible_team_id,
         assignees: readAssignees(r.assignees),
+        onDate: r.on_date,
         sortOrder: r.sort_order ?? 0,
         enabled: r.enabled ?? true,
       })),
@@ -99,7 +93,6 @@ export default function Calendar() {
     setTags((tagRes.data ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color, defaultDurationMin: t.default_duration_min })))
     setAgeRanges(readAgeRanges(churchRes.data?.settings))
     setTemplates(readActivityTemplates(churchRes.data?.settings))
-    setCycles((cycRes.data ?? []).map((c) => ({ id: c.id, parentId: c.parent_id, name: c.name, color: c.color, startsOn: c.starts_on, endsOn: c.ends_on, goal: c.goal, duration: (c.duration as Cycle['duration']) ?? 'custom', repeat: c.repeat ?? 1 })))
 
     // miembros por equipo / rol
     setMembers((memRes.data ?? []).map((m) => ({ id: m.id, name: m.full_name })))
@@ -175,24 +168,50 @@ export default function Calendar() {
   const colorOf = (s: Schedule) => typeById.get(s.typeId ?? '')?.color ?? '#94a3b8'
 
   const audienceLabel = (a: Audience): string => {
-    if (a.scope === 'all') return 'Toda la iglesia'
-    if (a.scope === 'roles') return (a.ids ?? []).map((id) => roleById.get(id)).filter(Boolean).join(', ') || 'Roles'
-    if (a.scope === 'teams') return (a.ids ?? []).map((id) => teamById.get(id)).filter(Boolean).join(', ') || 'Equipos'
-    return (a.keys ?? []).map((k) => ageRanges.find((r) => r.key === k)?.name).filter(Boolean).join(', ') || 'Edades'
+    if (a.all) return 'Toda la iglesia'
+    const parts = [
+      ...a.teamIds.map((id) => teamById.get(id)),
+      ...a.roleIds.map((id) => roleById.get(id)),
+      ...a.ageKeys.map((k) => ageRanges.find((r) => r.key === k)?.name),
+    ].filter(Boolean)
+    return parts.join(', ') || 'Toda la iglesia'
   }
 
-  const week = useMemo(() => projectWeek(schedules, weekStart(weekRef)), [schedules, weekRef])
-  const todayKey = new Date().toDateString()
 
   const openNew = () => {
     setEditing(null)
     setNewWeekday(null)
+    setNewStart(null)
     setShowForm(true)
   }
-  const openNewForDay = (d: Date) => {
+  const openNewAt = (d: Date, start?: string) => {
     setEditing(null)
     setNewWeekday(d.getDay())
+    setNewStart(start ?? null)
     setShowForm(true)
+  }
+  // Crear al SOLTAR (sin abrir el formulario): actividad de una sola fecha,
+  // recurrencia apagada, bloque de 1 h alineado a la hora. Se edita luego.
+  const createQuick = async (d: Date, start?: string, attrs?: NewActivityAttrs) => {
+    if (!churchId) return
+    const type = attrs?.typeId ? typeById.get(attrs.typeId) : undefined
+    const s = start ?? '08:00'
+    const end = `${String(Math.min(23, Number(s.slice(0, 2)) + 1)).padStart(2, '0')}:${s.slice(3, 5)}`
+    const onDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const { data } = await supabase.from('activity_schedules').insert({
+      church_id: churchId, name: type?.name ?? 'Nueva actividad', type_id: attrs?.typeId ?? null,
+      freq: 'weekly', weekday: d.getDay(),
+      start_time: s, end_time: end, on_date: onDate,
+      audience: (attrs?.audience ?? { scope: 'all' }) as never, assignees: [] as never, enabled: true,
+    }).select('id').single()
+    // Equipos elegidos inline → capa 1 del servicio.
+    const teamIds = attrs?.teamIds ?? []
+    if (teamIds.length && data?.id) {
+      await supabase.from('schedule_teams').insert(
+        teamIds.map((teamId) => ({ church_id: churchId, schedule_id: data.id, team_id: teamId, delegate: false, member_ids: [] as never })),
+      )
+    }
+    await load()
   }
   const openEdit = (s: Schedule) => {
     setEditing(s)
@@ -217,8 +236,6 @@ export default function Calendar() {
   }
   if (!membership) return <Navigate to="/onboarding" replace />
 
-  const ws = weekStart(weekRef)
-  const rangeLabel = `${ws.getDate()} ${ws.toLocaleDateString('es', { month: 'short' })} – ${addDays(ws, 6).getDate()} ${addDays(ws, 6).toLocaleDateString('es', { month: 'short' })}`
 
   const sortedList = [...schedules]
     .filter((s) => !s.parentId)
@@ -238,52 +255,19 @@ export default function Calendar() {
           </button>
         </div>
 
-        {/* Calendario en línea de tiempo: ciclos */}
+        {/* Agenda tipo calendario */}
         <section className="mb-10">
-          <h2 className="mb-1 font-serif text-lg text-charcoal">Calendario</h2>
-          <p className="mb-3 text-sm text-graysage">Marca ciclos (trimestres, campañas…) en la línea de tiempo. Usa el zoom para cambiar la escala (horas, días, semanas, meses).</p>
-          {churchId && (
-            <CalendarTimeline
-              churchId={churchId}
-              cycles={cycles}
-              recurring={schedules.filter((s) => !s.parentId && s.enabled).map((s) => ({ ...s, color: typeById.get(s.typeId ?? '')?.color ?? '#94a3b8', responsibles: s.assignees.length ? encargadosLabel(s) : null, preacher: preacherOf(s) }))}
-              onEditSchedule={(id) => { const s = schedules.find((x) => x.id === id); if (s) openEdit(s) }}
-              onAddDay={openNewForDay}
-            />
-          )}
+          <AgendaView
+            recurring={schedules.filter((s) => !s.parentId && s.enabled).map((s) => ({ ...s, color: typeById.get(s.typeId ?? '')?.color ?? '#94a3b8', responsibles: s.assignees.length ? encargadosLabel(s) : null, preacher: preacherOf(s) }))}
+            typeOptions={types.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
+            teamOptions={teams.map((t) => ({ id: t.id, name: t.name }))}
+            roleOptions={roles.map((r) => ({ id: r.id, name: r.name }))}
+            ageOptions={ageRanges.map((r) => ({ key: r.key, name: r.name }))}
+            onEdit={(id) => { const s = schedules.find((x) => x.id === id); if (s) openEdit(s) }}
+            onNewAt={openNewAt}
+            onDropNew={createQuick}
+          />
         </section>
-
-        {/* Navegación de semana */}
-        <div className="mb-3 flex items-center gap-3">
-          <button type="button" onClick={() => setWeekRef(addDays(ws, -7))} className="rounded-lg border border-graysage/25 px-2.5 py-1 text-sm text-graysage hover:bg-white">←</button>
-          <button type="button" onClick={() => setWeekRef(new Date())} className="rounded-lg border border-graysage/25 px-3 py-1 text-sm text-graysage hover:bg-white">Hoy</button>
-          <button type="button" onClick={() => setWeekRef(addDays(ws, 7))} className="rounded-lg border border-graysage/25 px-2.5 py-1 text-sm text-graysage hover:bg-white">→</button>
-          <span className="font-mono text-xs text-graysage">{rangeLabel}</span>
-        </div>
-
-        {/* Vista de semana proyectada */}
-        <div className="mb-10 grid gap-2 sm:grid-cols-7">
-          {week.map((day) => {
-            const isToday = day.date.toDateString() === todayKey
-            return (
-              <div key={day.date.toISOString()} className={`rounded-xl border bg-white p-2 ${isToday ? 'border-sage ring-1 ring-sage/30' : 'border-clay-light/40'}`}>
-                <div className="mb-2 flex items-baseline justify-between">
-                  <span className={`text-xs font-medium ${isToday ? 'text-sage-dark' : 'text-graysage'}`}>{WEEKDAYS_SHORT[day.weekday]}</span>
-                  <span className={`text-sm ${isToday ? 'font-semibold text-sage-dark' : 'text-charcoal'}`}>{day.date.getDate()}</span>
-                </div>
-                <div className="space-y-1.5">
-                  {day.items.length === 0 && <p className="py-2 text-center text-[0.65rem] text-graysage/40">—</p>}
-                  {day.items.map((s) => (
-                    <button key={s.id} type="button" onClick={() => openEdit(s)} style={{ borderLeftColor: colorOf(s) }} className={`block w-full rounded-md border-l-4 bg-cream/60 px-2 py-1.5 text-left transition hover:bg-cream ${s.enabled ? '' : 'opacity-40'}`}>
-                      {s.startTime && <span className="font-mono text-[0.65rem] text-graysage">{formatTime(s.startTime)}</span>}
-                      <span className="block text-xs font-medium leading-tight text-charcoal">{s.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
 
         {/* Lista de actividades recurrentes */}
         <h2 className="mb-3 font-serif text-lg text-charcoal">Actividades recurrentes</h2>
@@ -323,6 +307,7 @@ export default function Calendar() {
           churchId={churchId!}
           editing={editing}
           defaultWeekday={newWeekday ?? undefined}
+          defaultStart={newStart ?? undefined}
           editingTeams={editing ? teamsBySchedule.get(editing.id) ?? [] : []}
           editingSegments={editing ? segmentsBySchedule.get(editing.id) ?? [] : []}
           types={types}

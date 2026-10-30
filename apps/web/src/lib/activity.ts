@@ -5,12 +5,19 @@ export const WEEKDAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', '
 export const WEEKDAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
 export type Freq = 'weekly' | 'monthly'
-export type AudienceScope = 'all' | 'roles' | 'teams' | 'ages'
+export type AudienceScope = 'all' | 'roles' | 'teams' | 'ages' // legado (lectura de filas antiguas)
 
+// A quién va dirigida la actividad. Combinable: puede ir a roles Y equipos Y
+// rangos de edad a la vez. `all` (toda la iglesia) es excluyente.
 export interface Audience {
-  scope: AudienceScope
-  ids?: string[] // roles o teams
-  keys?: string[] // rangos de edad
+  all: boolean
+  roleIds: string[]
+  teamIds: string[]
+  ageKeys: string[]
+}
+export const AUDIENCE_ALL: Audience = { all: true, roleIds: [], teamIds: [], ageKeys: [] }
+export function audienceIsEmpty(a: Audience): boolean {
+  return !a.roleIds.length && !a.teamIds.length && !a.ageKeys.length
 }
 
 export interface ActivityType {
@@ -35,6 +42,7 @@ export interface Schedule {
   location: string | null
   responsibleTeamId: string | null
   assignees: Assignee[] // encargados de la actividad (Capa 2)
+  onDate: string | null // 'YYYY-MM-DD' → actividad de una sola fecha (recurrencia apagada); null = recurrente
   sortOrder: number
   enabled: boolean
 }
@@ -150,11 +158,22 @@ export function readActivityTemplates(settings: unknown): ActivityTemplate[] {
     }))
 }
 
+// Lee la audiencia de una fila. Acepta el formato NUEVO (all/roleIds/teamIds/
+// ageKeys) y el LEGADO (scope + ids/keys) de filas creadas antes.
 export function readAudience(json: unknown): Audience {
-  const a = (json ?? {}) as Partial<Audience>
-  const scope: AudienceScope =
-    a.scope === 'roles' || a.scope === 'teams' || a.scope === 'ages' ? a.scope : 'all'
-  return { scope, ids: a.ids ?? [], keys: a.keys ?? [] }
+  const a = (json ?? {}) as Record<string, unknown>
+  const arr = (v: unknown): string[] => (Array.isArray(v) ? (v.filter((x) => typeof x === 'string') as string[]) : [])
+  if ('all' in a || 'roleIds' in a || 'teamIds' in a || 'ageKeys' in a) {
+    const roleIds = arr(a.roleIds), teamIds = arr(a.teamIds), ageKeys = arr(a.ageKeys)
+    const all = a.all === true || (!roleIds.length && !teamIds.length && !ageKeys.length)
+    return { all, roleIds, teamIds, ageKeys }
+  }
+  // legado: scope único + ids/keys
+  const ids = arr(a.ids), keys = arr(a.keys)
+  if (a.scope === 'roles') return { all: false, roleIds: ids, teamIds: [], ageKeys: [] }
+  if (a.scope === 'teams') return { all: false, roleIds: [], teamIds: ids, ageKeys: [] }
+  if (a.scope === 'ages') return { all: false, roleIds: [], teamIds: [], ageKeys: keys }
+  return { ...AUDIENCE_ALL }
 }
 
 // 'HH:MM:SS' → minutos desde medianoche (para ordenar). null = al final del día.
@@ -187,9 +206,13 @@ function isLastWeekdayOfMonth(date: Date): boolean {
   return d.getMonth() !== date.getMonth()
 }
 
-// ¿La actividad recurrente ocurre en esta fecha?
+// ¿La actividad ocurre en esta fecha? (una sola fecha si onDate; si no, recurrente)
 export function occursOn(s: Schedule, date: Date): boolean {
   if (!s.enabled) return false
+  if (s.onDate) {
+    const [y, m, d] = s.onDate.split('-').map(Number)
+    return date.getFullYear() === y && date.getMonth() === (m || 1) - 1 && date.getDate() === d
+  }
   if (date.getDay() !== s.weekday) return false
   if (s.freq === 'weekly') return true
   // monthly: debe coincidir el ordinal

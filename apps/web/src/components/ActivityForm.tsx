@@ -1,15 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import ServiceTimeline, { type TimelineHandle } from './ServiceTimeline'
+import AudiencePicker from './AudiencePicker'
 import type { AgeRangeDef } from '../lib/member'
 import {
+  AUDIENCE_ALL,
   WEEKDAYS,
   clockToMin,
   serviceMinutes,
   type ActivityType,
   type Assignee,
   type Audience,
-  type AudienceScope,
   type Freq,
   type Schedule,
   type ScheduleTeam,
@@ -158,6 +159,7 @@ export default function ActivityForm({
   churchId,
   editing,
   defaultWeekday,
+  defaultStart,
   editingTeams,
   editingSegments,
   types,
@@ -177,6 +179,7 @@ export default function ActivityForm({
   churchId: string
   editing: Schedule | null
   defaultWeekday?: number
+  defaultStart?: string
   editingTeams: ScheduleTeam[]
   editingSegments: Segment[]
   types: ActivityType[]
@@ -213,11 +216,9 @@ export default function ActivityForm({
   const [weekday, setWeekday] = useState(editing?.weekday ?? defaultWeekday ?? 0)
   const [freq, setFreq] = useState<Freq>(editing?.freq ?? 'weekly')
   const [nth, setNth] = useState(editing?.nth && editing.nth !== 0 ? editing.nth : 1)
-  const [startTime, setStartTime] = useState(editing?.startTime ? editing.startTime.slice(0, 5) : '')
+  const [startTime, setStartTime] = useState(editing?.startTime ? editing.startTime.slice(0, 5) : defaultStart ?? '')
   const [endTime, setEndTime] = useState(editing?.endTime ? editing.endTime.slice(0, 5) : '')
-  const [audScope, setAudScope] = useState<AudienceScope>(editing?.audience.scope ?? 'all')
-  const [audIds, setAudIds] = useState<string[]>(editing?.audience.ids ?? [])
-  const [audKeys, setAudKeys] = useState<string[]>(editing?.audience.keys ?? [])
+  const [audience, setAudience] = useState<Audience>(editing?.audience ?? { ...AUDIENCE_ALL })
 
   const teamsOf = (ids: string[]): ScheduleTeam[] => ids.filter((id) => teams.some((t) => t.id === id)).map((id) => ({ teamId: id, delegate: false, memberIds: [] }))
   const [partTeams, setPartTeams] = useState<ScheduleTeam[]>(
@@ -473,8 +474,6 @@ export default function ActivityForm({
     }
     setSaving(true)
     setError(null)
-    const audience: Audience =
-      audScope === 'all' ? { scope: 'all' } : audScope === 'ages' ? { scope: 'ages', keys: audKeys } : { scope: audScope, ids: audIds }
     const payload = {
       church_id: churchId,
       name: name.trim(),
@@ -537,7 +536,7 @@ export default function ActivityForm({
   }
 
   // Confirmar al cerrar si hay cambios sin guardar (evita perder trabajo por toques accidentales).
-  const snapshot = () => JSON.stringify({ name, typeId, weekday, freq, nth, startTime, endTime, audScope, audIds, audKeys, actAssignees, partTeams, segments })
+  const snapshot = () => JSON.stringify({ name, typeId, weekday, freq, nth, startTime, endTime, audience, actAssignees, partTeams, segments })
   const initialSnap = useRef<string | null>(null)
   if (initialSnap.current === null) initialSnap.current = snapshot()
   const handleClose = () => {
@@ -633,16 +632,14 @@ export default function ActivityForm({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-graysage">¿Para quién?</label>
-            <select value={audScope} onChange={(e) => setAudScope(e.target.value as AudienceScope)} className={inputCls}>
-              <option value="all">Toda la iglesia</option>
-              <option value="teams">Equipos específicos</option>
-              <option value="roles">Roles específicos</option>
-              <option value="ages">Rangos de edad</option>
-            </select>
-            {audScope === 'teams' && (<div className="mt-2 flex flex-wrap gap-2">{teams.map((t) => (<button key={t.id} type="button" onClick={() => setAudIds(toggleArr(audIds, t.id))} className={chipCls(audIds.includes(t.id))}>{t.name}</button>))}</div>)}
-            {audScope === 'roles' && (<div className="mt-2 flex flex-wrap gap-2">{roles.map((r) => (<button key={r.id} type="button" onClick={() => setAudIds(toggleArr(audIds, r.id))} className={chipCls(audIds.includes(r.id))}>{r.name}</button>))}</div>)}
-            {audScope === 'ages' && (<div className="mt-2 flex flex-wrap gap-2">{ageRanges.filter((r) => r.enabled).map((r) => (<button key={r.key} type="button" onClick={() => setAudKeys(toggleArr(audKeys, r.key))} className={chipCls(audKeys.includes(r.key))}>{r.name}</button>))}</div>)}
+            <label className="mb-2 block text-sm font-medium text-graysage">¿Para quién?</label>
+            <AudiencePicker
+              value={audience}
+              onChange={setAudience}
+              roles={roles.map((r) => ({ id: r.id, name: r.name }))}
+              teams={teams.map((t) => ({ id: t.id, name: t.name }))}
+              ages={ageRanges.filter((r) => r.enabled).map((r) => ({ key: r.key, name: r.name }))}
+            />
           </div>
 
           {/* Capa 2: encargados de la actividad (equipo / rol / persona) */}

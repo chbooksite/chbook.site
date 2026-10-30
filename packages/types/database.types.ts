@@ -52,6 +52,7 @@ export type Database = {
           location: string | null
           name: string
           nth: number | null
+          on_date: string | null
           parent_id: string | null
           responsible_team_id: string | null
           sort_order: number | null
@@ -71,6 +72,7 @@ export type Database = {
           location?: string | null
           name: string
           nth?: number | null
+          on_date?: string | null
           parent_id?: string | null
           responsible_team_id?: string | null
           sort_order?: number | null
@@ -90,6 +92,7 @@ export type Database = {
           location?: string | null
           name?: string
           nth?: number | null
+          on_date?: string | null
           parent_id?: string | null
           responsible_team_id?: string | null
           sort_order?: number | null
