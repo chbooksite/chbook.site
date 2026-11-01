@@ -1,0 +1,9 @@
+{
+  "name": "@chbook/types",
+  "version": "0.0.0",
+  "private": true,
+  "types": "./database.types.ts",
+  "exports": {
+    ".": "./database.types.ts"
+  }
+}

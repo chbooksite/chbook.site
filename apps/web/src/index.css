@@ -1,2 +1,12 @@
 @import "tailwindcss";
 @config "../tailwind.config.js";
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  body {
+    background-color: #ffffff; /* blanco por defecto */
+    color: #383835; /* gris oscuro */
+  }
+}

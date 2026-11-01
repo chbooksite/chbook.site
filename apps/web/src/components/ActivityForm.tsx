@@ -1,0 +1,901 @@
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
+import { supabase } from '../lib/supabase'
+import ServiceTimeline, { type TimelineHandle } from './ServiceTimeline'
+import AudiencePicker from './AudiencePicker'
+import type { AgeRangeDef } from '../lib/member'
+import {
+  AUDIENCE_ALL,
+  WEEKDAYS,
+  clockToMin,
+  serviceMinutes,
+  type ActivityType,
+  type Assignee,
+  type Audience,
+  type Freq,
+  type Schedule,
+  type ScheduleTeam,
+  type Segment,
+  type Tag,
+  type ActivityTemplate,
+} from '../lib/activity'
+
+interface Opt {
+  id: string
+  name: string
+  key?: string
+}
+type Seg = Segment & { _k: string }
+
+// Equipos activos por defecto al crear una actividad nueva.
+const DEFAULT_TEAM_KEYS = ['multimedia', 'diaconos', 'musica', 'finanzas']
+
+const inputCls =
+  'w-full rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+
+function chipCls(active: boolean): string {
+  return `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-sage-light text-sage-dark' : 'bg-cream text-graysage hover:bg-sage/10'}`
+}
+// Chip del catálogo de actividades: en uso (ya en la línea) cambia de color.
+function catalogChipCls(used: boolean): string {
+  return `rounded-full px-2.5 py-1 text-xs transition ${used ? 'bg-sage/20 font-medium text-sage-dark' : 'border border-graysage/25 text-graysage hover:bg-sage/10'}`
+}
+const mkKey = () => Math.random().toString(36).slice(2)
+const withKey = (s: Segment): Seg => ({ ...s, _k: mkKey() })
+
+// hex (#rgb o #rrggbb) → rgba con alfa dado.
+function withAlpha(hex: string, a: number): string {
+  const h = hex.replace('#', '')
+  const n = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const r = parseInt(n.slice(0, 2), 16) || 0
+  const g = parseInt(n.slice(2, 4), 16) || 0
+  const b = parseInt(n.slice(4, 6), 16) || 0
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}
+
+type Rect = { left: number; top: number; width: number; height: number }
+
+// Transición tipo "shared element" (FLIP): la tarjeta nace desde el rectángulo
+// exacto de la etiqueta tocada en la barra y crece hasta su tamaño; al cerrar,
+// se encoge de vuelta a esa misma etiqueta. Si no hay rect (abrir desde lista),
+// cae a un pop simple.
+function PopCard({ color, open, originRect, onExited, children }: { color: string; open: boolean; originRect: Rect | null; onExited: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const DUR = 320
+
+  const toOrigin = (el: HTMLElement) => {
+    el.style.transform = '' // medir el reposo real (idempotente ante doble-invocación)
+    void el.offsetWidth
+    const rest = el.getBoundingClientRect()
+    const o = originRect ?? { left: rest.left + rest.width / 2 - 20, top: rest.top - 12, width: 40, height: 16 }
+    const dx = o.left - rest.left
+    const dy = o.top - rest.top
+    const sx = Math.max(o.width / rest.width, 0.02)
+    const sy = Math.max(o.height / rest.height, 0.02)
+    el.style.transformOrigin = 'top left'
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`
+    el.style.opacity = '0.85'
+  }
+
+  // Entrada: medir el reposo, colocar en la etiqueta sin transición, y animar a 0.
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.transition = 'none'
+    toOrigin(el)
+    void el.offsetWidth
+    requestAnimationFrame(() => {
+      el.style.transition = `transform ${DUR}ms cubic-bezier(.4,0,.2,1), opacity ${DUR}ms ease`
+      el.style.transform = ''
+      el.style.opacity = '1'
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Cierre: volver a encogerse hacia la etiqueta (animación inversa).
+  useEffect(() => {
+    if (open) return
+    const el = ref.current
+    if (!el) return
+    el.style.transition = `transform ${DUR}ms cubic-bezier(.4,0,.2,1), opacity ${DUR}ms ease`
+    toOrigin(el)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  return (
+    <div
+      ref={ref}
+      data-card
+      onTransitionEnd={(e) => { if (e.target === e.currentTarget && !open) onExited() }}
+      style={{ borderColor: color, backgroundColor: withAlpha(color, 0.8) }}
+      className="overflow-hidden rounded-xl border-l-4 shadow-xl backdrop-blur-sm"
+    >
+      {children}
+    </div>
+  )
+}
+
+const DEFAULT_TIMELINE: { name: string; min: number; tag: string }[] = [
+  { name: 'Inicio', min: 5, tag: 'Bienvenida' },
+  { name: 'Alabanza', min: 25, tag: 'Alabanza' },
+  { name: 'Palabra', min: 35, tag: 'Prédica' },
+  { name: 'Ofrenda', min: 15, tag: 'Ofrenda' },
+  { name: 'Anuncios', min: 5, tag: 'Anuncios' },
+  { name: 'Despedida', min: 5, tag: 'Despedida' },
+]
+function defaultSegments(tags: Tag[]): Seg[] {
+  return DEFAULT_TIMELINE.map((d) => {
+    const t = tags.find((x) => x.name.toLowerCase() === d.tag.toLowerCase())
+    return withKey({ tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignees: [], pinned: false, level: 1, color: null, startOffset: 0 })
+  })
+}
+
+function reorderRespectingPins(arr: Seg[], from: number, to: number): Seg[] {
+  const moved = [...arr]
+  const [m] = moved.splice(from, 1)
+  moved.splice(Math.max(0, Math.min(moved.length, to)), 0, m)
+  const pinAt = new Map(arr.map((s, i) => [i, s]).filter(([, s]) => (s as Seg).pinned) as [number, Seg][])
+  const rest = moved.filter((s) => !s.pinned)
+  const out: Seg[] = []
+  let ri = 0
+  for (let i = 0; i < arr.length; i++) out.push(pinAt.get(i) ?? rest[ri++])
+  return out
+}
+
+// Reordena solo dentro de un nivel, conservando las posiciones de los demás.
+function reorderWithinLevel(arr: Seg[], level: number, key: string, toIdx: number): Seg[] {
+  const positions: number[] = []
+  arr.forEach((s, i) => { if ((s.level ?? 1) === level) positions.push(i) })
+  const sub = positions.map((i) => arr[i])
+  const from = sub.findIndex((s) => s._k === key)
+  if (from < 0) return arr
+  const reordered = reorderRespectingPins(sub, from, toIdx)
+  if (sub.every((s, i) => s._k === reordered[i]._k)) return arr // sin cambios → no re-render
+  const copy = [...arr]
+  positions.forEach((gi, k) => (copy[gi] = reordered[k]))
+  return copy
+}
+
+export default function ActivityForm({
+  churchId,
+  editing,
+  defaultWeekday,
+  defaultStart,
+  editingTeams,
+  editingSegments,
+  types,
+  teams,
+  roles,
+  ageRanges,
+  tags,
+  members,
+  membersByTeam,
+  membersByRole,
+  templates,
+  onTemplatesChange,
+  onClose,
+  onSaved,
+  onTagCreated,
+}: {
+  churchId: string
+  editing: Schedule | null
+  defaultWeekday?: number
+  defaultStart?: string
+  editingTeams: ScheduleTeam[]
+  editingSegments: Segment[]
+  types: ActivityType[]
+  teams: Opt[]
+  roles: Opt[]
+  ageRanges: AgeRangeDef[]
+  tags: Tag[]
+  members: Opt[]
+  membersByTeam: Map<string, Opt[]>
+  membersByRole: Map<string, Opt[]>
+  templates: ActivityTemplate[]
+  onTemplatesChange: (t: ActivityTemplate[]) => void
+  onClose: () => void
+  onSaved: () => void
+  onTagCreated: (t: Tag) => void
+}) {
+  const typeById = new Map(types.map((t) => [t.id, t]))
+  const teamName = (id: string) => teams.find((t) => t.id === id)?.name ?? '—'
+  const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? 'Rol'
+  const memberName = (id: string) => members.find((m) => m.id === id)?.name ?? 'Persona'
+
+  // Encargados de la ACTIVIDAD (Capa 2): equipo / rol / persona responsable.
+  const [actAssignees, setActAssignees] = useState<Assignee[]>(editing?.assignees ?? [])
+  const actLabel = (a: Assignee) => (a.kind === 'team' ? teamName(a.id) : a.kind === 'role' ? roleName(a.id) : memberName(a.id))
+  const actMembersOf = (a: Assignee): Opt[] => (a.kind === 'team' ? membersByTeam.get(a.id) : a.kind === 'role' ? membersByRole.get(a.id) : undefined) ?? []
+  const actAdd = (kind: Assignee['kind'], id: string) =>
+    setActAssignees((prev) => (prev.some((a) => a.kind === kind && a.id === id) ? prev : [...prev, { kind, id, memberIds: [] }]))
+  const actRemove = (idx: number) => setActAssignees((prev) => prev.filter((_, i) => i !== idx))
+  const actToggleMember = (idx: number, memberId: string) =>
+    setActAssignees((prev) => prev.map((a, i) => (i === idx ? { ...a, memberIds: toggleArr(a.memberIds, memberId) } : a)))
+
+  const [name, setName] = useState(editing?.name ?? '')
+  const [typeId, setTypeId] = useState(editing?.typeId ?? '')
+  const [weekday, setWeekday] = useState(editing?.weekday ?? defaultWeekday ?? 0)
+  const [freq, setFreq] = useState<Freq>(editing?.freq ?? 'weekly')
+  const [nth, setNth] = useState(editing?.nth && editing.nth !== 0 ? editing.nth : 1)
+  const [startTime, setStartTime] = useState(editing?.startTime ? editing.startTime.slice(0, 5) : defaultStart ?? '')
+  const [endTime, setEndTime] = useState(editing?.endTime ? editing.endTime.slice(0, 5) : '')
+  const [audience, setAudience] = useState<Audience>(editing?.audience ?? { ...AUDIENCE_ALL })
+
+  const teamsOf = (ids: string[]): ScheduleTeam[] => ids.filter((id) => teams.some((t) => t.id === id)).map((id) => ({ teamId: id, delegate: false, memberIds: [] }))
+  const [partTeams, setPartTeams] = useState<ScheduleTeam[]>(
+    editing ? editingTeams : teams.filter((t) => t.key && DEFAULT_TEAM_KEYS.includes(t.key)).map((t) => ({ teamId: t.id, delegate: false, memberIds: [] })),
+  )
+  const [tpls, setTpls] = useState<ActivityTemplate[]>(templates)
+  const [templateName, setTemplateName] = useState('')
+  const [segments, setSegments] = useState<Seg[]>(editing ? editingSegments.map(withKey) : defaultSegments(tags))
+  const [newTagName, setNewTagName] = useState('')
+  const [listOpen, setListOpen] = useState(false)
+  const [menuKey, setMenuKey] = useState<string | null>(null)
+
+  // Varias tarjetas abiertas a la vez. Cada una: fijable (pin), arrastrable (dx/dy),
+  // y animada al abrir/cerrar (open). Las no fijadas se cierran al abrir otra o al
+  // hacer clic fuera.
+  interface OpenCard { key: string; pinned: boolean; rect: Rect | null; dx: number; dy: number; open: boolean }
+  const [cards, setCards] = useState<OpenCard[]>([])
+  const openKeys = cards.filter((c) => c.open).map((c) => c.key)
+  const isOpen = (k: string) => cards.some((c) => c.key === k && c.open)
+
+  const openCard = (key: string, rect?: Rect) =>
+    setCards((prev) => {
+      const ex = prev.find((c) => c.key === key)
+      if (ex) return prev.map((c) => (c.key === key ? { ...c, open: !c.open, ...(!c.open && rect ? { rect } : {}) } : c)) // toggle (reabre si venía cerrándose)
+      const kept = prev.map((c) => (c.pinned ? c : { ...c, open: false })) // cierra las no fijadas
+      return [...kept, { key, pinned: false, rect: rect ?? null, dx: 0, dy: 0, open: true }]
+    })
+  const closeCard = (key: string) => setCards((prev) => prev.map((c) => (c.key === key ? { ...c, open: false } : c)))
+  const removeExitedCard = (key: string) => setCards((prev) => prev.filter((c) => !(c.key === key && !c.open)))
+  const pinCard = (key: string) => setCards((prev) => prev.map((c) => (c.key === key ? { ...c, pinned: !c.pinned } : c)))
+  const closeUnpinned = () => setCards((prev) => prev.map((c) => (c.pinned ? c : { ...c, open: false })))
+  const deleteSeg = (key: string) => { removeSeg(key); setCards((prev) => prev.filter((c) => c.key !== key)) }
+
+  // Arrastre de la tarjeta por la pantalla: desde cualquier zona vacía coloreada
+  // (no sobre inputs/botones) y SOLO mientras se mantiene presionado el botón.
+  const cardDrag = useRef<{ key: string; sx: number; sy: number; dx0: number; dy0: number } | null>(null)
+  const onCardHandleDown = (key: string) => (e: RPointerEvent) => {
+    if ((e.target as HTMLElement).closest('input, button, select, textarea, [contenteditable="true"]')) return
+    const c = cards.find((x) => x.key === key)
+    cardDrag.current = { key, sx: e.clientX, sy: e.clientY, dx0: c?.dx ?? 0, dy0: c?.dy ?? 0 }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const onCardHandleMove = (e: RPointerEvent) => {
+    const d = cardDrag.current
+    if (!d) return
+    if (e.buttons === 0) { cardDrag.current = null; return } // sin botón presionado → no arrastrar
+    setCards((prev) => prev.map((c) => (c.key === d.key ? { ...c, dx: d.dx0 + (e.clientX - d.sx), dy: d.dy0 + (e.clientY - d.sy) } : c)))
+  }
+  const onCardHandleUp = () => { cardDrag.current = null }
+
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [confirmClose, setConfirmClose] = useState(false)
+
+  // Arrastrar chips (catálogo de actividades / equipos) hasta la línea de tiempo.
+  const timelineRef = useRef<TimelineHandle>(null)
+  const chipData = useRef<({ kind: 'activity'; tag: Tag } | { kind: 'team'; teamId: string }) & { x: number; y: number; moved: boolean; pointerId: number } | null>(null)
+  const chipDidDrag = useRef(false)
+  const [chipDrag, setChipDrag] = useState<{ label: string; color: string; x: number; y: number; over: boolean } | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ kind: 'activity' | 'team'; level: number | null; segmentKey: string | null; timeMin: number | null; durationMin: number | null } | null>(null)
+
+  const startActivityChip = (t: Tag) => (e: RPointerEvent) => {
+    chipData.current = { kind: 'activity', tag: t, x: e.clientX, y: e.clientY, moved: false, pointerId: e.pointerId }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const startTeamChip = (teamId: string) => (e: RPointerEvent) => {
+    chipData.current = { kind: 'team', teamId, x: e.clientX, y: e.clientY, moved: false, pointerId: e.pointerId }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const onChipMove = (e: RPointerEvent) => {
+    const d = chipData.current
+    if (!d) return
+    if (!d.moved && Math.abs(e.clientX - d.x) < 4 && Math.abs(e.clientY - d.y) < 4) return
+    d.moved = true
+    d.x = e.clientX
+    d.y = e.clientY
+    const hit = timelineRef.current?.hitTest(e.clientX, e.clientY) ?? null
+    const valid = !!hit && (d.kind === 'activity' ? hit.level != null : !!hit.segmentKey)
+    setDropTarget(hit ? { kind: d.kind, level: hit.level, segmentKey: hit.segmentKey, timeMin: hit.timeMin, durationMin: d.kind === 'activity' ? d.tag.defaultDurationMin ?? 10 : null } : null)
+    setChipDrag({
+      label: d.kind === 'activity' ? d.tag.name : teamName(d.teamId),
+      color: d.kind === 'activity' ? d.tag.color ?? '#64748b' : '#8a7f70',
+      x: e.clientX,
+      y: e.clientY,
+      over: valid,
+    })
+  }
+  const onChipUp = (e: RPointerEvent) => {
+    const d = chipData.current
+    chipData.current = null
+    setChipDrag(null)
+    setDropTarget(null)
+    if (!d || !d.moved) return
+    chipDidDrag.current = true
+    setTimeout(() => { chipDidDrag.current = false }, 0)
+    const hit = timelineRef.current?.hitTest(e.clientX, e.clientY)
+    if (!hit) return
+    if (d.kind === 'activity') addSegmentAt(d.tag, hit.level, hit.timeMin)
+    else if (hit.segmentKey) { addAssignee(hit.segmentKey, 'team', d.teamId); addTeam(d.teamId) }
+  }
+
+  const toggleArr = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
+  const total = serviceMinutes(startTime || null, endTime || null)
+  const startMin = clockToMin(startTime || null)
+
+  // Capa 1
+  const addTeam = (teamId: string) => {
+    if (!teamId || partTeams.some((t) => t.teamId === teamId)) return
+    setPartTeams([...partTeams, { teamId, delegate: false, memberIds: [] }])
+  }
+  const removeTeam = (teamId: string) => setPartTeams((prev) => prev.filter((t) => t.teamId !== teamId))
+
+
+  // Capa 2
+  const patchSeg = (k: string, p: Partial<Seg>) => setSegments((prev) => prev.map((s) => (s._k === k ? { ...s, ...p } : s)))
+  const removeSeg = (k: string) => setSegments((prev) => prev.filter((s) => s._k !== k))
+  // Mover una actividad a un nivel (1 principal, 2/3 simultáneos). Al pasar a
+  // 2/3, por defecto arranca al inicio y dura la mitad (nivel 3 = mitad del 2).
+  const moveToLevel = (k: string, level: number) =>
+    setSegments((prev) => {
+      const sum = (L: number) => prev.filter((s) => (s.level ?? 1) === L).reduce((a, s) => a + (s.durationMin ?? 0), 0)
+      const scaleMin = Math.max(total ?? 0, sum(1), sum(2), sum(3), 1)
+      const empty = prev.every((s) => (s.level ?? 1) !== level) // ¿primer segmento del nivel?
+      const def = level === 3 ? Math.max(1, Math.round((sum(2) || scaleMin) / 2)) : Math.max(1, Math.round(scaleMin / 2))
+      return prev.map((s) => (s._k === k ? { ...s, level, ...(level !== 1 && empty ? { durationMin: def } : {}) } : s))
+    })
+  const addSegmentFromTag = (t: Tag) => {
+    const seg = withKey({ tagId: t.id, name: t.name, durationMin: t.defaultDurationMin ?? 10, assignees: [], pinned: false, level: 1, color: null, startOffset: 0 })
+    setSegments((prev) => [...prev, seg])
+    openCard(seg._k)
+  }
+  // Crear una actividad soltando un chip del catálogo en la línea de tiempo,
+  // en el nivel y posición indicados (nivel 1 = inserta por tiempo; 2/3 = libre).
+  const addSegmentAt = (t: Tag, level: number, timeMin: number) => {
+    const dur = t.defaultDurationMin ?? 10
+    // niveles 2/3: dentro del intervalo del servicio [0, total]
+    let off = Math.max(0, Math.round(timeMin))
+    if (total != null) off = Math.min(off, Math.max(0, total - dur))
+    const seg = withKey({ tagId: t.id, name: t.name, durationMin: dur, assignees: [], pinned: false, level, color: null, startOffset: level === 1 ? 0 : off })
+    setSegments((prev) => {
+      if (level !== 1) return [...prev, seg]
+      const l1 = prev.filter((s) => (s.level ?? 1) === 1)
+      let acc = 0
+      let ins = l1.length
+      for (let i = 0; i < l1.length; i++) { const dur = l1[i].durationMin ?? 0; if (timeMin < acc + dur / 2) { ins = i; break } acc += dur }
+      const gpos = ins < l1.length ? prev.indexOf(l1[ins]) : prev.length
+      const next = [...prev]
+      next.splice(gpos, 0, seg)
+      return next
+    })
+  }
+  const segColor = (s: Segment) => s.color ?? tags.find((t) => t.id === s.tagId)?.color ?? '#94a3b8'
+
+  // encargados
+  const membersOf = (a: Assignee): Opt[] => (a.kind === 'team' ? membersByTeam.get(a.id) : membersByRole.get(a.id)) ?? []
+  const assigneeLabel = (a: Assignee) => (a.kind === 'team' ? teamName(a.id) : roleName(a.id))
+  const addAssignee = (k: string, kind: 'team' | 'role', id: string) =>
+    setSegments((prev) => prev.map((s) => (s._k === k && !s.assignees.some((a) => a.kind === kind && a.id === id) ? { ...s, assignees: [...s.assignees, { kind, id, memberIds: [] }] } : s)))
+  const removeAssignee = (k: string, idx: number) => setSegments((prev) => prev.map((s) => (s._k === k ? { ...s, assignees: s.assignees.filter((_, i) => i !== idx) } : s)))
+  const toggleAssigneeMember = (k: string, idx: number, memberId: string) =>
+    setSegments((prev) => prev.map((s) => (s._k === k ? { ...s, assignees: s.assignees.map((a, i) => (i === idx ? { ...a, memberIds: toggleArr(a.memberIds, memberId) } : a)) } : s)))
+  const legend = (s: Seg): string => (s.assignees.length ? s.assignees.map((a) => { const n = a.memberIds.length; return n ? `${assigneeLabel(a)} (${n})` : assigneeLabel(a) }).join(' · ') : 'Sin encargado')
+  // Marcador dentro de la actividad: nombres de las personas (con su rol/equipo)
+  // cuando se eligieron; si no, solo el equipo o rol.
+  const assigneeMarker = (s: Segment): string =>
+    s.assignees
+      .map((a) => {
+        const base = assigneeLabel(a)
+        const pool = membersOf(a)
+        const names = a.memberIds.map((id) => pool.find((m) => m.id === id)?.name).filter(Boolean)
+        return names.length ? `${names.join(', ')} (${base})` : base
+      })
+      .join(' · ')
+
+  const createTag = async () => {
+    const nm = newTagName.trim()
+    if (!nm) return
+    const { data, error: err } = await supabase
+      .from('activity_tags')
+      .insert({ church_id: churchId, name: nm, default_duration_min: 10, color: '#64748b' })
+      .select('id, name, color, default_duration_min')
+      .single()
+    if (err || !data) {
+      setError(err?.message ?? 'No se pudo crear')
+      return
+    }
+    const tag: Tag = { id: data.id, name: data.name, color: data.color, defaultDurationMin: data.default_duration_min }
+    onTagCreated(tag)
+    setNewTagName('')
+    addSegmentFromTag(tag)
+  }
+
+  // Arrastre vertical de la lista
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const dragKey = useRef<string | null>(null)
+  const [dragging, setDragging] = useState<string | null>(null)
+  const onDragStart = (k: string) => (e: RPointerEvent) => {
+    dragKey.current = k
+    setDragging(k)
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const onDragMove = (e: RPointerEvent) => {
+    if (!dragKey.current || !listRef.current) return
+    const kids = Array.from(listRef.current.children) as HTMLElement[]
+    let target = kids.length - 1
+    for (let i = 0; i < kids.length; i++) {
+      const r = kids[i].getBoundingClientRect()
+      if (e.clientY < r.top + r.height / 2) { target = i; break }
+    }
+    setSegments((prev) => {
+      const from = prev.findIndex((s) => s._k === dragKey.current)
+      if (from < 0 || from === target || prev[from].pinned) return prev
+      return reorderRespectingPins(prev, from, target)
+    })
+  }
+  const onDragEnd = () => {
+    dragKey.current = null
+    setDragging(null)
+  }
+
+  // Plantillas: guardar el arreglo (equipos + línea de tiempo) y reutilizarlo.
+  const persistTemplates = async (next: ActivityTemplate[]) => {
+    const { data } = await supabase.from('churches').select('settings').eq('id', churchId).maybeSingle()
+    const s = (data?.settings ?? {}) as Record<string, unknown>
+    await supabase.from('churches').update({ settings: { ...s, activity_templates: next } as never }).eq('id', churchId)
+    setTpls(next)
+    onTemplatesChange(next)
+  }
+  const saveTemplate = () => {
+    const nm = templateName.trim()
+    if (!nm) return
+    const entry: ActivityTemplate = {
+      name: nm,
+      typeId: typeId || null,
+      teamIds: partTeams.map((t) => t.teamId),
+      segments: segments.map((s) => ({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees, pinned: s.pinned, level: s.level, color: s.color, startOffset: s.startOffset })),
+    }
+    persistTemplates([...tpls.filter((t) => t.name !== nm), entry])
+    setTemplateName('')
+  }
+  const applyTemplate = (t: ActivityTemplate) => {
+    if (t.typeId) setTypeId(t.typeId)
+    setPartTeams(teamsOf(t.teamIds))
+    setSegments(t.segments.map((s) => withKey({ tagId: s.tagId, name: s.name, durationMin: s.durationMin, assignees: s.assignees ?? [], pinned: !!s.pinned, level: s.level ?? 1, color: s.color ?? null, startOffset: s.startOffset ?? 0 })))
+    setCards([])
+  }
+  const deleteTemplate = (nm: string) => persistTemplates(tpls.filter((t) => t.name !== nm))
+
+  const save = async () => {
+    if (!name.trim()) {
+      setError('Ponle un nombre a la actividad.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    const payload = {
+      church_id: churchId,
+      name: name.trim(),
+      type_id: typeId || null,
+      freq,
+      weekday,
+      nth: freq === 'monthly' ? nth : null,
+      start_time: startTime || null,
+      end_time: endTime || null,
+      audience: audience as never,
+      assignees: actAssignees as never,
+      enabled: editing?.enabled ?? true,
+    }
+
+    let scheduleId = editing?.id ?? null
+    if (scheduleId) {
+      const { error: err } = await supabase.from('activity_schedules').update(payload).eq('id', scheduleId)
+      if (err) return fail(err.message)
+    } else {
+      const { data, error: err } = await supabase.from('activity_schedules').insert(payload).select('id').single()
+      if (err || !data) return fail(err?.message ?? 'No se pudo crear')
+      scheduleId = data.id
+    }
+
+    await supabase.from('schedule_teams').delete().eq('schedule_id', scheduleId)
+    if (partTeams.length) {
+      const { error: err } = await supabase.from('schedule_teams').insert(
+        partTeams.map((t) => ({ church_id: churchId, schedule_id: scheduleId, team_id: t.teamId, delegate: t.delegate, member_ids: t.delegate ? [] : t.memberIds })),
+      )
+      if (err) return fail(err.message)
+    }
+
+    await supabase.from('schedule_segments').delete().eq('schedule_id', scheduleId)
+    if (segments.length) {
+      const { error: err } = await supabase.from('schedule_segments').insert(
+        segments.map((s, i) => ({
+          church_id: churchId,
+          schedule_id: scheduleId,
+          tag_id: s.tagId,
+          name: s.name,
+          sort_order: i,
+          duration_min: s.durationMin,
+          assignees: s.assignees as never,
+          pinned: s.pinned,
+          level: s.level,
+          color: s.color,
+          start_offset: s.startOffset,
+        })),
+      )
+      if (err) return fail(err.message)
+    }
+
+    setSaving(false)
+    onSaved()
+
+    function fail(msg: string) {
+      setSaving(false)
+      setError(msg)
+    }
+  }
+
+  // Confirmar al cerrar si hay cambios sin guardar (evita perder trabajo por toques accidentales).
+  const snapshot = () => JSON.stringify({ name, typeId, weekday, freq, nth, startTime, endTime, audience, actAssignees, partTeams, segments })
+  const initialSnap = useRef<string | null>(null)
+  if (initialSnap.current === null) initialSnap.current = snapshot()
+  const handleClose = () => {
+    if (initialSnap.current !== snapshot()) { setConfirmClose(true); return }
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8">
+      <div
+        className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+        onClickCapture={(e) => {
+          if (!cards.some((c) => c.open && !c.pinned)) return
+          const t = e.target as HTMLElement
+          if (t.closest('[data-card]') || t.closest('[data-seg]')) return
+          closeUnpinned()
+        }}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="font-serif text-lg text-charcoal">{editing ? 'Editar actividad' : 'Nueva actividad'}</h3>
+          <button type="button" onClick={handleClose} className="rounded-lg px-2 py-1 text-lg text-graysage hover:bg-cream hover:text-charcoal" title="Cerrar">✕</button>
+        </div>
+
+        {/* Plantillas: reutilizar un arreglo (equipos + línea de tiempo) */}
+        <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-xl bg-cream/50 px-3 py-2">
+          <span className="mr-1 text-xs font-medium text-graysage">Plantillas:</span>
+          {tpls.length === 0 && <span className="text-xs text-graysage/50">ninguna guardada</span>}
+          {tpls.map((t) => (
+            <span key={t.name} className="inline-flex items-center gap-1 rounded-full border border-sage/30 bg-white px-2.5 py-1 text-xs text-charcoal">
+              <button type="button" onClick={() => applyTemplate(t)} title="Partir de esta plantilla" className="hover:text-sage-dark">{t.name}</button>
+              <button type="button" onClick={() => deleteTemplate(t.name)} title="Eliminar plantilla" className="text-graysage/60 hover:text-clay">✕</button>
+            </span>
+          ))}
+          <div className="ml-auto flex items-center gap-1.5">
+            <input
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), saveTemplate())}
+              placeholder="Nombra este esquema de planificación"
+              className="w-56 rounded-lg border border-graysage/25 bg-white px-2.5 py-1 text-xs outline-none focus:border-sage"
+            />
+            <button type="button" onClick={saveTemplate} disabled={!templateName.trim()} className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs text-sage-dark hover:bg-sage/10 disabled:opacity-50">Guardar como plantilla</button>
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-graysage">Nombre</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Culto de oración" autoFocus />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-graysage">Tipo</label>
+              <select value={typeId} onChange={(e) => { const id = e.target.value; setTypeId(id); if (!name) setName(typeById.get(id)?.name ?? '') }} className={inputCls}>
+                <option value="">Sin tipo</option>
+                {types.map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-graysage">Día</label>
+              <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))} className={inputCls}>
+                {WEEKDAYS.map((d, i) => (<option key={i} value={i}>{d}</option>))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-graysage">Frecuencia</label>
+              <select value={freq} onChange={(e) => setFreq(e.target.value as Freq)} className={inputCls}>
+                <option value="weekly">Cada semana</option>
+                <option value="monthly">Una vez al mes</option>
+              </select>
+            </div>
+            {freq === 'monthly' && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">¿Qué {WEEKDAYS[weekday].toLowerCase()} del mes?</label>
+                <select value={nth} onChange={(e) => setNth(Number(e.target.value))} className={inputCls}>
+                  <option value={1}>1º del mes</option>
+                  <option value={2}>2º del mes</option>
+                  <option value={3}>3º del mes</option>
+                  <option value={4}>4º del mes</option>
+                  <option value={-1}>Último del mes</option>
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-graysage">Hora de inicio</label>
+              <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-graysage">Hora de fin <span className="text-graysage/50">(opcional)</span></label>
+              <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className={inputCls} />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-graysage">¿Para quién?</label>
+            <AudiencePicker
+              value={audience}
+              onChange={setAudience}
+              roles={roles.map((r) => ({ id: r.id, name: r.name }))}
+              teams={teams.map((t) => ({ id: t.id, name: t.name }))}
+              ages={ageRanges.filter((r) => r.enabled).map((r) => ({ key: r.key, name: r.name }))}
+            />
+          </div>
+
+          {/* Capa 2: encargados de la actividad (equipo / rol / persona) */}
+          <div className="rounded-xl bg-cream/50 p-4">
+            <p className="text-sm font-medium text-charcoal">Encargados de la actividad</p>
+            <p className="mb-3 text-xs text-graysage">Quién es responsable de esta actividad. Asigna un equipo, un rol o personas concretas; en equipos y roles puedes marcar a quién específicamente.</p>
+            {actAssignees.length === 0 && <p className="mb-2 text-xs text-graysage/60">Aún sin encargados.</p>}
+            <div className="space-y-2">
+              {actAssignees.map((a, ai) => {
+                const mem = actMembersOf(a)
+                const badge = a.kind === 'team' ? 'bg-clay/10 text-clay' : a.kind === 'role' ? 'bg-sage-water/15 text-sage-dark' : 'bg-sage/15 text-sage-dark'
+                const kindLabel = a.kind === 'team' ? 'Equipo' : a.kind === 'role' ? 'Rol' : 'Persona'
+                return (
+                  <div key={`${a.kind}:${a.id}`} className="rounded-lg bg-white p-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${badge}`}>{kindLabel}: {actLabel(a)}</span>
+                      <button type="button" onClick={() => actRemove(ai)} className="ml-auto text-xs text-graysage hover:text-clay">✕</button>
+                    </div>
+                    {a.kind !== 'member' && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {mem.length === 0 && <span className="text-xs text-graysage/50">Sin miembros disponibles.</span>}
+                        {mem.map((m) => (<button key={m.id} type="button" onClick={() => actToggleMember(ai, m.id)} className={chipCls(a.memberIds.includes(m.id))}>{m.name}</button>))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            <select
+              value=""
+              onChange={(e) => { const v = e.target.value; const [k, id] = v.split(':'); if (k === 'team' || k === 'role' || k === 'member') actAdd(k, id) }}
+              className="mt-2 w-full rounded-lg border border-sage/40 bg-white px-2 py-1.5 text-sm text-sage-dark outline-none focus:border-sage"
+            >
+              <option value="">+ Añadir encargado…</option>
+              <optgroup label="Equipos">{teams.map((t) => (<option key={t.id} value={`team:${t.id}`}>{t.name}</option>))}</optgroup>
+              <optgroup label="Roles">{roles.map((r) => (<option key={r.id} value={`role:${r.id}`}>{r.name}</option>))}</optgroup>
+              <optgroup label="Personas">{members.map((m) => (<option key={m.id} value={`member:${m.id}`}>{m.name}</option>))}</optgroup>
+            </select>
+          </div>
+
+          {/* Capa 1: equipos participantes (en formato etiqueta) */}
+          <div className="rounded-xl bg-cream/50 p-4">
+            <p className="text-sm font-medium text-charcoal">Equipos participantes</p>
+            <p className="mb-3 text-xs text-graysage">Toca un equipo para activarlo durante todo el servicio, o arrástralo sobre una actividad para asignarlo. Los activos cambian de color.</p>
+            <div className="flex flex-wrap gap-1.5">
+              {teams.map((t) => {
+                const active = partTeams.some((p) => p.teamId === t.id)
+                return (
+                  <button key={t.id} type="button" onPointerDown={startTeamChip(t.id)} onPointerMove={onChipMove} onPointerUp={onChipUp} onClick={() => { if (chipDidDrag.current) return; active ? removeTeam(t.id) : addTeam(t.id) }} className={`${catalogChipCls(active)} touch-none`}>{t.name}</button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Capa 2: línea de tiempo horizontal */}
+          <div className="rounded-xl bg-cream/50 p-4">
+            <p className="text-sm font-medium text-charcoal">Línea de tiempo del servicio</p>
+            <p className="mb-3 text-xs text-graysage">Arrastra el borde derecho para la duración, el cuerpo para moverla. Toca una actividad para ver y asignar sus encargados.</p>
+
+            <div className="relative mb-3">
+              <ServiceTimeline
+                ref={timelineRef}
+                dropActive={!!chipDrag}
+                dropTarget={dropTarget}
+                assigneeText={assigneeMarker}
+                segments={segments}
+                totalMin={total}
+                startMin={startMin}
+                colorOf={segColor}
+                keyOf={(s) => (s as Seg)._k}
+                openKeys={openKeys}
+                onSelect={(key, rect) => openCard(key, rect)}
+                onResize={(key, minThis, nextKey, minNext) => setSegments((prev) => prev.map((s) => (s._k === key ? { ...s, durationMin: minThis } : nextKey && s._k === nextKey ? { ...s, durationMin: minNext } : s)))}
+                onReorder={(level, key, toIdx) =>
+                  setSegments((prev) => {
+                    const cur = prev.find((s) => s._k === key)
+                    const base = cur && (cur.level ?? 1) !== level ? prev.map((s) => (s._k === key ? { ...s, level } : s)) : prev
+                    return reorderWithinLevel(base, level, key, toIdx)
+                  })
+                }
+                onPatchSeg={(key, patch) => setSegments((prev) => prev.map((s) => (s._k === key ? { ...s, ...patch } : s)))}
+                onDelete={(key) => deleteSeg(key)}
+              />
+
+            {/* tarjetas abiertas — flotantes (fijas), arrastrables por toda la pantalla y fijables */}
+            {cards.map((c) => {
+              const seg = segments.find((s) => s._k === c.key)
+              if (!seg) return null
+              const w = Math.min(360, window.innerWidth - 16)
+              const baseLeft = c.rect ? Math.max(8, Math.min(c.rect.left, window.innerWidth - w - 8)) : window.innerWidth / 2 - w / 2
+              const baseTop = c.rect ? c.rect.top + c.rect.height + 8 : 120
+              return (
+                <div
+                  key={c.key}
+                  data-card
+                  onPointerDown={onCardHandleDown(c.key)}
+                  onPointerMove={onCardHandleMove}
+                  onPointerUp={onCardHandleUp}
+                  onPointerCancel={onCardHandleUp}
+                  onLostPointerCapture={onCardHandleUp}
+                  style={{ position: 'fixed', left: baseLeft, top: baseTop, width: w, transform: `translate(${c.dx}px, ${c.dy}px)`, zIndex: 50 }}
+                  className="cursor-grab touch-none active:cursor-grabbing"
+                >
+                  <PopCard open={c.open} onExited={() => removeExitedCard(c.key)} originRect={c.rect} color={segColor(seg)}>
+                    <div className="p-3">
+                      <div className="flex items-start gap-2">
+                        <input type="color" value={segColor(seg)} onChange={(e) => patchSeg(seg._k, { color: e.target.value })} className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border border-graysage/25" title="Color de la actividad" />
+                        <input value={seg.name} onChange={(e) => patchSeg(seg._k, { name: e.target.value })} className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-serif text-base text-charcoal outline-none hover:border-graysage/20 focus:border-sage" />
+                        <button type="button" onClick={() => pinCard(c.key)} className={`px-1 text-base leading-none transition ${c.pinned ? 'text-sage-dark' : 'text-graysage/40 hover:text-graysage'}`} title={c.pinned ? 'Quitar fijado' : 'Fijar (no se cierra)'}>📌</button>
+                        <button type="button" onClick={() => closeCard(c.key)} className="px-2 text-lg leading-none text-graysage hover:text-charcoal" title="Cerrar">✕</button>
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <input type="number" min={1} value={seg.durationMin ?? ''} onChange={(e) => patchSeg(seg._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
+                        <span className="text-xs text-graysage">min</span>
+                        <button type="button" onClick={() => deleteSeg(c.key)} className="ml-auto rounded-lg px-2.5 py-1 text-xl text-graysage transition hover:bg-clay/10 hover:text-clay" title="Eliminar actividad">🗑</button>
+                      </div>
+
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-xs text-graysage">Nivel (simultáneo):</span>
+                        {[1, 2, 3].map((L) => (
+                          <button key={L} type="button" onClick={() => moveToLevel(seg._k, L)} className={`h-6 w-6 rounded-full text-xs transition ${(seg.level ?? 1) === L ? 'bg-sage-light text-sage-dark' : 'border border-graysage/30 text-graysage hover:bg-sage/10'}`} title={L === 1 ? 'Principal' : `Nivel ${L} (paralelo)`}>{L}</button>
+                        ))}
+                      </div>
+
+                      <p className="mb-1 mt-3 text-xs font-medium uppercase tracking-wide text-graysage/70">Encargados</p>
+                      {seg.assignees.length === 0 && <p className="text-xs text-graysage/60">Aún sin encargados. Añade uno abajo.</p>}
+                      <div className="space-y-2">
+                        {seg.assignees.map((a, ai) => {
+                          const members = membersOf(a)
+                          return (
+                            <div key={`${a.kind}:${a.id}`} className="rounded-lg bg-cream/60 p-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`rounded-full px-2 py-0.5 text-xs ${a.kind === 'team' ? 'bg-clay/10 text-clay' : 'bg-sage-water/15 text-sage-dark'}`}>
+                                  {a.kind === 'team' ? 'Equipo' : 'Rol'}: {assigneeLabel(a)}
+                                </span>
+                                <button type="button" onClick={() => removeAssignee(seg._k, ai)} className="ml-auto text-xs text-graysage hover:text-clay">✕</button>
+                              </div>
+                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {members.length === 0 && <span className="text-xs text-graysage/50">Sin miembros disponibles.</span>}
+                                {members.map((m) => (<button key={m.id} type="button" onClick={() => toggleAssigneeMember(seg._k, ai, m.id)} className={chipCls(a.memberIds.includes(m.id))}>{m.name}</button>))}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      <select
+                        value=""
+                        onChange={(e) => { const v = e.target.value; if (v.startsWith('team:')) addAssignee(seg._k, 'team', v.slice(5)); else if (v.startsWith('role:')) addAssignee(seg._k, 'role', v.slice(5)) }}
+                        className="mt-2 w-full rounded-lg border border-sage/40 bg-white px-2 py-1.5 text-sm text-sage-dark outline-none focus:border-sage"
+                      >
+                        <option value="">+ Añadir encargado…</option>
+                        {partTeams.length > 0 && (<optgroup label="Equipos participantes">{partTeams.map((pt) => (<option key={pt.teamId} value={`team:${pt.teamId}`}>{teamName(pt.teamId)}</option>))}</optgroup>)}
+                        <optgroup label="Roles">{roles.map((r) => (<option key={r.id} value={`role:${r.id}`}>{r.name}</option>))}</optgroup>
+                      </select>
+                    </div>
+                  </PopCard>
+                </div>
+              )
+            })}
+            </div>
+
+            {/* catálogo de actividades internas (visible) */}
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-graysage/70">Actividades internas <span className="normal-case text-graysage/50">· toca para añadir o arrástrala a la línea</span></p>
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {tags.map((t) => {
+                const used = segments.some((s) => s.tagId === t.id)
+                const col = t.color ?? '#94a3b8'
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onPointerDown={startActivityChip(t)}
+                    onPointerMove={onChipMove}
+                    onPointerUp={onChipUp}
+                    onClick={() => { if (chipDidDrag.current) return; addSegmentFromTag(t) }}
+                    style={used ? { backgroundColor: col, color: '#fff' } : undefined}
+                    className={`${used ? 'rounded-full px-2.5 py-1 text-xs font-medium' : catalogChipCls(false)} touch-none`}
+                  >
+                    + {t.name}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="mb-3 flex gap-2">
+              <input value={newTagName} onChange={(e) => setNewTagName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), createTag())} placeholder="Nueva actividad interna…" className="flex-1 rounded-lg border border-graysage/25 bg-white px-3 py-1.5 text-sm outline-none focus:border-sage" />
+              <button type="button" onClick={createTag} className="rounded-lg border border-sage/40 px-3 py-1.5 text-xs text-sage-dark hover:bg-sage/10">Agregar al catálogo</button>
+            </div>
+
+            {/* lista desplegable de actividades (la barra es lo principal) */}
+            <button type="button" onClick={() => setListOpen((v) => !v)} className="flex w-full items-center justify-between rounded-lg border border-graysage/20 bg-white px-3 py-1.5 text-sm text-graysage hover:bg-cream">
+              <span>Lista de actividades ({segments.length})</span>
+              <span className="text-xs">{listOpen ? '▾ ocultar' : '▸ ver'}</span>
+            </button>
+            {listOpen && (
+            <div ref={listRef} className="mt-1.5 space-y-1.5">
+              {segments.map((s) => (
+                <div
+                  key={s._k}
+                  data-seg
+                  onClick={() => openCard(s._k)}
+                  className={`cursor-pointer rounded-lg border bg-white p-2 transition hover:border-sage/40 hover:shadow-sm ${isOpen(s._k) ? 'border-sage ring-1 ring-sage/30' : 'border-graysage/15'} ${dragging === s._k ? 'opacity-60' : ''}`}
+                >
+                  <div className="flex items-center gap-2">
+                    {s.pinned ? (
+                      <span title="Fijada" className="text-sm">📌</span>
+                    ) : (
+                      <span onPointerDown={onDragStart(s._k)} onPointerMove={onDragMove} onPointerUp={onDragEnd} onClick={(e) => e.stopPropagation()} title="Arrastrar para reordenar" className="cursor-grab touch-none select-none px-1 text-graysage active:cursor-grabbing">⠿</span>
+                    )}
+                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: segColor(s) }} />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-charcoal">{s.name}</span>
+                    <span className="hidden truncate text-xs text-graysage sm:inline">{legend(s)}</span>
+                    <span className="font-mono text-xs text-graysage">{s.durationMin ?? 0}′</span>
+                    <div className="relative" onClick={(e) => e.stopPropagation()}>
+                      <button type="button" onClick={() => setMenuKey(menuKey === s._k ? null : s._k)} className="px-1 text-graysage hover:text-charcoal" title="Opciones">⋮</button>
+                      {menuKey === s._k && (
+                        <div className="absolute right-0 top-6 z-10 w-40 overflow-hidden rounded-lg border border-graysage/20 bg-white py-1 shadow-lg">
+                          <button type="button" onClick={() => { patchSeg(s._k, { pinned: !s.pinned }); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">{s.pinned ? 'Dejar de fijar' : 'Fijar (no mover)'}</button>
+                          <button type="button" onClick={() => { openCard(s._k); setMenuKey(null) }} className="block w-full px-3 py-1.5 text-left text-sm text-charcoal hover:bg-cream">Encargados</button>
+                        </div>
+                      )}
+                    </div>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); deleteSeg(s._k) }} className="px-1 text-graysage hover:text-clay" title="Eliminar">🗑</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            )}
+          </div>
+
+          {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
+        </div>
+
+        {chipDrag && (
+          <div style={{ left: chipDrag.x, top: chipDrag.y, backgroundColor: chipDrag.color }} className={`pointer-events-none fixed z-[80] -translate-x-1/2 -translate-y-1/2 rounded-full px-2.5 py-1 text-xs font-medium text-white shadow-lg transition-transform ${chipDrag.over ? 'scale-125 opacity-90 ring-2 ring-white' : 'scale-100 opacity-60'}`}>
+            {chipDrag.label}
+          </div>
+        )}
+
+        {confirmClose ? (
+          <div className="mt-6 flex flex-wrap items-center gap-3 rounded-lg bg-clay/10 px-3 py-2.5">
+            <span className="text-sm text-clay">Hay cambios sin guardar. Si sales, se perderán.</span>
+            <div className="ml-auto flex items-center gap-3">
+              <button type="button" onClick={() => setConfirmClose(false)} className="text-sm text-graysage hover:underline">Seguir editando</button>
+              <button type="button" onClick={onClose} className="rounded-lg border border-clay/40 px-3 py-1.5 text-sm font-medium text-clay transition hover:bg-clay/10">Salir sin guardar</button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-6 flex items-center justify-end gap-3">
+            <button type="button" onClick={handleClose} className="text-sm text-graysage hover:underline">Cancelar</button>
+            <button type="button" onClick={save} disabled={saving} className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60">
+              {saving ? 'Guardando…' : 'Guardar'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
