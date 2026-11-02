@@ -151,7 +151,7 @@ export default function AgeRangesEditor({
               <button
                 type="button"
                 onClick={() => commit(ranges.filter((x) => x.key !== r.key))}
-                className="text-xs text-graysage hover:text-clay"
+                className="text-xs text-graysage hover:text-danger"
                 title="Eliminar"
               >
                 ✕

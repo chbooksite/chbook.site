@@ -3,6 +3,10 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import MapPicker, { type Coords } from '../components/MapPicker'
+import { PageLoading } from '../components/PageShell'
+import { LogoMark } from '../components/Logo'
+import InviteQR from '../components/InviteQR'
+import { btnPrimary } from '../lib/ui'
 
 const COUNTRIES = ['Colombia', 'Venezuela', 'México', 'USA/Europa', 'Otro']
 
@@ -24,26 +28,23 @@ export default function Onboarding() {
   const [coords, setCoords] = useState<Coords | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [created, setCreated] = useState<{ name: string; code: string } | null>(null)
 
   const membersNum = Number(members) || 0
   const plan = useMemo(() => suggestPlan(membersNum), [membersNum])
 
   // Gate: si ya tiene iglesia, no debe estar aquí.
   if (membershipLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-white">
-        <p className="font-mono text-sm text-graysage">Cargando…</p>
-      </div>
-    )
+    return <PageLoading />
   }
-  if (membership) return <Navigate to="/" replace />
+  if (membership && !created) return <Navigate to="/" replace />
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
     setError(null)
 
-    const { error } = await supabase.rpc('create_church_with_pastor', {
+    const { data, error } = await supabase.rpc('create_church_with_pastor', {
       p_name: name.trim(),
       p_pastor_name: pastorName.trim(),
       p_country: country,
@@ -66,19 +67,47 @@ export default function Onboarding() {
       )
       return
     }
+    // Último paso (flujo #6): mostrar el código y el QR antes de entrar.
+    if (data?.code) setCreated({ name: data.name, code: data.code })
     await refreshMembership()
-    navigate('/', { replace: true })
+    if (!data?.code) navigate('/', { replace: true })
+  }
+
+  if (created) {
+    return (
+      <div className="con-aura min-h-screen px-4 py-10">
+        <div className="aura" aria-hidden />
+        <div className="relative mx-auto max-w-2xl">
+          <header className="subir mb-8 text-center">
+            <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-sage-dark">Iglesia creada</p>
+            <h1 className="mt-2 font-serif text-3xl text-charcoal">Invita a tu gente</h1>
+            <p className="mt-1 text-graysage">Imprime el QR y pégalo en el templo, o compártelo por WhatsApp.</p>
+          </header>
+          <section className="subir tarjeta p-6 sm:p-8">
+            <InviteQR code={created.code} churchName={created.name} />
+          </section>
+          <div className="mt-6 text-center">
+            <button type="button" onClick={() => navigate('/', { replace: true })} className={`${btnPrimary} px-6`}>
+              Ir al Dashboard →
+            </button>
+            <p className="mt-3 text-sm text-graysage">Siempre lo encuentras en Ajustes.</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   const inputCls =
-    'w-full rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+    'w-full rounded-xl border border-clay-light bg-white px-3.5 py-2.5 text-base text-charcoal outline-none transition placeholder:text-faint focus:border-sage-dark focus:ring-4 focus:ring-sage-light'
 
   return (
-    <div className="min-h-screen bg-white px-4 py-10">
-      <div className="mx-auto max-w-lg">
-        <header className="mb-8 text-center">
-          <h1 className="font-serif text-2xl text-sage-dark">Registra tu iglesia</h1>
-          <p className="mt-1 text-sm text-graysage">
+    <div className="con-aura min-h-screen px-4 py-10">
+      <div className="aura" aria-hidden />
+      <div className="relative mx-auto max-w-lg">
+        <header className="subir mb-8 flex flex-col items-center text-center">
+          <LogoMark size={56} draw className="mb-5" />
+          <h1 className="font-serif text-3xl text-charcoal">Registra tu iglesia</h1>
+          <p className="mt-1 text-graysage">
             Unos datos y quedas listo para empezar.
             {user?.email && (
               <span className="block font-mono text-xs text-graysage/70">{user.email}</span>
@@ -88,7 +117,7 @@ export default function Onboarding() {
 
         <form
           onSubmit={handleSubmit}
-          className="space-y-4 rounded-2xl border border-clay-light/40 bg-white p-6 shadow-sm"
+          className="tarjeta subir space-y-5 p-5 sm:p-7"
         >
           <div>
             <label className="mb-1 block text-sm font-medium text-graysage" htmlFor="name">
@@ -152,13 +181,13 @@ export default function Onboarding() {
           </div>
 
           {error && (
-            <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>
+            <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
           )}
 
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-lg bg-sage-dark px-4 py-2.5 font-medium text-white transition hover:brightness-95 disabled:opacity-60"
+            className={`${btnPrimary} w-full`}
           >
             {submitting ? 'Creando…' : 'Crear iglesia'}
           </button>

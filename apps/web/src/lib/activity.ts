@@ -220,6 +220,47 @@ export function occursOn(s: Schedule, date: Date): boolean {
   return nthOfMonth(date) === s.nth
 }
 
+// Fila resumida de activity_schedules (lo justo para proyectar fechas).
+export interface ScheduleSummaryRow {
+  id: string
+  parent_id: string | null
+  type_id: string | null
+  name: string
+  freq: string | null
+  weekday: number
+  nth: number | null
+  start_time: string | null
+  end_time: string | null
+  on_date: string | null
+  enabled: boolean | null
+}
+export const SCHEDULE_SUMMARY_COLUMNS = 'id, parent_id, type_id, name, freq, weekday, nth, start_time, end_time, on_date, enabled'
+
+// Reglas de primer nivel (sin sub-actividades) listas para occursOn().
+export function summaryRules(rows: ScheduleSummaryRow[]): Schedule[] {
+  return rows
+    .filter((r) => !r.parent_id)
+    .map((r) => ({
+      id: r.id, parentId: null, typeId: r.type_id, name: r.name, freq: (r.freq as Freq) ?? 'weekly', weekday: r.weekday, nth: r.nth,
+      startTime: r.start_time, endTime: r.end_time, audience: AUDIENCE_ALL, location: null, responsibleTeamId: null, assignees: [],
+      onDate: r.on_date, sortOrder: 0, enabled: r.enabled ?? true,
+    }))
+}
+
+// Regla resultante de mover una actividad a `date`: las de una sola fecha cambian
+// su fecha; las semanales, su día; las mensuales, día y ordinal (o "último").
+export function moveRule(s: Schedule, date: Date): { weekday: number; nth: number | null; onDate: string | null } {
+  const weekday = date.getDay()
+  if (s.onDate) {
+    const onDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    return { weekday, nth: s.nth, onDate }
+  }
+  if (s.freq === 'weekly') return { weekday, nth: s.nth, onDate: null }
+  const n = nthOfMonth(date)
+  const nth = (s.nth === -1 && isLastWeekdayOfMonth(date)) || n > 4 ? -1 : n
+  return { weekday, nth, onDate: null }
+}
+
 export function recurrenceLabel(s: Schedule): string {
   if (s.freq === 'weekly') return `Cada ${WEEKDAYS[s.weekday].toLowerCase()}`
   return `${nthLabel(s.nth)} ${WEEKDAYS[s.weekday].toLowerCase()} del mes`

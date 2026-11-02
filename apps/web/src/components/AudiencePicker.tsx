@@ -59,7 +59,7 @@ export default function AudiencePicker({
         <div className="mt-2 flex flex-wrap gap-1.5">{teams.map((t) => (<button key={t.id} type="button" onClick={() => toggleTeam(t.id)} className={subCls(value.teamIds.includes(t.id), 'bg-clay text-white')}>{t.name}</button>))}</div>
       )}
       {open.roles && roles.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">{roles.map((r) => (<button key={r.id} type="button" onClick={() => toggleRole(r.id)} className={subCls(value.roleIds.includes(r.id), 'bg-gold text-white')}>{r.name}</button>))}</div>
+        <div className="mt-2 flex flex-wrap gap-1.5">{roles.map((r) => (<button key={r.id} type="button" onClick={() => toggleRole(r.id)} className={subCls(value.roleIds.includes(r.id), 'bg-faint text-white')}>{r.name}</button>))}</div>
       )}
       {open.ages && ages.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">{ages.map((a) => (<button key={a.key} type="button" onClick={() => toggleAge(a.key)} className={subCls(value.ageKeys.includes(a.key), 'bg-sand text-charcoal')}>{a.name}</button>))}</div>

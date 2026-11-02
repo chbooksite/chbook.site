@@ -123,7 +123,7 @@ export function displayAgeRange(
 export const IDENTITY_TONE_CLASS: Record<IdentityTone, string> = {
   active: 'bg-sage-water/15 text-sage-dark',
   member: 'bg-sage/10 text-sage-dark',
-  prospect: 'bg-gold/15 text-clay',
+  prospect: 'bg-vela-light text-clay',
   inactive: 'bg-graysage/15 text-graysage',
   archived: 'bg-graysage/10 text-graysage/70',
 }

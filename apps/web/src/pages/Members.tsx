@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
-import AppHeader from '../components/AppHeader'
+import PageShell, { PageLoading } from '../components/PageShell'
+import Avatar from '../components/Avatar'
+import { btnPrimary, btnSecondary, fieldCls } from '../lib/ui'
 import {
   DEFAULT_RULES,
   depsSatisfied,
@@ -46,6 +48,32 @@ interface MemberRow {
   teams: { teamId: string; isLeader: boolean }[]
 }
 
+// Filtro rápido: un toque para las vistas que más usa el pastor.
+type Quick = 'all' | 'active' | 'prospect' | 'inactive' | 'noteam' | 'unbaptized'
+const isActive = (m: MemberRow) => !m.status || m.status === 'active'
+const QUICK_TEST: Record<Exclude<Quick, 'all'>, (m: MemberRow) => boolean> = {
+  active: isActive,
+  prospect: (m) => m.status === 'prospect',
+  inactive: (m) => m.status === 'inactive' || m.status === 'cambio_membresia',
+  noteam: (m) => isActive(m) && m.teams.length === 0,
+  unbaptized: (m) => isActive(m) && !m.isBaptized,
+}
+const PILLS: { quick: Quick; label: string }[] = [
+  { quick: 'all', label: 'Todos' },
+  { quick: 'active', label: 'Activos' },
+  { quick: 'prospect', label: 'Prospectos' },
+  { quick: 'inactive', label: 'Inactivos' },
+  { quick: 'noteam', label: 'Sin equipo' },
+  { quick: 'unbaptized', label: 'Sin bautizar' },
+]
+const pct = (n: number, total: number) => (total ? Math.round((n / total) * 100) : 0)
+const SUMMARY: { quick: Quick; label: string; warn?: boolean; icon: ReactNode; hint: (n: number, total: number) => string }[] = [
+  { quick: 'all', label: 'Personas', icon: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a5.5 5.5 0 0 1 3.5 6" /></>, hint: () => 'En tu iglesia, sin archivados' },
+  { quick: 'active', label: 'Activos', icon: <path d="M20 6 9 17l-5-5" />, hint: (n, t) => `${pct(n, t)}% del total` },
+  { quick: 'prospect', label: 'Por aprobar', warn: true, icon: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M19 8v6M16 11h6" /></>, hint: (n) => (n ? 'Toca para revisarlos' : 'Nadie espera aprobación') },
+  { quick: 'noteam', label: 'Sin equipo', warn: true, icon: <><path d="M7 11V7a5 5 0 0 1 10 0v4" /><path d="M4 11h16v4a8 8 0 0 1-16 0z" /></>, hint: (n) => (n ? 'Activos que aún no sirven' : 'Todos sirven en un equipo') },
+]
+
 interface DupMatch {
   id: string
   full_name: string
@@ -85,8 +113,8 @@ function FilterRow({
   onToggle: (v: string) => void
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="w-16 shrink-0 text-xs font-medium text-graysage">{label}</span>
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-20 shrink-0 text-sm font-medium text-graysage">{label}</span>
       {options.map((o) => {
         const on = selected.includes(o.value)
         return (
@@ -94,8 +122,8 @@ function FilterRow({
             key={o.value}
             type="button"
             onClick={() => onToggle(o.value)}
-            className={`rounded-full border px-2.5 py-0.5 text-xs transition ${
-              on ? 'border-sage bg-sage-light text-sage-dark' : 'border-graysage/25 text-graysage hover:border-sage'
+            className={`rounded-full border px-3 py-1 text-sm transition ${
+              on ? 'border-sage-dark/40 bg-sage-light font-medium text-sage-dark' : 'border-clay-light bg-white text-graysage hover:border-sage hover:text-charcoal'
             }`}
           >
             {o.label}
@@ -126,6 +154,9 @@ export default function Members() {
   const [fAges, setFAges] = useState<string[]>([])
   const [sortBy, setSortBy] = useState('name')
   const [expandedDeps, setExpandedDeps] = useState<Set<string>>(new Set())
+  const [showFilters, setShowFilters] = useState(false)
+  // Filtro rápido (pastillas y tarjetas de resumen), además de los filtros avanzados.
+  const [quick, setQuick] = useState<Quick>('all')
   const toggleArr = (arr: string[], setArr: (v: string[]) => void, v: string) =>
     setArr(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
 
@@ -196,13 +227,7 @@ export default function Members() {
     load()
   }, [load])
 
-  if (membershipLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-white">
-        <p className="font-mono text-sm text-graysage">Cargando…</p>
-      </div>
-    )
-  }
+  if (membershipLoading) return <PageLoading />
   if (!membership) return <Navigate to="/onboarding" replace />
 
   const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? '—'
@@ -378,14 +403,13 @@ export default function Members() {
     const id = memberIdentity(m.status, m.isBaptized, m.teams.length, m.roleIds.length)
     if (!id) return null
     return (
-      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${IDENTITY_TONE_CLASS[id.tone]}`}>
+      <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${IDENTITY_TONE_CLASS[id.tone]}`}>
         {id.text}
       </span>
     )
   }
 
-  const inputCls =
-    'w-full rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+  const inputCls = fieldCls
 
   const selectedRoleKeys = roleIds
     .map((rid) => roles.find((r) => r.id === rid)?.key)
@@ -422,6 +446,7 @@ export default function Members() {
       if (fBaptized[0] === 'no' && m.isBaptized) return false
     }
     if (fAges.length && !fAges.includes(memberRange(m) ?? '')) return false
+    if (quick !== 'all' && !QUICK_TEST[quick](m)) return false
     return true
   })
   const sorted = [...filtered].sort((a, b) => {
@@ -444,39 +469,46 @@ export default function Members() {
     })
 
   const selectCls =
-    'rounded-lg border border-graysage/25 bg-cream px-2.5 py-2 text-sm text-charcoal outline-none focus:border-sage'
+    'rounded-xl border border-clay-light bg-white px-3 py-2.5 text-sm text-charcoal outline-none transition focus:border-sage-dark focus:ring-4 focus:ring-sage/15'
+  const activeFilters = fRoles.length + fTeams.length + fStatuses.length + fBaptized.length + fAges.length
+  const prospects = members.filter((m) => m.status === 'prospect').length
+  const visible = members.filter((m) => m.status !== 'archived')
+  const countOf = (q: Quick) => (q === 'all' ? visible.length : visible.filter(QUICK_TEST[q]).length)
 
   return (
-    <div className="min-h-screen bg-white">
-      <AppHeader />
-      <main className="mx-auto max-w-none px-6 py-10 lg:px-10">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="font-serif text-2xl text-charcoal">Miembros</h1>
-            <p className="text-sm text-graysage">
-              {sorted.length === members.length
-                ? `${members.length} en tu iglesia`
-                : `${sorted.length} de ${members.length}`}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              resetForm()
-              setShowForm((v) => !v)
-            }}
-            className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95"
-          >
-            {showForm ? 'Cancelar' : '+ Agregar miembro'}
-          </button>
-        </div>
+    <PageShell
+      title="Miembros"
+      subtitle={
+        <>
+          {sorted.length === members.length ? `${members.length} personas en tu iglesia` : `${sorted.length} de ${members.length} personas`}
+          {prospects > 0 && (
+            <button type="button" onClick={() => setQuick('prospect')} className="ml-2 rounded-full bg-vela-light px-2.5 py-0.5 text-sm font-medium text-clay transition hover:brightness-95">
+              {prospects} por aprobar
+            </button>
+          )}
+        </>
+      }
+      actions={
+        <button
+          type="button"
+          onClick={() => {
+            resetForm()
+            setShowForm((v) => !v)
+          }}
+          className={showForm ? btnSecondary : btnPrimary}
+        >
+          {showForm ? 'Cancelar' : '+ Agregar miembro'}
+        </button>
+      }
+    >
 
         {/* Formulario de alta */}
         {showForm && (
           <form
             onSubmit={createMember}
-            className="mb-8 space-y-4 rounded-2xl border border-clay-light/40 bg-white p-6"
+            className="tarjeta subir mb-8 space-y-5 p-5 sm:p-7"
           >
+            <h2 className="font-serif text-xl font-bold text-charcoal">Nueva persona</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium text-graysage">Nombre completo</label>
@@ -550,8 +582,8 @@ export default function Members() {
               </div>
             </div>
 
-            <label className="flex items-center gap-2 text-sm font-medium text-graysage">
-              <input type="checkbox" checked={newBaptized} onChange={(e) => setNewBaptized(e.target.checked)} />
+            <label className="flex w-fit cursor-pointer items-center gap-2.5 rounded-xl border border-clay-light bg-cream/60 px-3.5 py-2.5 text-sm font-medium text-charcoal">
+              <input type="checkbox" className="h-4 w-4 accent-sage-dark" checked={newBaptized} onChange={(e) => setNewBaptized(e.target.checked)} />
               ✝ Miembro bautizado
             </label>
 
@@ -581,10 +613,10 @@ export default function Members() {
                                 ? depHint(r.requires)
                                 : undefined
                         }
-                        className={`rounded-full border px-3 py-1 text-xs transition ${
+                        className={`rounded-full border px-3 py-1.5 text-sm transition ${
                           on
-                            ? 'border-sage bg-sage-light text-sage-dark'
-                            : 'border-graysage/25 text-graysage hover:border-sage'
+                            ? 'border-sage-dark/40 bg-sage-light font-medium text-sage-dark'
+                            : 'border-clay-light bg-white text-graysage hover:border-sage'
                         } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
                       >
                         {r.name}
@@ -617,10 +649,10 @@ export default function Members() {
                             ? 'Marca al miembro como bautizado para unirlo a un equipo'
                             : depHint(t.requires)
                       }
-                      className={`rounded-full border px-3 py-1 text-xs transition ${
+                      className={`rounded-full border px-3 py-1.5 text-sm transition ${
                         on
-                          ? 'border-clay bg-clay text-cream'
-                          : 'border-graysage/25 text-graysage hover:border-clay'
+                          ? 'border-vela/40 bg-vela-light font-medium text-clay'
+                          : 'border-clay-light bg-white text-graysage hover:border-vela'
                       } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
                     >
                       {t.name}
@@ -638,9 +670,9 @@ export default function Members() {
             </p>
 
             {cedulaBlock && (
-              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm">
-                <p className="font-medium text-red-700">Cédula duplicada</p>
-                <p className="mt-1 text-red-600">
+              <div className="rounded-lg border border-danger/25 bg-danger/5 p-3 text-sm">
+                <p className="font-medium text-danger">Cédula duplicada</p>
+                <p className="mt-1 text-danger">
                   Ya existe un miembro con esa cédula:{' '}
                   <Link to={`/miembros/${cedulaBlock.id}`} className="font-medium underline">
                     {cedulaBlock.full_name}
@@ -651,7 +683,7 @@ export default function Members() {
             )}
 
             {dupMatches.length > 0 && (
-              <div className="rounded-lg border border-gold/40 bg-gold/10 p-3 text-sm">
+              <div className="rounded-xl border border-vela/30 bg-vela-light/60 p-4 text-sm">
                 <p className="font-medium text-clay">Posibles duplicados</p>
                 <p className="mt-1 text-graysage">
                   Hay miembros con datos parecidos. Revisa antes de crear:
@@ -693,34 +725,96 @@ export default function Members() {
               </div>
             )}
 
-            {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
+            {error && <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
 
             <button
               type="submit"
               disabled={saving}
-              className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60"
+              className={btnPrimary}
             >
               {saving ? 'Guardando…' : 'Guardar miembro'}
             </button>
           </form>
         )}
 
+        {/* Resumen: cada tarjeta filtra la lista */}
+        {!loading && members.length > 0 && (
+          <div className="mb-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4" aria-label="Resumen">
+            {SUMMARY.map((c, i) => {
+              const n = countOf(c.quick)
+              const on = quick === c.quick
+              return (
+                <button
+                  key={c.quick}
+                  type="button"
+                  onClick={() => setQuick(on && c.quick !== 'all' ? 'all' : c.quick)}
+                  aria-pressed={on}
+                  className={`subir group flex flex-col p-4 text-left transition duration-300 hover:-translate-y-0.5 sm:p-5 ${on ? 'rounded-[1.25rem] bg-sage-dark text-paper shadow-[0_14px_36px_-16px_rgba(30,42,36,0.6)]' : 'vidrio'}`}
+                  style={{ animationDelay: `${i * 50}ms` }}
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className={`text-xs font-semibold uppercase tracking-wider ${on ? 'text-paper/75' : 'text-graysage'}`}>{c.label}</span>
+                    <span className={`flex h-8 w-8 items-center justify-center rounded-full ${on ? 'bg-white/10 text-gold' : c.warn && n ? 'bg-vela-light text-clay' : 'bg-sage-dark/[0.08] text-sage-dark'}`}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>{c.icon}</svg>
+                    </span>
+                  </span>
+                  <span className={`mt-2 text-[2rem] font-bold leading-none tracking-[-0.03em] tabular-nums ${on ? 'text-paper' : 'text-charcoal'}`}>{n}</span>
+                  <span className={`mt-1.5 text-xs ${on ? 'text-paper/70' : 'text-graysage'}`}>{c.hint(n, visible.length)}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {/* Búsqueda y filtros (multi-selección) */}
         {!loading && members.length > 0 && (
-          <div className="mb-4 space-y-2 rounded-xl border border-clay-light/30 bg-white/60 p-3">
+          <div className="mb-5 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por nombre o correo…"
-                className={`min-w-48 flex-1 ${inputCls}`}
-              />
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className={selectCls}>
+              <div className="relative min-w-56 flex-1">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-faint" aria-hidden>
+                  <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
+                </svg>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar por nombre o correo…"
+                  className={`${inputCls} pl-11`}
+                  aria-label="Buscar miembros"
+                />
+              </div>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className={selectCls} aria-label="Ordenar">
                 <option value="name">Orden: nombre</option>
                 <option value="age">Orden: edad</option>
                 <option value="created">Orden: ingreso</option>
               </select>
+              <button
+                type="button"
+                onClick={() => setShowFilters((v) => !v)}
+                className={`${btnSecondary} ${showFilters || activeFilters ? 'border-sage-dark/40 text-sage-dark' : ''}`}
+                aria-expanded={showFilters}
+              >
+                Filtros{activeFilters > 0 && <span className="rounded-full bg-sage-dark px-1.5 text-xs text-white">{activeFilters}</span>}
+              </button>
             </div>
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]" role="group" aria-label="Filtro rápido">
+              {PILLS.map((p) => {
+                const on = quick === p.quick
+                return (
+                  <button
+                    key={p.quick}
+                    type="button"
+                    onClick={() => setQuick(p.quick)}
+                    aria-pressed={on}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition ${on ? 'border-sage-dark bg-sage-dark text-paper' : 'border-white/80 bg-white/60 text-graysage hover:bg-white hover:text-charcoal'}`}
+                  >
+                    {p.label}
+                    <span className={`rounded-full px-1.5 text-xs tabular-nums ${on ? 'bg-white/15 text-paper' : 'bg-charcoal/[0.06] text-graysage'}`}>{countOf(p.quick)}</span>
+                  </button>
+                )
+              })}
+            </div>
+            {showFilters && (
+            <div className="tarjeta subir space-y-3 p-4">
             <FilterRow
               label="Edad"
               options={ageRanges.filter((r) => r.enabled).map((r) => ({ value: r.name, label: r.name }))}
@@ -760,38 +854,58 @@ export default function Members() {
               selected={fBaptized}
               onToggle={(v) => toggleArr(fBaptized, setFBaptized, v)}
             />
+            {activeFilters > 0 && (
+              <button
+                type="button"
+                onClick={() => { setFRoles([]); setFTeams([]); setFStatuses([]); setFBaptized([]); setFAges([]); setQuick('all') }}
+                className="text-sm font-medium text-sage-dark hover:underline"
+              >
+                Quitar filtros
+              </button>
+            )}
+            </div>
+            )}
           </div>
         )}
 
         {/* Lista */}
         {loading ? (
-          <p className="font-mono text-sm text-graysage">Cargando miembros…</p>
+          <div className="tarjeta space-y-4 p-5" aria-label="Cargando miembros">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex animate-pulse items-center gap-4">
+                <span className="h-11 w-11 rounded-full bg-cream" />
+                <span className="h-4 w-48 rounded bg-cream" />
+              </div>
+            ))}
+          </div>
         ) : members.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-graysage/30 p-10 text-center">
-            <p className="text-graysage">Aún no hay miembros. Agrega el primero con el botón de arriba.</p>
-          </div>
+          <EmptyState
+            title="Aún no hay miembros"
+            text="Agrega a la primera persona de tu iglesia. Después podrás asignarle roles y equipos."
+            action={<button type="button" onClick={() => { resetForm(); setShowForm(true) }} className={btnPrimary}>+ Agregar miembro</button>}
+          />
         ) : sorted.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-graysage/30 p-10 text-center">
-            <p className="text-graysage">Ningún miembro coincide con la búsqueda o los filtros.</p>
-          </div>
+          <EmptyState title="Nadie coincide" text="Prueba con otro nombre o quita algún filtro." />
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-clay-light/40 bg-white">
+          <div className="tarjeta overflow-hidden">
             {sorted.map((m, i) => {
               const deps = depsByGuardian[m.id] ?? []
               const expanded = expandedDeps.has(m.id)
               return (
-                <div key={m.id} className={i > 0 ? 'border-t border-clay-light/25' : ''}>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
-                    <div className="min-w-40 flex-1">
+                <div key={m.id} className={`transition hover:bg-beige-light ${i > 0 ? 'border-t border-clay-light/60' : ''}`}>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3.5 sm:px-5">
+                    <div className="flex min-w-48 flex-1 items-center gap-3.5">
+                      <Link to={`/miembros/${m.id}`} tabIndex={-1}><Avatar name={m.full_name} size={44} /></Link>
+                      <div className="min-w-0">
                       <span className="flex flex-wrap items-center gap-1.5">
                         <Link
                           to={`/miembros/${m.id}`}
-                          className="font-medium text-charcoal underline-offset-2 hover:text-sage-dark hover:underline"
+                          className="text-base font-semibold text-charcoal underline-offset-2 hover:text-sage-dark hover:underline"
                         >
                           {m.full_name}
                         </Link>
                         {m.isBaptized && (
-                          <span title="Bautizado" className="text-sage-water">
+                          <span title="Bautizado" className="text-sage-dark">
                             ✝
                           </span>
                         )}
@@ -799,23 +913,26 @@ export default function Members() {
                           <button
                             type="button"
                             onClick={() => toggleDeps(m.id)}
-                            className="text-xs text-graysage hover:text-sage-dark"
+                            className="rounded-full bg-cream px-2 py-0.5 text-xs font-medium text-graysage hover:text-sage-dark"
                           >
-                            {expanded ? '▾' : '▸'} {deps.length} dep.
+                            {expanded ? '▾' : '▸'} {deps.length} {deps.length === 1 ? 'dependiente' : 'dependientes'}
                           </button>
                         )}
                       </span>
-                      {m.email && <p className="font-mono text-xs text-graysage">{m.email}</p>}
+                      <p className="truncate text-sm text-graysage">
+                        {[memberRange(m), m.phone, m.email].filter(Boolean).join(' · ') || 'Sin datos de contacto'}
+                      </p>
+                      </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {m.roleIds.map((id) => (
-                        <span key={id} className="rounded bg-sage-water/10 px-1.5 py-0.5 text-xs text-sage-dark">
+                        <span key={id} className="rounded-full bg-sage-light px-2.5 py-0.5 text-xs font-medium text-sage-dark">
                           {roleName(id)}
                         </span>
                       ))}
                       {m.teams.map((t) => (
-                        <span key={t.teamId} className="rounded bg-clay/10 px-1.5 py-0.5 text-xs text-clay">
+                        <span key={t.teamId} className="rounded-full bg-vela-light px-2.5 py-0.5 text-xs font-medium text-clay">
                           {teamName(t.teamId)}
                           {t.isLeader && ' ★'}
                         </span>
@@ -831,7 +948,7 @@ export default function Members() {
                         rules.baptism_for_roles,
                         rules.baptism_for_teams,
                       ) && (
-                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600">
+                        <span className="rounded-full bg-danger/10 px-2.5 py-0.5 text-xs font-semibold text-danger">
                           No bautizado
                         </span>
                       )}
@@ -839,7 +956,7 @@ export default function Members() {
                         <button
                           type="button"
                           onClick={() => approve(m.id)}
-                          className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs font-medium text-sage-dark transition hover:bg-sage/10"
+                          className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-semibold text-white transition hover:brightness-105"
                         >
                           Aprobar
                         </button>
@@ -848,7 +965,7 @@ export default function Members() {
                         <button
                           type="button"
                           onClick={() => setMemberStatus(m.id, 'active')}
-                          className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs font-medium text-sage-dark transition hover:bg-sage/10"
+                          className="rounded-lg border border-sage-dark/30 px-3 py-1.5 text-sm font-medium text-sage-dark transition hover:bg-sage-light"
                         >
                           Restaurar
                         </button>
@@ -856,7 +973,7 @@ export default function Members() {
                         <button
                           type="button"
                           onClick={() => archiveFromList(m)}
-                          className="rounded-lg border border-graysage/25 px-2.5 py-1 text-xs text-graysage transition hover:bg-cream"
+                          className="rounded-lg px-3 py-1.5 text-sm text-graysage transition hover:bg-cream hover:text-charcoal"
                         >
                           Archivar
                         </button>
@@ -865,19 +982,20 @@ export default function Members() {
                   </div>
 
                   {expanded && deps.length > 0 && (
-                    <ul className="border-t border-clay-light/20 bg-cream py-1">
+                    <ul className="border-t border-clay-light/60 bg-beige-light py-1.5">
                       {deps.map((d) => (
                         <li
                           key={d.id}
-                          className="flex items-center justify-between py-1 pl-10 pr-5 text-sm"
+                          className="flex items-center justify-between py-1.5 pl-[4.5rem] pr-5 text-sm"
                         >
                           <Link
                             to={`/miembros/${d.id}`}
-                            className="text-charcoal underline-offset-2 hover:text-sage-dark hover:underline"
+                            className="flex items-center gap-2.5 text-charcoal underline-offset-2 hover:text-sage-dark hover:underline"
                           >
-                            ↳ {d.full_name}
+                            <Avatar name={d.full_name} size={28} />
+                            {d.full_name}
                           </Link>
-                          <span className="text-xs text-graysage">{memberRange(d) ?? '—'}</span>
+                          <span className="text-sm text-graysage">{memberRange(d) ?? '—'}</span>
                         </li>
                       ))}
                     </ul>
@@ -887,7 +1005,18 @@ export default function Members() {
             })}
           </div>
         )}
-      </main>
+    </PageShell>
+  )
+}
+
+// Estado vacío amable: explica qué pasa y qué hacer.
+function EmptyState({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
+  return (
+    <div className="tarjeta flex flex-col items-center px-6 py-14 text-center">
+      <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-vela-light text-2xl" aria-hidden>🕯️</span>
+      <p className="font-serif text-xl font-bold text-charcoal">{title}</p>
+      <p className="mt-1 max-w-sm text-graysage">{text}</p>
+      {action && <div className="mt-5">{action}</div>}
     </div>
   )
 }

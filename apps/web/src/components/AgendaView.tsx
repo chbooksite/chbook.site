@@ -33,6 +33,11 @@ function withAlpha(hex: string, a: number): string {
   const n = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
   return `rgba(${parseInt(n.slice(0, 2), 16) || 0}, ${parseInt(n.slice(2, 4), 16) || 0}, ${parseInt(n.slice(4, 6), 16) || 0}, ${a})`
 }
+// Tarjeta plana teñida con el color de la actividad.
+const glassCard = (color: string) => ({
+  backgroundColor: withAlpha(color, 0.14),
+  border: `1px solid ${withAlpha(color, 0.3)}`,
+})
 const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x }
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 const addMonths = (d: Date, n: number) => { const x = new Date(d); x.setMonth(x.getMonth() + n); return x }
@@ -50,6 +55,7 @@ export default function AgendaView({
   onEdit,
   onNewAt,
   onDropNew,
+  onMoveActivity,
 }: {
   recurring: RecSchedule[]
   typeOptions?: TypeOpt[]
@@ -59,15 +65,21 @@ export default function AgendaView({
   onEdit?: (id: string) => void
   onNewAt?: (date: Date, startTime?: string) => void
   onDropNew?: (date: Date, startTime?: string, attrs?: NewActivityAttrs) => void
+  // Mover una tarjeta existente: nuevo día y, en la vista ampliada, nueva hora
+  // de inicio (null = conservar la hora).
+  onMoveActivity?: (id: string, date: Date, startTime: string | null) => void
 }) {
   const today = startOfDay(new Date())
   const rangeStart = addDays(today, -RANGE_BACK)
   const [view, setView] = useState<View>('expanded')
   const [monthCursor, setMonthCursor] = useState<Date>(new Date(today.getFullYear(), today.getMonth(), 1))
   const [leftDate, setLeftDate] = useState<Date>(today) // día más a la izquierda visible (para resaltar en el mini-mes)
-  const [ghost, setGhost] = useState<{ x: number; y: number; over: boolean } | null>(null)
+  const [ghost, setGhost] = useState<{ x: number; y: number; over: boolean; label?: string; color?: string } | null>(null)
   const [dropTarget, setDropTarget] = useState<{ dayIdx: number; startMin: number } | null>(null)
   const cardDrag = useRef<{ x0: number; y0: number; moved: boolean } | null>(null)
+  // Tarjeta existente que se está moviendo (y dónde caería).
+  const blockDrag = useRef<{ id: string; x0: number; y0: number; offMin: number; dur: number; title: string; color: string; moved: boolean } | null>(null)
+  const [moving, setMoving] = useState<{ id: string; dayIdx: number; startMin: number; dur: number; title: string; color: string } | null>(null)
   // atributos actuales de la tarjeta "Nueva actividad" (elegidos inline)
   const [newTypeId, setNewTypeId] = useState<string | null>(typeOptions[0]?.id ?? null)
   const [newTeamIds, setNewTeamIds] = useState<string[]>([])
@@ -189,12 +201,20 @@ export default function AgendaView({
     const raw = hMin * 60 + ((cy - HEADER_H) / PPH) * 60
     return { dayIdx: idx, startMin: Math.max(hMin * 60, Math.min((hMax - 1) * 60, Math.round(raw / 60) * 60)) }
   }
+  // Al arrastrar cerca del borde izquierdo/derecho de la tira, se desplaza sola.
+  const edgeScroll = (x: number) => {
+    const el = scrollRef.current; if (!el) return
+    const r = el.getBoundingClientRect()
+    if (x < r.left + 48) el.scrollLeft -= 14
+    else if (x > r.right - 48) el.scrollLeft += 14
+  }
   const attrs = (): NewActivityAttrs => ({ typeId: newTypeId, teamIds: newTeamIds, audience: newAudience })
   const onCardDown = (e: RPointerEvent) => { cardDrag.current = { x0: e.clientX, y0: e.clientY, moved: false }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) }
   const onCardMove = (e: RPointerEvent) => {
     const d = cardDrag.current; if (!d) return
     if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 5) return
     d.moved = true
+    edgeScroll(e.clientX)
     const t = targetAt(e.clientX, e.clientY)
     setDropTarget(t)
     setGhost({ x: e.clientX, y: e.clientY, over: !!t })
@@ -208,8 +228,56 @@ export default function AgendaView({
     onDropNew?.(addDays(rangeStart, t.dayIdx), t.startMin >= 0 ? hhmm(t.startMin) : undefined, attrs())
   }
 
+  // ----- mover una tarjeta existente -----
+  // Día + hora de inicio (cada 15 min) donde caería la tarjeta, respetando el
+  // punto por donde se agarró (offMin) y su duración. startMin -1 = conservar hora.
+  const moveTargetAt = (x: number, y: number, offMin: number, dur: number): { dayIdx: number; startMin: number } | null => {
+    const el = scrollRef.current; if (!el) return null
+    const r = el.getBoundingClientRect()
+    if (!(x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)) return null
+    const cx = x - r.left + el.scrollLeft
+    if (view === 'compact') { const idx = Math.floor(cx / (colW + 8)); return idx >= 0 && idx < days.length ? { dayIdx: idx, startMin: -1 } : null }
+    const idx = Math.floor((cx - GUTTER) / colW)
+    if (idx < 0 || idx >= days.length) return null
+    const cy = y - r.top + el.scrollTop - HEADER_H
+    const raw = hMin * 60 + (cy / PPH) * 60 - offMin
+    return { dayIdx: idx, startMin: Math.max(hMin * 60, Math.min(hMax * 60 - Math.min(dur, 60), Math.round(raw / 15) * 15)) }
+  }
+  const onBlockDown = (e: RPointerEvent, b: { id: string; startMin: number; endMin: number; title: string; color: string }) => {
+    if (!onMoveActivity || e.button !== 0) return
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const offMin = view === 'compact' ? 0 : ((e.clientY - rect.top) / PPH) * 60
+    blockDrag.current = { id: b.id, x0: e.clientX, y0: e.clientY, offMin, dur: b.endMin - b.startMin, title: b.title, color: b.color, moved: false }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const onBlockMove = (e: RPointerEvent) => {
+    const d = blockDrag.current; if (!d) return
+    if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 5) return
+    d.moved = true
+    edgeScroll(e.clientX)
+    const t = moveTargetAt(e.clientX, e.clientY, d.offMin, d.dur)
+    setMoving(t ? { id: d.id, dayIdx: t.dayIdx, startMin: t.startMin, dur: d.dur, title: d.title, color: d.color } : null)
+    if (view === 'compact') setGhost({ x: e.clientX, y: e.clientY, over: !!t, label: d.title, color: d.color })
+  }
+  const onBlockUp = (e: RPointerEvent) => {
+    const d = blockDrag.current; blockDrag.current = null; setMoving(null); setGhost(null)
+    if (!d) return
+    if (!d.moved) { onEdit?.(d.id); return }
+    const t = moveTargetAt(e.clientX, e.clientY, d.offMin, d.dur)
+    if (t) onMoveActivity?.(d.id, addDays(rangeStart, t.dayIdx), t.startMin >= 0 ? hhmm(t.startMin) : null)
+  }
+  const onBlockCancel = () => { blockDrag.current = null; setMoving(null); setGhost(null) }
+  // Handlers de una tarjeta. El clic con teclado (detail 0) sigue abriendo la edición.
+  const blockProps = (b: { id: string; startMin: number; endMin: number; title: string; color: string }) => ({
+    onPointerDown: (e: RPointerEvent) => onBlockDown(e, b),
+    onPointerMove: onBlockMove,
+    onPointerUp: onBlockUp,
+    onPointerCancel: onBlockCancel,
+    onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (e.detail === 0 || !onMoveActivity) onEdit?.(b.id) },
+  })
+
   const goToday = () => { scrollToDate(today); syncLeft() }
-  const toggleCls = (v: View) => `rounded-lg px-3 py-1 text-xs font-medium transition ${view === v ? 'bg-sage-light text-sage-dark' : 'text-graysage hover:bg-sage-light/60'}`
+  const toggleCls = (v: View) => `rounded-lg px-3 py-1 text-xs font-medium transition ${view === v ? 'bg-white text-sage-dark shadow-sm' : 'text-graysage hover:bg-white/60'}`
 
   // clic en hueco de la rejilla → nueva actividad con día+hora
   const onSlotClick = (d: Date) => (e: React.MouseEvent) => {
@@ -236,7 +304,7 @@ export default function AgendaView({
           onPointerDown={onCardDown}
           onPointerMove={onCardMove}
           onPointerUp={onCardUp}
-          className="flex w-full touch-none items-center gap-3 rounded-2xl border border-dashed p-4 text-left transition hover:brightness-[0.98] active:cursor-grabbing"
+          className="flex w-full cursor-grab touch-none items-center gap-3 rounded-2xl border border-dashed p-4 text-left transition hover:-translate-y-0.5 active:cursor-grabbing"
           style={{ borderColor: withAlpha(dragColor ?? '#88C0A4', 0.6), backgroundColor: withAlpha(dragColor ?? '#88C0A4', 0.18) }}
           title="Arrastra al día y la hora"
         >
@@ -254,7 +322,7 @@ export default function AgendaView({
             <select
               value={newTypeId ?? ''}
               onChange={(e) => setNewTypeId(e.target.value || null)}
-              className="w-full rounded-xl border border-graysage/25 bg-white px-3 py-2 text-sm text-charcoal"
+              className="tarjeta w-full rounded-xl px-3 py-2 text-sm text-charcoal outline-none focus:ring-4 focus:ring-sage-light"
             >
               <option value="">— Sin tipo —</option>
               {typeOptions.map((t) => (
@@ -281,7 +349,7 @@ export default function AgendaView({
                     key={t.id}
                     type="button"
                     onClick={() => setNewTeamIds((prev) => (on ? prev.filter((x) => x !== t.id) : [...prev, t.id]))}
-                    className={`rounded-full px-2.5 py-1 text-xs transition ${on ? 'bg-sage text-white' : 'bg-cream text-graysage hover:bg-sage-light/60'}`}
+                    className={`rounded-full px-2.5 py-1 text-xs transition ${on ? 'bg-sage-dark text-paper' : 'tarjeta text-graysage hover:bg-cream'}`}
                   >
                     {t.name}
                   </button>
@@ -296,13 +364,13 @@ export default function AgendaView({
       <div className="min-w-0 flex-1">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <button type="button" onClick={goToday} className="rounded-lg border border-graysage/25 px-2.5 py-1 text-xs text-graysage hover:bg-cream">Hoy</button>
+            <button type="button" onClick={goToday} className="tarjeta rounded-lg px-2.5 py-1 text-xs font-medium text-graysage hover:text-sage-dark">Hoy</button>
             <span className="font-serif text-base font-semibold capitalize text-charcoal">
               {view === 'month' ? cap(monthCursor.toLocaleDateString('es', { month: 'long', year: 'numeric' })) : cap(leftDate.toLocaleDateString('es', { month: 'long', year: 'numeric' }))}
             </span>
-            {view !== 'month' && <span className="text-xs text-graysage">· arrastra para moverte</span>}
+            {view !== 'month' && <span className="text-xs text-graysage">· arrastra el fondo para moverte, o una tarjeta para cambiarla de día{view === 'expanded' ? ' u hora' : ''}</span>}
           </div>
-          <div className="flex items-center gap-1 rounded-xl border border-graysage/20 p-0.5">
+          <div className="tarjeta flex items-center gap-1 rounded-xl p-0.5">
             <button type="button" onClick={() => setView('compact')} className={toggleCls('compact')}>Compacto</button>
             <button type="button" onClick={() => setView('expanded')} className={toggleCls('expanded')}>Ampliado</button>
             <button type="button" onClick={() => setView('month')} className={toggleCls('month')}>Mes</button>
@@ -320,20 +388,28 @@ export default function AgendaView({
                 const acts = [...allDay.map((r) => ({ id: r.id, color: r.color, name: r.name, t: null as string | null })), ...timed.map((b) => ({ id: b.id, color: b.color, name: b.title, t: `${fmtMin(b.startMin)}` }))]
                 const isToday = sameDay(d, today)
                 return (
-                  <div key={i} style={{ width: colW }} className={`shrink-0 overflow-hidden rounded-xl bg-white shadow-sm ${dropTarget?.dayIdx === i ? 'ring-2 ring-sage-dark' : isToday ? 'ring-2 ring-sage' : 'border border-black/5'}`}>
-                    <div className="bg-charcoal px-2.5 py-2 text-sage-light">
-                      <span className="text-[0.7rem] font-medium uppercase">{WD_SHORT[(d.getDay() + 6) % 7]}</span>{' '}
+                  <div key={i} style={{ width: colW }} className={`tarjeta shrink-0 overflow-hidden rounded-2xl transition ${dropTarget?.dayIdx === i || moving?.dayIdx === i ? 'ring-2 ring-sage-dark' : isToday ? 'ring-2 ring-sage' : ''}`}>
+                    <div className={`px-2.5 py-2 ${isToday ? 'bg-sage-dark/90 text-white' : 'border-b border-white/70 bg-white/40 text-charcoal'}`}>
+                      <span className={`text-[0.7rem] font-medium uppercase ${isToday ? 'text-white/80' : 'text-graysage'}`}>{WD_SHORT[(d.getDay() + 6) % 7]}</span>{' '}
                       <span className="text-base font-bold">{d.getDate()}</span>
                     </div>
-                    <div className="space-y-1 p-1.5">
+                    <div className="space-y-1.5 p-1.5">
                       {acts.length === 0 && <p className="py-1 text-center text-[0.62rem] text-graysage/40">—</p>}
                       {acts.map((a) => (
-                        <button key={a.id} data-block type="button" onClick={() => onEdit?.(a.id)} style={{ backgroundColor: withAlpha(a.color, 0.16), borderLeft: `3px solid ${a.color}` }} className="flex w-full items-center justify-between gap-1 rounded px-1.5 py-1 text-left">
+                        <button
+                          key={a.id}
+                          data-block
+                          type="button"
+                          {...blockProps({ id: a.id, startMin: 0, endMin: 60, title: a.name, color: a.color })}
+                          style={glassCard(a.color)}
+                          className={`relative flex w-full touch-none items-center justify-between gap-1 rounded-lg py-1.5 pl-3 pr-1.5 text-left transition hover:-translate-y-px ${onMoveActivity ? 'cursor-grab active:cursor-grabbing' : ''} ${moving?.id === a.id ? 'opacity-40' : ''}`}
+                        >
+                          <span className="absolute bottom-1.5 left-1 top-1.5 w-[3px] rounded-full" style={{ backgroundColor: a.color }} />
                           <span className="truncate text-[0.72rem] font-medium text-charcoal">{a.name}</span>
                           {a.t && <span className="shrink-0 text-[0.6rem] text-graysage">{a.t}</span>}
                         </button>
                       ))}
-                      <button data-add type="button" onClick={() => onNewAt?.(d)} className="mx-auto flex h-5 w-5 items-center justify-center rounded-full text-graysage hover:bg-cream" title="Nueva actividad">+</button>
+                      <button data-add type="button" onClick={() => onNewAt?.(d)} className="mx-auto flex h-5 w-5 items-center justify-center rounded-full text-graysage hover:bg-white/80" title="Nueva actividad">+</button>
                     </div>
                   </div>
                 )
@@ -342,11 +418,11 @@ export default function AgendaView({
           </div>
         ) : (
           /* ---- TIRA AMPLIADA (rejilla de horas) ---- */
-          <div ref={scrollRef} onScroll={syncLeft} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} className="max-h-[620px] cursor-grab touch-none select-none overflow-auto rounded-2xl border border-black/5 bg-white shadow-sm [scrollbar-width:none] active:cursor-grabbing [&::-webkit-scrollbar]:hidden">
+          <div ref={scrollRef} onScroll={syncLeft} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} className="tarjeta max-h-[620px] cursor-grab touch-none select-none overflow-auto rounded-2xl [scrollbar-width:none] active:cursor-grabbing [&::-webkit-scrollbar]:hidden">
             <div className="relative flex" style={{ width: GUTTER + days.length * colW }}>
               {/* eje de horas (fijo a la izquierda) */}
-              <div className="sticky left-0 z-20 shrink-0 bg-white" style={{ width: GUTTER }}>
-                <div className="sticky top-0 z-10 bg-white" style={{ height: HEADER_H }} />
+              <div className="sticky left-0 z-20 shrink-0 bg-white/85 backdrop-blur-md" style={{ width: GUTTER }}>
+                <div className="sticky top-0 z-10 bg-white/85" style={{ height: HEADER_H }} />
                 <div className="relative" style={{ height: gridH }}>
                   {hours.map((h) => (
                     <div key={h} style={{ top: yOf(h * 60) }} className="absolute right-1.5 -translate-y-1/2 text-[0.6rem] text-graysage">{fmtMin(h * 60)}</div>
@@ -359,23 +435,42 @@ export default function AgendaView({
                 const isToday = sameDay(d, today)
                 const weekend = d.getDay() === 0 || d.getDay() === 6
                 return (
-                  <div key={i} className="shrink-0 border-l border-black/5" style={{ width: colW }}>
-                    <div className={`sticky top-0 z-10 border-b border-black/5 py-2 text-center ${isToday ? 'bg-sage-light/60' : weekend ? 'bg-cream/60' : 'bg-white'}`} style={{ height: HEADER_H }}>
+                  <div key={i} className="shrink-0 border-l border-white/70" style={{ width: colW }}>
+                    <div className={`sticky top-0 z-10 border-b border-clay-light py-2 text-center ${isToday ? 'bg-sage-light' : weekend ? 'bg-cream/90 backdrop-blur-md' : 'bg-white/85 backdrop-blur-md'}`} style={{ height: HEADER_H }}>
                       <div className="text-[0.68rem] font-medium uppercase text-graysage">{WD_SHORT[(d.getDay() + 6) % 7]}</div>
                       <div className={`text-lg font-semibold leading-none ${isToday ? 'text-sage-dark' : 'text-charcoal'}`}>{d.getDate()}</div>
                     </div>
                     <div className="relative cursor-pointer" style={{ height: gridH }} onClick={onSlotClick(d)}>
-                      {hours.map((h) => <div key={h} style={{ top: yOf(h * 60) }} className="pointer-events-none absolute inset-x-0 border-t border-black/5" />)}
+                      {hours.map((h) => <div key={h} style={{ top: yOf(h * 60) }} className="pointer-events-none absolute inset-x-0 border-t border-clay-light/60" />)}
                       {timed.map((b) => {
                         const top = yOf(b.startMin), hh = Math.max(20, yOf(b.endMin) - top), w = 100 / b.lanes
                         return (
-                          <button key={b.id} data-block type="button" onClick={(e) => { e.stopPropagation(); onEdit?.(b.id) }} style={{ top, height: hh, left: `calc(${b.lane * w}% + 2px)`, width: `calc(${w}% - 4px)`, backgroundColor: withAlpha(b.color, 0.16), borderLeft: `3px solid ${b.color}` }} className="absolute overflow-hidden rounded-md px-1.5 py-1 text-left transition hover:brightness-95" title={b.title}>
+                          <button
+                            key={b.id}
+                            data-block
+                            type="button"
+                            {...blockProps(b)}
+                            style={{ top, height: hh, left: `calc(${b.lane * w}% + 3px)`, width: `calc(${w}% - 6px)`, ...glassCard(b.color) }}
+                            className={`absolute touch-none overflow-hidden rounded-lg py-1 pl-3 pr-1.5 text-left transition hover:z-10 hover:-translate-y-px ${onMoveActivity ? 'cursor-grab active:cursor-grabbing' : ''} ${moving?.id === b.id ? 'opacity-40' : ''}`}
+                            title={b.title}
+                          >
+                            <span className="absolute bottom-1 left-1 top-1 w-[3px] rounded-full" style={{ backgroundColor: b.color }} />
                             <span className="block truncate text-[0.7rem] font-semibold leading-tight text-charcoal">{b.title}</span>
                             <span className="block truncate text-[0.6rem] leading-tight text-graysage">{fmtMin(b.startMin)} – {fmtMin(b.endMin)}</span>
                             {b.responsibles && hh > 50 && <span className="block truncate text-[0.58rem] leading-tight text-graysage">{b.responsibles}</span>}
                           </button>
                         )
                       })}
+                      {/* dónde caerá la tarjeta que se está moviendo */}
+                      {moving && moving.dayIdx === i && moving.startMin >= 0 && (
+                        <div
+                          className="pointer-events-none absolute left-[3px] right-[3px] z-20 rounded-lg border-2 border-dashed py-1 pl-2 pr-1.5 "
+                          style={{ top: yOf(moving.startMin), height: Math.max(20, (moving.dur / 60) * PPH), borderColor: moving.color, backgroundColor: withAlpha(moving.color, 0.22) }}
+                        >
+                          <span className="block truncate text-[0.7rem] font-semibold leading-tight text-charcoal">{moving.title}</span>
+                          <span className="block text-[0.6rem] font-semibold leading-tight" style={{ color: moving.color }}>{fmtMin(moving.startMin)} – {fmtMin(moving.startMin + moving.dur)}</span>
+                        </div>
+                      )}
                       {dropTarget && dropTarget.dayIdx === i && dropTarget.startMin >= 0 && (
                         <div
                           className="pointer-events-none absolute left-0.5 right-0.5 rounded-md border-2 border-dashed"
@@ -395,8 +490,11 @@ export default function AgendaView({
 
       {/* previsualización al arrastrar "Nueva actividad" */}
       {ghost && (
-        <div style={{ left: ghost.x, top: ghost.y }} className={`pointer-events-none fixed z-[80] -translate-x-1/2 -translate-y-1/2 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-lg transition-transform ${ghost.over ? 'scale-110 bg-sage-dark text-white' : 'scale-100 bg-white text-charcoal ring-1 ring-black/10'}`}>
-          + Nueva actividad
+        <div
+          style={{ left: ghost.x, top: ghost.y, ...(ghost.label && ghost.color ? { borderColor: ghost.color } : {}) }}
+          className={`pointer-events-none fixed z-[80] -translate-x-1/2 -translate-y-1/2 -rotate-2 rounded-xl px-3 py-1.5 text-xs font-semibold transition-transform ${ghost.label ? 'border-2 bg-white/85 text-charcoal' : ghost.over ? 'scale-110 bg-sage-dark text-white' : 'scale-100 bg-white text-charcoal ring-1 ring-black/10'} ${ghost.over ? 'scale-110' : ''}`}
+        >
+          {ghost.label ?? '+ Nueva actividad'}
         </div>
       )}
     </div>
@@ -410,7 +508,7 @@ function MiniMonth({ cursor, setCursor, today, inRange, onPick }: { cursor: Date
   const last = new Date(y, mo + 1, 0).getDate()
   const cells = Array.from({ length: Math.ceil((lead + last) / 7) * 7 }, (_, i) => { const dn = i - lead + 1; return dn >= 1 && dn <= last ? new Date(y, mo, dn) : null })
   return (
-    <div className="rounded-2xl border border-black/5 bg-white p-3 shadow-sm">
+    <div className="tarjeta rounded-2xl p-3">
       <div className="mb-2 flex items-center justify-between">
         <span className="font-serif text-sm font-semibold capitalize text-charcoal">{cap(cursor.toLocaleDateString('es', { month: 'long', year: 'numeric' }))}</span>
         <div className="flex gap-1">
@@ -441,23 +539,23 @@ function MonthAgenda({ cursor, today, recurring, onPick, onNewAt }: { cursor: Da
   const cells = Array.from({ length: rows * 7 }, (_, i) => { const dn = i - lead + 1; return dn >= 1 && dn <= last ? new Date(y, mo, dn) : null })
   const actsOf = (d: Date) => recurring.filter((r) => occursOn(r, d)).sort((a, b) => minutesOf(a.startTime) - minutesOf(b.startTime))
   return (
-    <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
-      <div className="grid grid-cols-7 border-b border-black/5 bg-cream/40">
+    <div className="tarjeta overflow-hidden rounded-2xl">
+      <div className="grid grid-cols-7 border-b border-white/70 bg-white/40">
         {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d, i) => <div key={i} className={`py-1.5 text-center text-[0.68rem] font-medium ${i === 6 ? 'text-clay' : 'text-graysage'}`}>{d}</div>)}
       </div>
       <div className="grid grid-cols-7" style={{ gridAutoRows: 'minmax(96px, 1fr)' }}>
         {cells.map((d, i) => {
-          if (!d) return <div key={i} className="border-b border-l border-black/5 bg-cream/20" />
+          if (!d) return <div key={i} className="border-b border-l border-white/60 bg-white/20" />
           const isToday = sameDay(d, today), sun = d.getDay() === 0, acts = actsOf(d)
           return (
-            <div key={i} className="group relative cursor-pointer border-b border-l border-black/5 p-1" onClick={() => onPick(d)}>
+            <div key={i} className="group relative cursor-pointer border-b border-l border-white/60 p-1 transition hover:bg-white/40" onClick={() => onPick(d)}>
               <div className="mb-0.5 flex items-center justify-between px-0.5">
                 <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[0.7rem] ${isToday ? 'bg-sage-dark font-semibold text-white' : sun ? 'text-clay' : 'text-charcoal'}`}>{d.getDate()}</span>
                 <button type="button" onClick={(e) => { e.stopPropagation(); onNewAt?.(d) }} className="hidden h-4 w-4 items-center justify-center rounded-full text-graysage hover:bg-cream group-hover:flex" title="Nueva actividad">+</button>
               </div>
               <div className="space-y-0.5">
                 {acts.slice(0, 3).map((r) => (
-                  <div key={r.id} style={{ backgroundColor: withAlpha(r.color, 0.16), borderLeft: `3px solid ${r.color}` }} className="truncate rounded px-1 py-0.5 text-[0.62rem] leading-tight text-charcoal">{r.startTime ? `${fmtMin(minutesOf(r.startTime))} ` : ''}{r.name}</div>
+                  <div key={r.id} style={{ ...glassCard(r.color), borderLeft: `3px solid ${r.color}` }} className="truncate rounded-md px-1 py-0.5 text-[0.62rem] leading-tight text-charcoal">{r.startTime ? `${fmtMin(minutesOf(r.startTime))} ` : ''}{r.name}</div>
                 ))}
                 {acts.length > 3 && <div className="px-1 text-[0.6rem] text-graysage">+{acts.length - 3} más</div>}
               </div>

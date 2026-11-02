@@ -107,7 +107,7 @@ function PopCard({ color, open, originRect, onExited, children }: { color: strin
       data-card
       onTransitionEnd={(e) => { if (e.target === e.currentTarget && !open) onExited() }}
       style={{ borderColor: color, backgroundColor: withAlpha(color, 0.8) }}
-      className="overflow-hidden rounded-xl border-l-4 shadow-xl backdrop-blur-sm"
+      className="overflow-hidden rounded-xl border-l-4 shadow-xl"
     >
       {children}
     </div>
@@ -568,7 +568,7 @@ export default function ActivityForm({
           {tpls.map((t) => (
             <span key={t.name} className="inline-flex items-center gap-1 rounded-full border border-sage/30 bg-white px-2.5 py-1 text-xs text-charcoal">
               <button type="button" onClick={() => applyTemplate(t)} title="Partir de esta plantilla" className="hover:text-sage-dark">{t.name}</button>
-              <button type="button" onClick={() => deleteTemplate(t.name)} title="Eliminar plantilla" className="text-graysage/60 hover:text-clay">✕</button>
+              <button type="button" onClick={() => deleteTemplate(t.name)} title="Eliminar plantilla" className="text-graysage/60 hover:text-danger">✕</button>
             </span>
           ))}
           <div className="ml-auto flex items-center gap-1.5">
@@ -656,7 +656,7 @@ export default function ActivityForm({
                   <div key={`${a.kind}:${a.id}`} className="rounded-lg bg-white p-2">
                     <div className="flex items-center gap-2">
                       <span className={`rounded-full px-2 py-0.5 text-xs ${badge}`}>{kindLabel}: {actLabel(a)}</span>
-                      <button type="button" onClick={() => actRemove(ai)} className="ml-auto text-xs text-graysage hover:text-clay">✕</button>
+                      <button type="button" onClick={() => actRemove(ai)} className="ml-auto text-xs text-graysage hover:text-danger">✕</button>
                     </div>
                     {a.kind !== 'member' && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -754,7 +754,7 @@ export default function ActivityForm({
                       <div className="mt-2 flex items-center gap-2">
                         <input type="number" min={1} value={seg.durationMin ?? ''} onChange={(e) => patchSeg(seg._k, { durationMin: e.target.value ? Number(e.target.value) : null })} className="w-16 rounded border border-graysage/20 bg-cream px-1.5 py-0.5 text-right text-sm outline-none focus:border-sage" />
                         <span className="text-xs text-graysage">min</span>
-                        <button type="button" onClick={() => deleteSeg(c.key)} className="ml-auto rounded-lg px-2.5 py-1 text-xl text-graysage transition hover:bg-clay/10 hover:text-clay" title="Eliminar actividad">🗑</button>
+                        <button type="button" onClick={() => deleteSeg(c.key)} className="ml-auto rounded-lg px-2.5 py-1 text-xl text-graysage transition hover:bg-danger/10 hover:text-danger" title="Eliminar actividad">🗑</button>
                       </div>
 
                       <div className="mt-2 flex items-center gap-2">
@@ -775,7 +775,7 @@ export default function ActivityForm({
                                 <span className={`rounded-full px-2 py-0.5 text-xs ${a.kind === 'team' ? 'bg-clay/10 text-clay' : 'bg-sage-water/15 text-sage-dark'}`}>
                                   {a.kind === 'team' ? 'Equipo' : 'Rol'}: {assigneeLabel(a)}
                                 </span>
-                                <button type="button" onClick={() => removeAssignee(seg._k, ai)} className="ml-auto text-xs text-graysage hover:text-clay">✕</button>
+                                <button type="button" onClick={() => removeAssignee(seg._k, ai)} className="ml-auto text-xs text-graysage hover:text-danger">✕</button>
                               </div>
                               <div className="mt-1.5 flex flex-wrap gap-1.5">
                                 {members.length === 0 && <span className="text-xs text-graysage/50">Sin miembros disponibles.</span>}
@@ -862,7 +862,7 @@ export default function ActivityForm({
                         </div>
                       )}
                     </div>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); deleteSeg(s._k) }} className="px-1 text-graysage hover:text-clay" title="Eliminar">🗑</button>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); deleteSeg(s._k) }} className="px-1 text-graysage hover:text-danger" title="Eliminar">🗑</button>
                   </div>
                 </div>
               ))}
@@ -870,7 +870,7 @@ export default function ActivityForm({
             )}
           </div>
 
-          {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
+          {error && <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
         </div>
 
         {chipDrag && (

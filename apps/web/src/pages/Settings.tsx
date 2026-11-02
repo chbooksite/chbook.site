@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
-import AppHeader from '../components/AppHeader'
+import InviteQR from '../components/InviteQR'
+import PageShell, { PageLoading } from '../components/PageShell'
+import { applyLargeText, readLargeText } from '../lib/preferences'
 import MapPicker, { type Coords } from '../components/MapPicker'
 import AgeRangesEditor from '../components/AgeRangesEditor'
 import { parseWkbPoint, toWktPoint } from '../lib/geo'
@@ -19,7 +21,7 @@ import {
 const COUNTRIES = ['Colombia', 'Venezuela', 'México', 'USA/Europa', 'Otro']
 
 const inputCls =
-  'w-full rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+  'w-full rounded-xl border border-clay-light bg-white px-3.5 py-2.5 text-base text-charcoal outline-none transition placeholder:text-faint focus:border-sage-dark focus:ring-4 focus:ring-sage/15'
 
 interface Option {
   id: string
@@ -74,8 +76,8 @@ function CatalogSection({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const chip = accent === 'sage' ? 'bg-sage-water/10 text-sage-dark' : 'bg-clay/10 text-clay'
-  const addBtn = accent === 'sage' ? 'bg-sage-dark text-white hover:brightness-95' : 'bg-clay text-white hover:bg-clay/80'
+  const chip = accent === 'sage' ? 'bg-sage-light text-sage-dark' : 'bg-vela-light text-clay'
+  const addBtn = accent === 'sage' ? 'bg-sage-dark text-white hover:brightness-95' : 'bg-vela-dark text-white hover:brightness-110'
 
   const nameOf = (id: string) =>
     allRoles.find((r) => r.id === id)?.name ?? allTeams.find((t) => t.id === id)?.name ?? '—'
@@ -111,11 +113,11 @@ function CatalogSection({
   }
 
   return (
-    <section className="rounded-2xl border border-clay-light/40 bg-white p-6">
-      <h2 className="font-serif text-lg text-charcoal">{title}</h2>
+    <section className="tarjeta p-5 sm:p-6">
+      <h2 className="font-serif text-lg font-bold text-charcoal">{title}</h2>
       <p className="mb-4 text-sm text-graysage">{subtitle}</p>
 
-      <ul className="mb-4 divide-y divide-clay-light/25">
+      <ul className="mb-4 divide-y divide-clay-light/70">
         {items.map((it) => {
           const deps = [...it.requires.roles, ...it.requires.teams]
           const expanded = expandedId === it.id
@@ -127,7 +129,7 @@ function CatalogSection({
                     <input
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
-                      className="flex-1 rounded-lg border border-graysage/25 bg-cream px-3 py-1.5 text-sm outline-none focus:border-sage"
+                      className="flex-1 rounded-lg border border-clay-light bg-cream px-3 py-1.5 text-sm outline-none focus:border-sage"
                       autoFocus
                     />
                     <button type="button" onClick={() => saveEdit(it.id)} disabled={busy} className="text-sm font-medium text-sage-dark hover:underline">
@@ -161,7 +163,7 @@ function CatalogSection({
                           >
                             Renombrar
                           </button>
-                          <button type="button" onClick={() => remove(it)} className="text-xs text-graysage hover:text-clay hover:underline">
+                          <button type="button" onClick={() => remove(it)} className="text-xs text-graysage hover:text-danger hover:underline">
                             Eliminar
                           </button>
                         </>
@@ -227,7 +229,7 @@ function CatalogSection({
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
           placeholder={`Nuevo ${title.toLowerCase().slice(0, -1)}…`}
-          className="flex-1 rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-sm outline-none focus:border-sage focus:ring-2 focus:ring-sage/20"
+          className="flex-1 rounded-lg border border-clay-light bg-cream px-3 py-2 text-sm outline-none focus:border-sage focus:ring-2 focus:ring-sage/20"
         />
         <button
           type="button"
@@ -239,7 +241,7 @@ function CatalogSection({
         </button>
       </div>
 
-      {error && <p className="mt-3 rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
+      {error && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
     </section>
   )
 }
@@ -247,6 +249,10 @@ function CatalogSection({
 export default function Settings() {
   const { membership, membershipLoading } = useAuth()
   const churchId = membership?.churchId
+  // Pestaña activa en la URL (?tab=invitar) para poder enlazarla desde otras pantallas.
+  const [params, setParams] = useSearchParams()
+  const tab: SettingsTab = TABS.some((t) => t.key === params.get('tab')) ? (params.get('tab') as SettingsTab) : 'iglesia'
+  const setTab = (t: SettingsTab) => setParams(t === 'iglesia' ? {} : { tab: t }, { replace: true })
 
   const [roles, setRoles] = useState<Item[]>([])
   const [teams, setTeams] = useState<Item[]>([])
@@ -345,11 +351,7 @@ export default function Settings() {
   }
 
   if (membershipLoading || loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-white">
-        <p className="font-mono text-sm text-graysage">Cargando…</p>
-      </div>
-    )
+    return <PageLoading />
   }
   if (!membership) return <Navigate to="/onboarding" replace />
 
@@ -417,18 +419,30 @@ export default function Settings() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      <AppHeader />
-      <main className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
-        <h1 className="mb-1 font-serif text-2xl text-charcoal">Ajustes</h1>
-        <p className="mb-8 text-sm text-graysage">
-          Personaliza los equipos, roles y sus dependencias. Los del sistema no se pueden borrar.
-        </p>
+    <PageShell
+      width="mid"
+      title="Ajustes"
+      subtitle="Datos de tu iglesia, equipos, roles y reglas. Los elementos del sistema no se pueden borrar."
+    >
+        <SettingsTabs tab={tab} onChange={setTab} />
 
-        <div className="space-y-6">
-          <section className="rounded-2xl border border-clay-light/40 bg-white p-6">
+        <div key={tab} className="paso space-y-6">
+          {tab === 'invitar' && (church.code ? (
+            <section className="tarjeta p-5 sm:p-6">
+              <h2 className="mb-1 font-serif text-lg text-charcoal">Invitar miembros</h2>
+              <p className="mb-5 text-sm text-graysage">Imprime el QR y pégalo en el templo, o compártelo por WhatsApp.</p>
+              <InviteQR code={church.code} churchName={church.name || 'tu iglesia'} />
+            </section>
+          ) : (
+            <p className="tarjeta p-6 text-sm text-graysage">Tu iglesia aún no tiene código de invitación.</p>
+          ))}
+
+          {tab === 'apariencia' && <AppearanceSection />}
+
+          {tab === 'iglesia' && (<>
+          <section className="tarjeta p-5 sm:p-6">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="font-serif text-lg text-charcoal">Datos de la iglesia</h2>
+              <h2 className="font-serif text-lg font-bold text-charcoal">Datos de la iglesia</h2>
               <span className="font-mono text-xs text-graysage">
                 {church.code}
                 {church.plan ? ` · ${church.plan.replace('_', ' ')}` : ''}
@@ -473,7 +487,7 @@ export default function Settings() {
                 type="button"
                 onClick={saveChurch}
                 disabled={savingChurch}
-                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60"
+                className="rounded-xl bg-sage-dark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sage-deep disabled:opacity-60"
               >
                 {savingChurch ? 'Guardando…' : 'Guardar cambios'}
               </button>
@@ -481,12 +495,24 @@ export default function Settings() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-clay-light/40 bg-white p-6">
-            <h2 className="font-serif text-lg text-charcoal">Reglas de elegibilidad</h2>
+          <section className="tarjeta p-5 sm:p-6">
+            <h2 className="font-serif text-lg font-bold text-charcoal">Rangos de edad</h2>
+            <p className="mb-4 text-sm text-graysage">
+              Define los cortes de edad de tu iglesia. Arrastra los pines en la línea o escribe la
+              edad de inicio. Cada rango se puede renombrar, cambiar de color o desactivar. Se usan
+              para clasificar a los miembros en toda la app.
+            </p>
+            <AgeRangesEditor value={ageRanges} onChange={saveAgeRanges} />
+          </section>
+          </>)}
+
+          {tab === 'equipos' && (<>
+          <section className="tarjeta p-5 sm:p-6">
+            <h2 className="font-serif text-lg font-bold text-charcoal">Reglas de elegibilidad</h2>
             <p className="mb-4 text-sm text-graysage">
               Reglas generales que la app hace cumplir al asignar roles y equipos.
             </p>
-            <ul className="divide-y divide-clay-light/25">
+            <ul className="divide-y divide-clay-light/70">
               {RULE_LABELS.map(({ key, label, help }) => (
                 <li key={key} className="flex items-start justify-between gap-4 py-3">
                   <div>
@@ -505,16 +531,6 @@ export default function Settings() {
                 </li>
               ))}
             </ul>
-          </section>
-
-          <section className="rounded-2xl border border-clay-light/40 bg-white p-6">
-            <h2 className="font-serif text-lg text-charcoal">Rangos de edad</h2>
-            <p className="mb-4 text-sm text-graysage">
-              Define los cortes de edad de tu iglesia. Arrastra los pines en la línea o escribe la
-              edad de inicio. Cada rango se puede renombrar, cambiar de color o desactivar. Se usan
-              para clasificar a los miembros en toda la app.
-            </p>
-            <AgeRangesEditor value={ageRanges} onChange={saveAgeRanges} />
           </section>
 
           <CatalogSection
@@ -541,8 +557,65 @@ export default function Settings() {
             onDelete={deleteRole}
             onToggleDep={toggleDepRole}
           />
+          </>)}
         </div>
-      </main>
+    </PageShell>
+  )
+}
+
+const TABS = [
+  { key: 'iglesia', label: 'Iglesia', short: 'Iglesia', icon: <><path d="M3 21h18" /><path d="M5 21V10l7-5 7 5v11" /><path d="M10 21v-5h4v5" /></> },
+  { key: 'equipos', label: 'Equipos y roles', short: 'Equipos', icon: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a5.5 5.5 0 0 1 3.5 6" /></> },
+  { key: 'invitar', label: 'Invitar', short: 'Invitar', icon: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><path d="M14 14h3v3h-3zM17 20h3v-3" /></> },
+  { key: 'apariencia', label: 'Apariencia', short: 'Letra', icon: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></> },
+] as const
+type SettingsTab = (typeof TABS)[number]['key']
+
+// Pestañas tipo segmento (vidrio); en móvil se desplazan en horizontal.
+function SettingsTabs({ tab, onChange }: { tab: SettingsTab; onChange: (t: SettingsTab) => void }) {
+  return (
+    <div role="tablist" aria-label="Secciones de ajustes" className="vidrio mb-6 grid grid-cols-4 gap-1 p-1.5">
+      {TABS.map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          role="tab"
+          aria-selected={tab === t.key}
+          onClick={() => onChange(t.key)}
+          className={`flex flex-col items-center justify-center gap-1 rounded-[0.9rem] px-1 py-2 text-xs font-semibold transition sm:flex-row sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm ${tab === t.key ? 'bg-sage-dark text-paper shadow-sm' : 'text-graysage hover:bg-white/60 hover:text-charcoal'}`}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>{t.icon}</svg>
+          <span className="sm:hidden">{t.short}</span>
+          <span className="hidden sm:inline">{t.label}</span>
+        </button>
+      ))}
     </div>
+  )
+}
+
+// Apariencia (solo en este dispositivo): letra grande para leer sin esfuerzo.
+function AppearanceSection() {
+  const [large, setLarge] = useState(readLargeText)
+  const toggle = () => {
+    applyLargeText(!large)
+    setLarge(!large)
+  }
+  return (
+    <section className="tarjeta flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6">
+      <div>
+        <h2 className="font-serif text-lg font-bold text-charcoal">Letra grande</h2>
+        <p className="mt-0.5 text-sm text-graysage">Aumenta el tamaño de todo el texto en este dispositivo.</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={large}
+        aria-label="Letra grande"
+        onClick={toggle}
+        className={`relative h-8 w-14 shrink-0 rounded-full transition ${large ? 'bg-sage-dark' : 'bg-clay-light'}`}
+      >
+        <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${large ? 'left-7' : 'left-1'}`} />
+      </button>
+    </section>
   )
 }

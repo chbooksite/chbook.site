@@ -2,12 +2,15 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './lib/auth-context'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import Login from './pages/Login'
+import ResetPassword from './pages/ResetPassword'
+import Join from './pages/Join'
 import Onboarding from './pages/Onboarding'
 import Dashboard from './pages/Dashboard'
 import Members from './pages/Members'
 import MemberProfile from './pages/MemberProfile'
 import Calendar from './pages/Calendar'
 import Settings from './pages/Settings'
+import Service from './pages/Service'
 
 export default function App() {
   return (
@@ -15,6 +18,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/restablecer" element={<ResetPassword />} />
+          <Route path="/unirse/:code?" element={<Join />} />
 
           {/* Rutas protegidas: requieren sesión */}
           <Route element={<ProtectedRoute />}>
@@ -22,6 +27,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/miembros" element={<Members />} />
             <Route path="/miembros/:id" element={<MemberProfile />} />
+            <Route path="/culto" element={<Service />} />
             <Route path="/calendario" element={<Calendar />} />
             <Route path="/ajustes" element={<Settings />} />
           </Route>

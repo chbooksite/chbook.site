@@ -3,10 +3,134 @@
 
 @layer base {
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* "Letra grande" (Ajustes → Apariencia): todo está en rem, así que escala la app entera. */
+  html.letra-grande {
+    font-size: 112.5%;
   }
   body {
-    background-color: #ffffff; /* blanco por defecto */
-    color: #383835; /* gris oscuro */
+    background-color: #F8F5EF; /* crema */
+    color: #1E2A24; /* carbón verde */
   }
+  ::selection {
+    background: #E6EFEC;
+    color: #1E2A24;
+  }
+  :focus-visible {
+    outline: 2px solid #2D5A50;
+    outline-offset: 2px;
+  }
+}
+
+/* DM Serif Display solo existe en peso 400: fuera de capa para ganar a
+   font-bold/font-semibold y que el navegador no invente una negrita. */
+.font-serif {
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+/* Tarjeta: blanca sobre crema, borde fino, sin sombra llamativa. En la capa
+   components para que las utilidades (rounded-xl, bg-cream…) la ajusten. */
+@layer components {
+  .tarjeta {
+    background-color: #ffffff;
+    border: 1px solid #E8E0D2;
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px rgba(30, 42, 36, 0.04);
+  }
+
+  /* Vidrio (estilo Taskora con la paleta oficial): blanco translúcido sobre el
+     aura de la página. Solo en pantallas con `aura` detrás; si no, es tarjeta. */
+  .vidrio {
+    background-color: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    border-radius: 1.25rem;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 12px 32px -14px rgba(30, 42, 36, 0.28);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    backdrop-filter: blur(22px) saturate(160%);
+  }
+  /* Sobre el aura, toda .tarjeta es vidrio; las anidadas solo se aclaran
+     (un desenfoque dentro de otro no aporta y cuesta rendimiento). */
+  .con-aura .tarjeta {
+    background-color: rgba(255, 255, 255, 0.6);
+    border-color: rgba(255, 255, 255, 0.85);
+    border-radius: 1.25rem;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 12px 32px -14px rgba(30, 42, 36, 0.28);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    backdrop-filter: blur(22px) saturate(160%);
+  }
+  .con-aura .tarjeta .tarjeta {
+    background-color: rgba(255, 255, 255, 0.55);
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .vidrio,
+    .con-aura .tarjeta { background-color: rgba(255, 255, 255, 0.92); }
+  }
+}
+
+/* Aura: manchas suaves de sage, agua y vela detrás del vidrio. Fija, sin
+   animación, por debajo del contenido. */
+.aura {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: #EEF1EC;
+  background-image:
+    radial-gradient(38rem 30rem at 6% 8%, rgba(107, 158, 145, 0.62), transparent 68%),
+    radial-gradient(32rem 26rem at 96% 14%, rgba(184, 149, 106, 0.50), transparent 68%),
+    radial-gradient(46rem 34rem at 72% 100%, rgba(74, 124, 111, 0.48), transparent 68%),
+    radial-gradient(28rem 22rem at 40% 48%, rgba(230, 239, 236, 0.9), transparent 70%),
+    radial-gradient(30rem 24rem at 10% 92%, rgba(139, 111, 71, 0.28), transparent 70%);
+}
+
+/* ── Movimiento: solo para orientar ─────────────────────────────────── */
+
+/* Aparición escalonada de abajo hacia arriba. */
+@keyframes subir {
+  from { opacity: 0; transform: translateY(8px); }
+}
+.subir {
+  animation: subir 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Logo trazado al cargar: cada trazo se dibuja por turnos (paths con pathLength=1). */
+@keyframes trazo {
+  to { stroke-dashoffset: 0; }
+}
+.logo-trazo path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: trazo 0.8s cubic-bezier(0.6, 0, 0.3, 1) forwards;
+}
+.logo-trazo path:nth-child(2) { animation-delay: 0.25s; }
+.logo-trazo path:nth-child(3) { animation-delay: 0.45s; }
+.logo-trazo path:nth-child(4) { animation-delay: 0.65s; }
+.logo-trazo path:nth-child(5) { animation-delay: 0.8s; }
+
+/* Brillo dorado suave detrás del monograma grande del login. */
+.logo-brillo svg {
+  filter: drop-shadow(0 0 18px rgba(201, 168, 76, 0.35));
+}
+
+/* Entrada lateral de un paso del formulario. */
+@keyframes paso {
+  from { opacity: 0; transform: translateX(16px); }
+}
+.paso {
+  animation: paso 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subir,
+  .paso,
+  .logo-trazo path {
+    animation: none;
+  }
+  .logo-trazo path { stroke-dashoffset: 0; }
 }

@@ -961,6 +961,7 @@ export type Database = {
         Row: {
           church_id: string | null
           created_at: string | null
+          ended_at: string | null
           gps_radius_m: number | null
           id: string
           name: string
@@ -971,6 +972,7 @@ export type Database = {
         Insert: {
           church_id?: string | null
           created_at?: string | null
+          ended_at?: string | null
           gps_radius_m?: number | null
           id?: string
           name: string
@@ -981,6 +983,7 @@ export type Database = {
         Update: {
           church_id?: string | null
           created_at?: string | null
+          ended_at?: string | null
           gps_radius_m?: number | null
           id?: string
           name?: string

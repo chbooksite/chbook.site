@@ -161,9 +161,9 @@ export default function MapPicker({ value, onChange }: Props) {
       </div>
 
       {gps === 'error' && (
-        <p className="text-xs text-clay">No se pudo obtener tu ubicación. Usa la búsqueda o toca el mapa.</p>
+        <p className="text-xs text-danger">No se pudo obtener tu ubicación. Usa la búsqueda o toca el mapa.</p>
       )}
-      {searchError && <p className="text-xs text-clay">{searchError}</p>}
+      {searchError && <p className="text-xs text-danger">{searchError}</p>}
       <p className="text-[0.7rem] leading-snug text-graysage/70">
         Arrastra el pin para ajustarlo al punto exacto del auditorio. En computadora la ubicación
         automática puede estar a ~200 m; el mapa te deja precisarla.

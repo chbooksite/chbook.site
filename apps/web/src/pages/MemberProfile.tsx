@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
-import AppHeader from '../components/AppHeader'
+import PageShell, { PageLoading } from '../components/PageShell'
+import Avatar from '../components/Avatar'
 import {
   DEFAULT_RULES,
   depsSatisfied,
@@ -201,24 +202,20 @@ export default function MemberProfile() {
   }, [canPreach, roleByKey, roleIds, rules])
 
   if (membershipLoading || loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-white">
-        <p className="font-mono text-sm text-graysage">Cargando…</p>
-      </div>
-    )
+    return <PageLoading />
   }
 
   if (notFound) {
     return (
-      <div className="min-h-screen bg-white">
-        <AppHeader />
-        <main className="mx-auto max-w-3xl px-6 py-16 text-center">
-          <p className="text-graysage">No se encontró ese miembro.</p>
+      <PageShell width="narrow">
+        <div className="tarjeta px-6 py-14 text-center">
+          <p className="font-serif text-xl font-bold text-charcoal">No encontramos a esta persona</p>
+          <p className="mt-1 text-graysage">Puede que se haya archivado o que el enlace sea antiguo.</p>
           <Link to="/miembros" className="mt-3 inline-block text-sm text-sage-dark underline-offset-2 hover:underline">
             ← Volver a miembros
           </Link>
-        </main>
-      </div>
+        </div>
+      </PageShell>
     )
   }
 
@@ -404,19 +401,19 @@ export default function MemberProfile() {
   const rangoEdad = displayAgeRange(birthDate, ageGroup, ageRanges)
 
   const inputCls =
-    'w-full rounded-lg border border-graysage/25 bg-cream px-3 py-2 text-sm text-charcoal outline-none focus:border-sage focus:ring-2 focus:ring-sage/20'
+    'w-full rounded-xl border border-clay-light bg-white px-3.5 py-2.5 text-base text-charcoal outline-none transition placeholder:text-faint focus:border-sage-dark focus:ring-4 focus:ring-sage/15'
 
   return (
-    <div className="min-h-screen bg-white">
-      <AppHeader />
-      <main className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
-        <Link to="/miembros" className="text-sm text-sage-dark underline-offset-2 hover:underline">
+    <PageShell width="mid">
+        <Link to="/miembros" className="inline-flex items-center gap-1 rounded-full px-1 text-sm font-medium text-sage-dark underline-offset-2 hover:underline">
           ← Miembros
         </Link>
 
-        <div className="mt-4 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="font-serif text-3xl text-charcoal">{fullName || 'Miembro'}</h1>
+        <div className="subir mt-4 flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-4">
+          <Avatar name={fullName || '?'} size={68} />
+          <div className="min-w-0">
+            <h1 className="font-serif text-3xl font-bold text-charcoal">{fullName || 'Miembro'}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {(() => {
                 const id = memberIdentity(status, isBaptized, Object.keys(teamMap).length, roleIds.length)
@@ -429,7 +426,7 @@ export default function MemberProfile() {
                 return roleIds.map((rid) => (
                   <span
                     key={rid}
-                    className="rounded-full bg-sage-water/10 px-2.5 py-0.5 text-xs font-medium text-sage-dark"
+                    className="rounded-full bg-sage-light px-2.5 py-0.5 text-xs font-semibold text-sage-dark"
                   >
                     {roleName(rid)}
                   </span>
@@ -442,7 +439,7 @@ export default function MemberProfile() {
                 rules.baptism_for_roles,
                 rules.baptism_for_teams,
               ) && (
-                <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-600">
+                <span className="rounded-full bg-danger/10 px-2.5 py-0.5 text-xs font-semibold text-danger">
                   No bautizado
                 </span>
               )}
@@ -452,6 +449,7 @@ export default function MemberProfile() {
                 </span>
               )}
             </div>
+          </div>
           </div>
           {!editing && (
             <div className="flex shrink-0 gap-2">
@@ -467,7 +465,7 @@ export default function MemberProfile() {
                 <button
                   type="button"
                   onClick={archive}
-                  className="rounded-lg border border-graysage/25 px-3 py-2 text-sm text-graysage transition hover:bg-cream"
+                  className="rounded-lg border border-clay-light px-3 py-2 text-sm text-graysage transition hover:bg-cream"
                 >
                   Archivar
                 </button>
@@ -475,7 +473,7 @@ export default function MemberProfile() {
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95"
+                className="rounded-xl bg-sage-dark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sage-deep"
               >
                 Editar
               </button>
@@ -486,29 +484,29 @@ export default function MemberProfile() {
         {!editing ? (
           /* ---------- VISTA ---------- */
           <div className="mt-6 space-y-6">
-            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+            <div className="tarjeta p-5 sm:p-6">
               <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Cédula</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wider text-graysage">Cédula</dt>
                   <dd className="mt-1 font-mono text-charcoal">{cedula || '—'}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Correo</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wider text-graysage">Correo</dt>
                   <dd className="mt-1 text-charcoal">{email || '—'}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Teléfono</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wider text-graysage">Teléfono</dt>
                   <dd className="mt-1 text-charcoal">{phone || '—'}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Nacimiento</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wider text-graysage">Nacimiento</dt>
                   <dd className="mt-1 text-charcoal">{birthDate || '—'}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Bautismo</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wider text-graysage">Bautismo</dt>
                   <dd className="mt-1">
                     {isBaptized ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-sage-water/15 px-2.5 py-0.5 text-sm text-sage-dark">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-sage-light px-2.5 py-0.5 text-sm font-medium text-sage-dark">
                         ✝ Bautizado{baptismDate ? ` · ${baptismDate}` : ''}
                       </span>
                     ) : (
@@ -517,18 +515,18 @@ export default function MemberProfile() {
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">
+                  <dt className="text-xs font-semibold uppercase tracking-wider text-graysage">
                     Rango de edad
                   </dt>
                   <dd className="mt-1 text-charcoal">{rangoEdad ?? '—'}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">Sexo</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wider text-graysage">Sexo</dt>
                   <dd className="mt-1 capitalize text-charcoal">{sex || '—'}</dd>
                 </div>
                 {guardianId && (
                   <div>
-                    <dt className="text-xs font-medium uppercase tracking-wide text-graysage/70">
+                    <dt className="text-xs font-semibold uppercase tracking-wider text-graysage">
                       Representante
                     </dt>
                     <dd className="mt-1">
@@ -544,12 +542,12 @@ export default function MemberProfile() {
               </dl>
             </div>
 
-            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+            <div className="tarjeta p-5 sm:p-6">
               <p className="mb-3 text-sm font-medium text-graysage">Roles</p>
               <div className="flex flex-wrap gap-2">
                 {roleIds.length === 0 && <span className="text-sm text-graysage/60">Sin roles.</span>}
                 {roleIds.map((rid) => (
-                  <span key={rid} className="rounded-full bg-sage-water/10 px-2.5 py-0.5 text-xs text-sage-dark">
+                  <span key={rid} className="rounded-full bg-sage-light px-2.5 py-0.5 text-xs font-medium text-sage-dark">
                     {roleName(rid)}
                   </span>
                 ))}
@@ -558,7 +556,7 @@ export default function MemberProfile() {
               <div className="flex flex-wrap gap-2">
                 {Object.keys(teamMap).length === 0 && <span className="text-sm text-graysage/60">Sin equipos.</span>}
                 {Object.entries(teamMap).map(([tid, leader]) => (
-                  <span key={tid} className="rounded-full bg-clay/10 px-2.5 py-0.5 text-xs text-clay">
+                  <span key={tid} className="rounded-full bg-vela-light px-2.5 py-0.5 text-xs font-medium text-clay">
                     {teamName(tid)}
                     {leader && ' ★ líder'}
                   </span>
@@ -567,7 +565,7 @@ export default function MemberProfile() {
             </div>
 
             {/* Dependientes a cargo de este miembro */}
-            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+            <div className="tarjeta p-5 sm:p-6">
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-sm font-medium text-graysage">Dependientes</p>
                 <button
@@ -600,7 +598,7 @@ export default function MemberProfile() {
                     <option value="femenino">Femenino</option>
                   </select>
                   <div className="sm:col-span-2">
-                    {depError && <p className="mb-2 text-xs text-clay">{depError}</p>}
+                    {depError && <p className="mb-2 text-xs text-danger">{depError}</p>}
                     <button
                       type="submit"
                       disabled={depSaving}
@@ -617,7 +615,7 @@ export default function MemberProfile() {
                   Sin dependientes. Agrega niños o adultos sin móvil a cargo de esta persona.
                 </p>
               ) : (
-                <ul className="divide-y divide-clay-light/25">
+                <ul className="divide-y divide-clay-light/70">
                   {dependents.map((d) => (
                     <li key={d.id} className="flex items-center justify-between py-2">
                       <Link
@@ -638,7 +636,7 @@ export default function MemberProfile() {
         ) : (
           /* ---------- EDICIÓN ---------- */
           <form onSubmit={save} className="mt-6 space-y-6">
-            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+            <div className="tarjeta p-5 sm:p-6">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-graysage">Nombre completo</label>
@@ -733,7 +731,7 @@ export default function MemberProfile() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+            <div className="tarjeta p-5 sm:p-6">
               <p className="mb-2 text-sm font-medium text-graysage">Roles</p>
               <div className="flex flex-wrap gap-2">
                 {roles
@@ -763,7 +761,7 @@ export default function MemberProfile() {
                         className={`rounded-full border px-3 py-1 text-xs transition ${
                           on
                             ? 'border-sage bg-sage-light text-sage-dark'
-                            : 'border-graysage/25 text-graysage hover:border-sage'
+                            : 'border-clay-light text-graysage hover:border-sage'
                         } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
                       >
                         {r.name}
@@ -778,7 +776,7 @@ export default function MemberProfile() {
               )}
             </div>
 
-            <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+            <div className="tarjeta p-5 sm:p-6">
               <p className="mb-2 text-sm font-medium text-graysage">Equipos</p>
               <div className="space-y-2">
                 {teams.map((t) => {
@@ -800,7 +798,7 @@ export default function MemberProfile() {
                               : depHint(t.requires)
                         }
                         className={`rounded-full border px-3 py-1 text-xs transition ${
-                          on ? 'border-clay bg-clay text-cream' : 'border-graysage/25 text-graysage hover:border-clay'
+                          on ? 'border-vela/40 bg-vela-light font-medium text-clay' : 'border-clay-light text-graysage hover:border-clay'
                         } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
                       >
                         {t.name}
@@ -822,27 +820,26 @@ export default function MemberProfile() {
               )}
             </div>
 
-            {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
+            {error && <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
 
             <div className="flex gap-3">
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60"
+                className="rounded-xl bg-sage-dark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sage-deep disabled:opacity-60"
               >
                 {saving ? 'Guardando…' : 'Guardar cambios'}
               </button>
               <button
                 type="button"
                 onClick={cancel}
-                className="rounded-lg border border-graysage/25 px-4 py-2 text-sm text-graysage transition hover:bg-cream"
+                className="rounded-lg border border-clay-light px-4 py-2 text-sm text-graysage transition hover:bg-cream"
               >
                 Cancelar
               </button>
             </div>
           </form>
         )}
-      </main>
-    </div>
+    </PageShell>
   )
 }

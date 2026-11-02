@@ -512,7 +512,7 @@ export default function CalendarTimeline({
                     {cap(m.toLocaleDateString('es', { month: 'long' }))}{cardW > 230 ? ` ${y}` : ''}
                   </div>
                   {MONTH_DOW.map((d, di) => (
-                    <span key={di} style={{ left: pad + di * cw, top: headerH, width: cw }} className={`absolute text-center text-[0.62rem] font-medium ${di === 6 ? 'text-red-500' : 'text-graysage/70'}`}>{d}</span>
+                    <span key={di} style={{ left: pad + di * cw, top: headerH, width: cw }} className={`absolute text-center text-[0.62rem] font-medium ${di === 6 ? 'text-clay' : 'text-graysage/70'}`}>{d}</span>
                   ))}
                   {Array.from({ length: last }, (_, di) => {
                     const dayN = di + 1
@@ -525,7 +525,7 @@ export default function CalendarTimeline({
                     const isSun = col === 6
                     return (
                       <div key={dayN} data-day={ymd(date)} style={{ left: pad + col * cw, top: gridTop + row * ch, width: cw, height: ch }} className="absolute flex cursor-pointer flex-col items-center justify-start pt-0.5">
-                        <span style={{ width: sz, height: sz }} className={`flex items-center justify-center rounded-md text-[0.8rem] leading-none ${isToday ? 'bg-clay font-semibold text-white' : isSun ? 'text-red-500' : 'text-charcoal/85'}`}>{dayN}</span>
+                        <span style={{ width: sz, height: sz }} className={`flex items-center justify-center rounded-md text-[0.8rem] leading-none ${isToday ? 'bg-clay font-semibold text-white' : isSun ? 'text-clay' : 'text-charcoal/85'}`}>{dayN}</span>
                         {cols && (
                           <span className="mt-0.5 flex gap-0.5">
                             {cols.slice(0, 3).map((c, ci) => (<span key={ci} style={{ backgroundColor: withAlpha(c, 0.3) }} className="h-1 w-1 rounded-full" />))}
@@ -592,7 +592,7 @@ export default function CalendarTimeline({
           <div className="flex flex-wrap items-center gap-2">
             <input type="color" value={sel.color} onChange={(e) => patch(sel.id, { color: e.target.value })} className="h-7 w-8 cursor-pointer rounded border border-graysage/25" title="Color" />
             <input value={sel.name} onChange={(e) => patch(sel.id, { name: e.target.value })} className="min-w-40 flex-1 rounded-lg border border-graysage/25 bg-cream px-2.5 py-1.5 text-sm outline-none focus:border-sage" />
-            <button type="button" onClick={() => removeCycle(sel.id)} className="rounded-lg px-2 py-1 text-lg text-graysage hover:text-clay" title="Eliminar ciclo">🗑</button>
+            <button type="button" onClick={() => removeCycle(sel.id)} className="rounded-lg px-2 py-1 text-lg text-graysage hover:text-danger" title="Eliminar ciclo">🗑</button>
             <button type="button" onClick={() => setSelected(null)} className="px-2 text-lg leading-none text-graysage hover:text-charcoal" title="Cerrar">✕</button>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-graysage">

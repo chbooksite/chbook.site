@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
-import AppHeader from '../components/AppHeader'
+import PageShell, { PageLoading } from '../components/PageShell'
 import ActivityForm from '../components/ActivityForm'
 import AgendaView, { type NewActivityAttrs } from '../components/AgendaView'
 import { DEFAULT_AGE_RANGES, readAgeRanges, type AgeRangeDef } from '../lib/member'
 import {
   formatTime,
+  moveRule,
+  occursOn,
   readActivityTemplates,
   readAssignees,
   readAudience,
@@ -26,6 +28,37 @@ interface Opt {
   id: string
   name: string
   key?: string
+}
+
+const NEXT_FMT = new Intl.DateTimeFormat('es', { weekday: 'long', day: 'numeric' })
+
+// Resumen del ritmo: la próxima actividad y cuántas hay en los próximos 7 días.
+function rhythmSummary(rules: Schedule[], now = new Date()) {
+  const active = rules.filter((s) => s.enabled)
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  const toMin = (t: string | null) => (t ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) : 0)
+  let next: { s: Schedule; date: Date } | null = null
+  let week = 0
+  for (let i = 0; i < 14 && (!next || i < 7); i++) {
+    const d = new Date(today)
+    d.setDate(d.getDate() + i)
+    const todays = active.filter((s) => occursOn(s, d)).sort((a, b) => toMin(a.startTime) - toMin(b.startTime))
+    if (i < 7) week += todays.length
+    if (!next) {
+      const hit = todays.find((s) => i > 0 || toMin(s.startTime) >= nowMin)
+      if (hit) next = { s: hit, date: d }
+    }
+  }
+  return { next, week, active: active.length, paused: rules.length - active.length }
+}
+
+function Glyph({ children }: { children: ReactNode }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
+      {children}
+    </svg>
+  )
 }
 
 export default function Calendar() {
@@ -217,6 +250,40 @@ export default function Calendar() {
     setEditing(s)
     setShowForm(true)
   }
+  // Mover una tarjeta del calendario. Las de una sola fecha cambian solo ese día;
+  // las recurrentes cambian su regla (todas las semanas/meses), así que se confirma.
+  const moveSchedule = async (id: string, date: Date, startTime: string | null) => {
+    const s = schedules.find((x) => x.id === id)
+    if (!s) return
+    const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
+    const toHhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+    const rule = moveRule(s, date)
+    let start = s.startTime
+    let end = s.endTime
+    if (startTime && s.startTime) {
+      const delta = toMin(startTime) - toMin(s.startTime)
+      start = startTime
+      if (s.endTime) end = toHhmm(Math.min(23 * 60 + 59, toMin(s.endTime) + delta))
+    }
+    const sameTime = (a: string | null, b: string | null) => (a ?? '').slice(0, 5) === (b ?? '').slice(0, 5)
+    if (rule.weekday === s.weekday && rule.nth === s.nth && rule.onDate === s.onDate && sameTime(start, s.startTime)) return
+
+    const next: Schedule = { ...s, ...rule, startTime: start, endTime: end }
+    if (!s.onDate) {
+      const when = `${recurrenceLabel(next)}${start ? ` a las ${formatTime(start)}` : ''}`
+      if (!window.confirm(`"${s.name}" es recurrente: pasará a ser ${when.charAt(0).toLowerCase()}${when.slice(1)}, en todas sus fechas. ¿Continuar?`)) return
+    }
+
+    setSchedules((prev) => prev.map((x) => (x.id === id ? next : x)))
+    const { error } = await supabase
+      .from('activity_schedules')
+      .update({ weekday: rule.weekday, nth: rule.nth, on_date: rule.onDate, start_time: start, end_time: end })
+      .eq('id', id)
+    if (error) {
+      window.alert(`No se pudo mover la actividad: ${error.message}`)
+      await load()
+    }
+  }
   const toggleEnabled = async (s: Schedule) => {
     setSchedules((prev) => prev.map((x) => (x.id === s.id ? { ...x, enabled: !x.enabled } : x)))
     await supabase.from('activity_schedules').update({ enabled: !s.enabled }).eq('id', s.id)
@@ -228,11 +295,7 @@ export default function Calendar() {
   }
 
   if (membershipLoading || loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-white">
-        <p className="text-sm text-graysage">Cargando…</p>
-      </div>
-    )
+    return <PageLoading />
   }
   if (!membership) return <Navigate to="/onboarding" replace />
 
@@ -240,20 +303,52 @@ export default function Calendar() {
   const sortedList = [...schedules]
     .filter((s) => !s.parentId)
     .sort((a, b) => a.weekday - b.weekday || (a.startTime ?? '').localeCompare(b.startTime ?? ''))
+  const sum = rhythmSummary(sortedList)
 
   return (
-    <div className="min-h-screen bg-white">
-      <AppHeader />
-      <main className="mx-auto max-w-none px-6 py-10 lg:px-10">
-        <div className="mb-6 flex items-end justify-between gap-4">
-          <div>
-            <h1 className="mb-1 font-serif text-2xl text-charcoal">El ritmo de la iglesia</h1>
-            <p className="text-sm text-graysage">Define las actividades recurrentes una vez; el sistema proyecta tu semana.</p>
-          </div>
-          <button type="button" onClick={openNew} className="shrink-0 rounded-lg bg-sage-dark px-4 py-2 text-sm font-medium text-white transition hover:brightness-95">
+    <div className="min-h-screen">
+      <PageShell
+        title="El ritmo de la iglesia"
+        subtitle="Define las actividades recurrentes una vez; el sistema proyecta tu semana."
+        actions={
+          <button type="button" onClick={openNew} className="shrink-0 rounded-xl bg-sage-dark px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-sage-deep">
             + Nueva actividad
           </button>
-        </div>
+        }
+      >
+
+        {/* Resumen del ritmo: la próxima actividad manda */}
+        {sortedList.length > 0 && (
+          <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4" aria-label="Resumen del ritmo">
+            <div className="subir col-span-2 flex items-center gap-4 rounded-[1.25rem] bg-sage-dark p-5 text-paper shadow-[0_14px_36px_-16px_rgba(30,42,36,0.6)]">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-gold"><Glyph><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></Glyph></span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wider text-paper/70">Próxima actividad</p>
+                {sum.next ? (
+                  <>
+                    <p className="truncate text-xl font-bold tracking-tight">{sum.next.s.name}</p>
+                    <p className="text-sm capitalize text-paper/75">
+                      {sum.next.date.toDateString() === new Date().toDateString() ? 'Hoy' : NEXT_FMT.format(sum.next.date)}
+                      {sum.next.s.startTime && <> · <span className="font-mono">{formatTime(sum.next.s.startTime)}</span></>}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-lg font-semibold">Nada en las próximas 2 semanas</p>
+                )}
+              </div>
+            </div>
+            {[
+              { label: 'Esta semana', value: sum.week, hint: 'actividades en 7 días' },
+              { label: 'En el ritmo', value: sum.active, hint: sum.paused ? `${sum.paused} pausada${sum.paused > 1 ? 's' : ''}` : 'todas activas' },
+            ].map((c, i) => (
+              <div key={c.label} className="subir vidrio flex flex-col justify-center p-5" style={{ animationDelay: `${(i + 1) * 50}ms` }}>
+                <p className="text-xs font-semibold uppercase tracking-wider text-graysage">{c.label}</p>
+                <p className="mt-1.5 text-[2rem] font-bold leading-none tracking-[-0.03em] tabular-nums text-charcoal">{c.value}</p>
+                <p className="mt-1 text-xs text-graysage">{c.hint}</p>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Agenda tipo calendario */}
         <section className="mb-10">
@@ -266,41 +361,61 @@ export default function Calendar() {
             onEdit={(id) => { const s = schedules.find((x) => x.id === id); if (s) openEdit(s) }}
             onNewAt={openNewAt}
             onDropNew={createQuick}
+            onMoveActivity={moveSchedule}
           />
         </section>
 
         {/* Lista de actividades recurrentes */}
-        <h2 className="mb-3 font-serif text-lg text-charcoal">Actividades recurrentes</h2>
-        {sortedList.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-graysage/30 bg-white/50 px-4 py-8 text-center text-sm text-graysage">Aún no hay actividades. Crea la primera con «Nueva actividad».</p>
-        ) : (
-          <ul className="space-y-2">
-            {sortedList.map((s) => {
-              const t = typeById.get(s.typeId ?? '')
-              const nTeams = teamsBySchedule.get(s.id)?.length ?? 0
-              const nSegs = segmentsBySchedule.get(s.id)?.length ?? 0
-              return (
-                <li key={s.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-clay-light/40 bg-white px-4 py-3 ${s.enabled ? '' : 'opacity-50'}`}>
-                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: colorOf(s) }} />
-                  <span className="font-medium text-charcoal">{s.name}</span>
-                  {t && <span className="text-xs text-graysage">· {t.name}</span>}
-                  <span className="text-sm text-graysage">· {recurrenceLabel(s)}</span>
-                  {s.startTime && <span className="font-mono text-xs text-graysage">· {formatTime(s.startTime)}{s.endTime ? `–${formatTime(s.endTime)}` : ''}</span>}
-                  <span className="rounded-full bg-sage-water/10 px-2 py-0.5 text-xs text-sage-dark">{audienceLabel(s.audience)}</span>
-                  {s.assignees.length > 0 && <span className="text-xs text-graysage" title="Encargados">· 👤 {encargadosLabel(s)}</span>}
-                  {nTeams > 0 && <span className="text-xs text-graysage">{nTeams} equipo{nTeams > 1 ? 's' : ''}</span>}
-                  {nSegs > 0 && <span className="text-xs text-graysage">{nSegs} actividad{nSegs > 1 ? 'es' : ''}</span>}
-                  <div className="ml-auto flex items-center gap-3">
-                    <button type="button" onClick={() => toggleEnabled(s)} className="text-xs text-graysage hover:text-sage-dark hover:underline">{s.enabled ? 'Pausar' : 'Activar'}</button>
-                    <button type="button" onClick={() => openEdit(s)} className="text-xs text-graysage hover:text-sage-dark hover:underline">Editar</button>
-                    <button type="button" onClick={() => remove(s)} className="text-xs text-graysage hover:text-clay hover:underline">Eliminar</button>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </main>
+        <section className="vidrio p-5" aria-labelledby="h-recurrentes">
+          <header className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 id="h-recurrentes" className="font-serif text-xl leading-tight text-charcoal">Actividades recurrentes</h2>
+              <p className="mt-0.5 text-xs text-graysage">Se repiten solas en la agenda. Pausa una sin borrarla.</p>
+            </div>
+            {sortedList.length > 0 && <span className="rounded-full bg-sage-dark/[0.08] px-2.5 py-0.5 text-xs font-semibold text-sage-dark">{sortedList.length}</span>}
+          </header>
+          {sortedList.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-clay-light px-4 py-10 text-center">
+              <p className="text-sm text-graysage">Aún no hay actividades. Crea la primera y se repetirá sola cada semana.</p>
+              <button type="button" onClick={openNew} className="rounded-full bg-sage-dark px-4 py-2 text-sm font-semibold text-paper transition hover:bg-sage-deep">+ Nueva actividad</button>
+            </div>
+          ) : (
+            <ul className="-mx-2 divide-y divide-charcoal/[0.06]">
+              {sortedList.map((s) => {
+                const t = typeById.get(s.typeId ?? '')
+                const nTeams = teamsBySchedule.get(s.id)?.length ?? 0
+                const nSegs = segmentsBySchedule.get(s.id)?.length ?? 0
+                const meta = [t?.name, nTeams ? `${nTeams} equipo${nTeams > 1 ? 's' : ''}` : null, nSegs ? `${nSegs} parte${nSegs > 1 ? 's' : ''}` : null, s.assignees.length ? `Encargados: ${encargadosLabel(s)}` : null].filter(Boolean).join(' · ')
+                return (
+                  <li key={s.id} className={`group flex items-center gap-3 rounded-xl px-2 py-3 transition hover:bg-white/60 ${s.enabled ? '' : 'opacity-55'}`}>
+                    <span className="h-10 w-1 shrink-0 rounded-full" style={{ backgroundColor: colorOf(s) }} aria-hidden />
+                    <button type="button" onClick={() => openEdit(s)} className="min-w-0 flex-1 text-left">
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="font-semibold text-charcoal">{s.name}</span>
+                        <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-medium text-graysage">{recurrenceLabel(s)}{s.startTime ? ` · ${formatTime(s.startTime)}${s.endTime ? `–${formatTime(s.endTime)}` : ''}` : ''}</span>
+                        <span className="rounded-full bg-sage-light px-2 py-0.5 text-xs font-medium text-sage-dark">{audienceLabel(s.audience)}</span>
+                        {!s.enabled && <span className="rounded-full bg-charcoal/[0.06] px-2 py-0.5 text-xs font-medium text-graysage">Pausada</span>}
+                      </span>
+                      {meta && <span className="mt-0.5 block truncate text-xs text-graysage">{meta}</span>}
+                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button type="button" onClick={() => toggleEnabled(s)} className="rounded-full p-2 text-graysage transition hover:bg-white hover:text-sage-dark" aria-label={s.enabled ? `Pausar ${s.name}` : `Activar ${s.name}`} title={s.enabled ? 'Pausar' : 'Activar'}>
+                        <Glyph>{s.enabled ? <><path d="M9 6v12M15 6v12" /></> : <path d="m8 5 11 7-11 7z" />}</Glyph>
+                      </button>
+                      <button type="button" onClick={() => openEdit(s)} className="rounded-full p-2 text-graysage transition hover:bg-white hover:text-sage-dark" aria-label={`Editar ${s.name}`} title="Editar">
+                        <Glyph><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="m13.5 6.5 4 4" /></Glyph>
+                      </button>
+                      <button type="button" onClick={() => remove(s)} className="rounded-full p-2 text-graysage transition hover:bg-danger/10 hover:text-danger" aria-label={`Eliminar ${s.name}`} title="Eliminar">
+                        <Glyph><path d="M4 7h16M10 11v6M14 11v6" /><path d="M6 7l1 13h10l1-13M9 7V4h6v3" /></Glyph>
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
+      </PageShell>
 
       {showForm && (
         <ActivityForm
