@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { AUDIENCE_ALL, occursOn, type Audience, type Schedule } from '../lib/activity'
 import AudiencePicker from './AudiencePicker'
 
@@ -25,6 +25,7 @@ const COL_W = 180 // ancho de columna de día (ampliada)
 const COL_W_C = 170 // ancho de tarjeta de día (compacta)
 const GUTTER = 52 // ancho del eje de horas
 const HEADER_H = 52 // alto de la cabecera de día
+const MAX_LANES = 2 // actividades lado a lado antes de agruparlas en "+N"
 const RANGE_BACK = 45 // días hacia atrás desde hoy
 const RANGE_DAYS = 400 // total de días en la tira
 
@@ -96,25 +97,56 @@ export default function AgendaView({
   const days = Array.from({ length: RANGE_DAYS }, (_, i) => addDays(rangeStart, i))
   const colW = view === 'compact' ? COL_W_C : COL_W
 
-  // Bloques/actividades por día.
+  // Bloques/actividades por día. Los carriles se calculan por GRUPO de choques
+  // (actividades que se pisan entre sí): una actividad sola usa todo el ancho.
+  // Si un grupo necesita más de MAX_LANES carriles, el primero se muestra y el
+  // resto se junta en una tarjeta "+N actividades" que abre la lista.
   interface Block { id: string; startMin: number; endMin: number; title: string; color: string; responsibles?: string | null; lane: number; lanes: number }
+  interface Stack { key: string; startMin: number; endMin: number; items: Block[] }
   const dayData = (d: Date) => {
-    const timed: Block[] = []
+    const all: Block[] = []
     const allDay: RecSchedule[] = []
     for (const r of recurring) {
       if (!occursOn(r, d)) continue
       if (!r.startTime) { allDay.push(r); continue }
       const s = minutesOf(r.startTime)
       const e = r.endTime ? Math.max(minutesOf(r.endTime), s + 20) : s + 60
-      timed.push({ id: r.id, startMin: s, endMin: e, title: r.name, color: r.color, responsibles: r.responsibles, lane: 0, lanes: 1 })
+      all.push({ id: r.id, startMin: s, endMin: e, title: r.name, color: r.color, responsibles: r.responsibles, lane: 0, lanes: 1 })
     }
-    timed.sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin)
-    const laneEnd: number[] = []
-    for (const b of timed) { let L = 0; while (L < laneEnd.length && laneEnd[L] > b.startMin) L++; b.lane = L; laneEnd[L] = b.endMin }
-    const nLanes = Math.max(1, laneEnd.length)
-    for (const b of timed) b.lanes = nLanes
-    return { timed, allDay }
+    all.sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin)
+    const timed: Block[] = []
+    const stacks: Stack[] = []
+    const flush = (group: Block[]) => {
+      if (!group.length) return
+      const laneEnd: number[] = []
+      for (const b of group) { let L = 0; while (L < laneEnd.length && laneEnd[L] > b.startMin) L++; b.lane = L; laneEnd[L] = b.endMin }
+      if (laneEnd.length <= MAX_LANES) {
+        for (const b of group) { b.lanes = laneEnd.length; timed.push(b) }
+        return
+      }
+      const rest = group.filter((b) => b.lane > 0)
+      for (const b of group) if (b.lane === 0) { b.lanes = 2; timed.push(b) }
+      stacks.push({ key: rest[0].id, startMin: Math.min(...rest.map((b) => b.startMin)), endMin: Math.max(...rest.map((b) => b.endMin)), items: rest })
+    }
+    let group: Block[] = [], groupEnd = -1
+    for (const b of all) {
+      if (b.startMin >= groupEnd) { flush(group); group = []; groupEnd = -1 }
+      group.push(b); groupEnd = Math.max(groupEnd, b.endMin)
+    }
+    flush(group)
+    return { timed, stacks, allDay }
   }
+  // Lista abierta de una tarjeta "+N actividades" (posición en pantalla).
+  const [openStack, setOpenStack] = useState<{ items: Block[]; x: number; y: number } | null>(null)
+  useEffect(() => {
+    if (!openStack) return
+    const close = (e: Event) => { if (!(e.target as HTMLElement).closest?.('[data-stack-pop]')) setOpenStack(null) }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpenStack(null)
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', close, true)
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', onKey); window.removeEventListener('scroll', close, true) }
+  }, [openStack])
 
   // Rango horario (vista ampliada): encaja todas las actividades con hora.
   let hMin = 7, hMax = 20
@@ -431,7 +463,7 @@ export default function AgendaView({
               </div>
               {/* columnas de día */}
               {days.map((d, i) => {
-                const { timed } = dayData(d)
+                const { timed, stacks } = dayData(d)
                 const isToday = sameDay(d, today)
                 const weekend = d.getDay() === 0 || d.getDay() === 6
                 return (
@@ -461,6 +493,32 @@ export default function AgendaView({
                           </button>
                         )
                       })}
+                      {/* Choques de más: una sola tarjeta con el total y sus colores */}
+                      {stacks.map((s) => {
+                        const top = yOf(s.startMin), hh = Math.max(40, yOf(s.endMin) - top)
+                        return (
+                          <button
+                            key={s.key}
+                            data-block
+                            type="button"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                              setOpenStack({ items: s.items, x: Math.min(r.left, window.innerWidth - 280), y: Math.min(r.top, window.innerHeight - 60 - s.items.length * 52) })
+                            }}
+                            style={{ top, height: hh, left: 'calc(50% + 3px)', width: 'calc(50% - 6px)' }}
+                            className="absolute flex flex-col justify-center gap-1 overflow-hidden rounded-lg border border-charcoal/10 bg-white/85 px-2 text-left shadow-sm transition hover:z-10 hover:-translate-y-px hover:bg-white"
+                            title={s.items.map((b) => b.title).join(', ')}
+                          >
+                            <span className="text-[0.95rem] font-bold leading-none tabular-nums text-charcoal">+{s.items.length}</span>
+                            <span className="text-[0.6rem] font-medium leading-tight text-graysage">actividades</span>
+                            <span className="flex flex-wrap gap-0.5">
+                              {s.items.slice(0, 6).map((b) => <span key={b.id} className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: b.color }} />)}
+                            </span>
+                          </button>
+                        )
+                      })}
                       {/* dónde caerá la tarjeta que se está moviendo */}
                       {moving && moving.dayIdx === i && moving.startMin >= 0 && (
                         <div
@@ -487,6 +545,26 @@ export default function AgendaView({
           </div>
         )}
       </div>
+
+      {/* lista de una tarjeta "+N actividades": cada una abre su edición */}
+      {openStack && (
+        <div data-stack-pop role="dialog" aria-label="Actividades a la misma hora" style={{ left: Math.max(8, openStack.x), top: Math.max(8, openStack.y) }} className="subir fixed z-[70] w-64 rounded-2xl border border-clay-light bg-paper p-1.5 shadow-[0_20px_50px_-20px_rgba(30,42,36,0.45)]">
+          <p className="px-2.5 pb-1 pt-1.5 text-xs font-semibold uppercase tracking-wider text-graysage">{openStack.items.length} a la misma hora</p>
+          <ul className="max-h-80 overflow-y-auto">
+            {openStack.items.map((b) => (
+              <li key={b.id}>
+                <button type="button" onClick={() => { setOpenStack(null); onEdit?.(b.id) }} className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition hover:bg-cream">
+                  <span className="h-8 w-1 shrink-0 rounded-full" style={{ backgroundColor: b.color }} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-charcoal">{b.title}</span>
+                    <span className="block text-xs text-graysage">{fmtMin(b.startMin)} – {fmtMin(b.endMin)}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* previsualización al arrastrar "Nueva actividad" */}
       {ghost && (
