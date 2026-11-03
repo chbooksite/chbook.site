@@ -213,6 +213,53 @@ export default function Calendar() {
     }
     await load()
   }
+  // Mover / redimensionar un bloque en la agenda. Cambia hora siempre; si cruzó de
+  // día, lo vuelve one-off en esa fecha (recurrencia apagada).
+  const moveBlock = async (id: string, patch: { date: Date; startMin: number; endMin: number; toOneOff: boolean }) => {
+    if (!churchId) return
+    const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+    const start = hhmm(patch.startMin), end = hhmm(patch.endMin)
+    const onDate = patch.toOneOff ? `${patch.date.getFullYear()}-${String(patch.date.getMonth() + 1).padStart(2, '0')}-${String(patch.date.getDate()).padStart(2, '0')}` : null
+    // Optimista: muevo el bloque en el estado local YA, para que no haya parpadeo
+    // (se quedaba en el sitio viejo hasta que respondía la BD).
+    setSchedules((prev) => prev.map((s) => (s.id === id
+      ? { ...s, startTime: start, endTime: end, ...(patch.toOneOff ? { onDate, weekday: patch.date.getDay() } : {}) }
+      : s)))
+    const upd: Record<string, unknown> = { start_time: start, end_time: end }
+    if (patch.toOneOff) { upd.on_date = onDate; upd.weekday = patch.date.getDay() }
+    const { error } = await supabase.from('activity_schedules').update(upd as never).eq('id', id)
+    if (error) await load() // si falló, recargo para volver al estado real
+  }
+  // Interruptor de recurrencia por tarjeta. Recurrente ↔ puntual (one-off) de la
+  // fecha mostrada.
+  const toggleRecurring = async (id: string, date: Date, recurring: boolean) => {
+    const onDate = recurring
+      ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+      : null
+    await supabase.from('activity_schedules').update({ on_date: onDate, weekday: date.getDay() } as never).eq('id', id)
+    await load()
+  }
+  // Duplicar: crea una copia PUNTUAL (recurrencia apagada) de esa fecha, con sus
+  // equipos y su línea de tiempo. Luego se arrastra a donde se quiera.
+  const duplicateBlock = async (id: string, date: Date) => {
+    const s = schedules.find((x) => x.id === id)
+    if (!s || !churchId) return
+    const onDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    const { data } = await supabase.from('activity_schedules').insert({
+      church_id: churchId, name: s.name, type_id: s.typeId, freq: s.freq, weekday: date.getDay(), nth: s.nth,
+      start_time: s.startTime, end_time: s.endTime, on_date: onDate,
+      audience: s.audience as never, assignees: s.assignees as never, enabled: true,
+    }).select('id').single()
+    const newId = data?.id
+    if (newId) {
+      const tms = teamsBySchedule.get(id) ?? []
+      if (tms.length) await supabase.from('schedule_teams').insert(tms.map((t) => ({ church_id: churchId, schedule_id: newId, team_id: t.teamId, delegate: t.delegate, member_ids: t.memberIds as never })))
+      const segs = segmentsBySchedule.get(id) ?? []
+      if (segs.length) await supabase.from('schedule_segments').insert(segs.map((sg, i) => ({ church_id: churchId, schedule_id: newId, tag_id: sg.tagId, name: sg.name, sort_order: i, duration_min: sg.durationMin, assignees: sg.assignees as never, pinned: sg.pinned, level: sg.level, color: sg.color, start_offset: sg.startOffset })))
+    }
+    await load()
+  }
+  const deleteBlock = (id: string) => { const s = schedules.find((x) => x.id === id); if (s) remove(s) }
   const openEdit = (s: Schedule) => {
     setEditing(s)
     setShowForm(true)
@@ -266,6 +313,10 @@ export default function Calendar() {
             onEdit={(id) => { const s = schedules.find((x) => x.id === id); if (s) openEdit(s) }}
             onNewAt={openNewAt}
             onDropNew={createQuick}
+            onBlockChange={moveBlock}
+            onToggleRecurring={toggleRecurring}
+            onDuplicate={duplicateBlock}
+            onDeleteBlock={deleteBlock}
           />
         </section>
 

@@ -20,10 +20,11 @@ type AgeOpt = { key: string; name: string }
 
 const WD_SHORT = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'] // lunes primero
 const MONTH_DOW = ['L', 'M', 'M', 'J', 'V', 'S', 'D']
-const PPH = 46 // px por hora (vista ampliada)
+const PPH_DEFAULT = 46 // px por hora inicial (vista ampliada); ajustable con zoom
+const PPH_MIN = 24, PPH_MAX = 150
 const COL_W = 180 // ancho de columna de día (ampliada)
 const COL_W_C = 170 // ancho de tarjeta de día (compacta)
-const GUTTER = 52 // ancho del eje de horas
+const GUTTER = 38 // ancho del eje de horas (formato reducido)
 const HEADER_H = 52 // alto de la cabecera de día
 const RANGE_BACK = 45 // días hacia atrás desde hoy
 const RANGE_DAYS = 400 // total de días en la tira
@@ -40,6 +41,13 @@ const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.g
 const minutesOf = (t: string | null) => { if (!t) return 0; const [h, m] = t.split(':').map(Number); return (h || 0) * 60 + (m || 0) }
 const fmtMin = (min: number) => { let h = Math.floor(min / 60); const m = min % 60; const ap = h < 12 ? 'a.m.' : 'p.m.'; h = h % 12 || 12; return `${h}:${String(m).padStart(2, '0')} ${ap}` }
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+// Hora en formato reducido para la regla: 0→12a, 5→5a, 12→12p, 15→3p, 23→11p.
+const fmtHourShort = (h: number) => { const hh = ((h % 24) + 24) % 24; return `${hh % 12 || 12}${hh < 12 ? 'a' : 'p'}` }
+// Color de letra del encabezado por día: domingo más claro que sábado para resaltar.
+const dowText = (d: Date) => (d.getDay() === 0 ? 'text-beige-light' : d.getDay() === 6 ? 'text-sand' : 'text-sage-light')
+// keyframes del despliegue (fuera del JSX: el parser de Vite no tolera las llaves
+// de CSS dentro de un contenedor de expresión JSX).
+const AGENDA_GROW_CSS = '@keyframes agendaGrow{from{transform:scaleY(.5);opacity:.4}to{transform:scaleY(1);opacity:1}}'
 
 export default function AgendaView({
   recurring,
@@ -50,6 +58,10 @@ export default function AgendaView({
   onEdit,
   onNewAt,
   onDropNew,
+  onBlockChange,
+  onToggleRecurring,
+  onDuplicate,
+  onDeleteBlock,
 }: {
   recurring: RecSchedule[]
   typeOptions?: TypeOpt[]
@@ -59,6 +71,10 @@ export default function AgendaView({
   onEdit?: (id: string) => void
   onNewAt?: (date: Date, startTime?: string) => void
   onDropNew?: (date: Date, startTime?: string, attrs?: NewActivityAttrs) => void
+  onBlockChange?: (id: string, patch: { date: Date; startMin: number; endMin: number; toOneOff: boolean }) => void
+  onToggleRecurring?: (id: string, date: Date, recurring: boolean) => void
+  onDuplicate?: (id: string, date: Date) => void
+  onDeleteBlock?: (id: string) => void
 }) {
   const today = startOfDay(new Date())
   const rangeStart = addDays(today, -RANGE_BACK)
@@ -75,17 +91,33 @@ export default function AgendaView({
   const selType = typeOptions.find((t) => t.id === newTypeId) ?? null
   const dragColor = selType?.color ?? null
 
+  // mover / redimensionar bloques (vista ampliada)
+  const [blockDrag, setBlockDrag] = useState<{ id: string; dayIdx: number; startMin: number; endMin: number; color: string } | null>(null)
+  const blockRef = useRef<{ id: string; mode: 'move' | 'top' | 'bottom'; sx: number; sy: number; grabMin: number; s0: number; e0: number; day0: number; color: string; moved: boolean } | null>(null)
+
+  // Jornada visible (regla de horas) + zoom. startH/endH definen la ventana; incluye
+  // madrugada (0) para vigilias. pph = px por hora (zoom arrastrando la regla).
+  const [startH, setStartH] = useState(6)
+  const [endH, setEndH] = useState(23)
+  const [pph, setPph] = useState(PPH_DEFAULT)
+  const PPH = pph
+  const zoomRef = useRef<{ y: number; pph: number } | null>(null)
+
   const scrollRef = useRef<HTMLDivElement>(null)
   const pan = useRef<{ sl: number; x: number; lastX: number; lastT: number; v: number } | null>(null)
   const momentum = useRef<number | null>(null)
   const animScroll = useRef<number | null>(null)
   const panMoved = useRef(false)
+  const [viewW, setViewW] = useState(0) // ancho visible de la tira (para encajar 7 días)
 
   const days = Array.from({ length: RANGE_DAYS }, (_, i) => addDays(rangeStart, i))
-  const colW = view === 'compact' ? COL_W_C : COL_W
+  // Ancho de columna para que SIEMPRE se vea una semana completa (7 días).
+  const colW = view === 'compact'
+    ? (viewW ? Math.max(90, Math.floor(viewW / 7) - 8) : COL_W_C)
+    : (viewW ? Math.max(90, Math.floor((viewW - GUTTER) / 7)) : COL_W)
 
   // Bloques/actividades por día.
-  interface Block { id: string; startMin: number; endMin: number; title: string; color: string; responsibles?: string | null; lane: number; lanes: number }
+  interface Block { id: string; startMin: number; endMin: number; title: string; color: string; responsibles?: string | null; recurring: boolean; lane: number; lanes: number }
   const dayData = (d: Date) => {
     const timed: Block[] = []
     const allDay: RecSchedule[] = []
@@ -94,7 +126,7 @@ export default function AgendaView({
       if (!r.startTime) { allDay.push(r); continue }
       const s = minutesOf(r.startTime)
       const e = r.endTime ? Math.max(minutesOf(r.endTime), s + 20) : s + 60
-      timed.push({ id: r.id, startMin: s, endMin: e, title: r.name, color: r.color, responsibles: r.responsibles, lane: 0, lanes: 1 })
+      timed.push({ id: r.id, startMin: s, endMin: e, title: r.name, color: r.color, responsibles: r.responsibles, recurring: !r.onDate, lane: 0, lanes: 1 })
     }
     timed.sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin)
     const laneEnd: number[] = []
@@ -104,18 +136,23 @@ export default function AgendaView({
     return { timed, allDay }
   }
 
-  // Rango horario (vista ampliada): encaja todas las actividades con hora.
-  let hMin = 7, hMax = 20
-  for (const r of recurring) { if (!r.startTime) continue; hMin = Math.min(hMin, Math.floor(minutesOf(r.startTime) / 60)); const e = r.endTime ? minutesOf(r.endTime) : minutesOf(r.startTime) + 60; hMax = Math.max(hMax, Math.ceil(e / 60)) }
-  hMin = Math.max(0, hMin); hMax = Math.min(24, hMax)
+  // Rango horario (vista ampliada): la jornada que el usuario eligió (startH→endH).
+  const hMin = startH, hMax = endH
   const hours = Array.from({ length: hMax - hMin + 1 }, (_, i) => hMin + i)
   const gridH = (hMax - hMin) * PPH
   const yOf = (min: number) => ((min - hMin * 60) / 60) * PPH
 
   // ----- navegación por arrastre (horizontal) + inercia -----
   const idxOf = (d: Date) => Math.round((startOfDay(d).getTime() - rangeStart.getTime()) / 86400000)
-  const scrollToDate = (d: Date) => { const el = scrollRef.current; if (el) el.scrollLeft = Math.max(0, idxOf(d) * colW - 8) }
-  useLayoutEffect(() => { scrollToDate(today); syncLeft() }, [view]) // eslint-disable-line react-hooks/exhaustive-deps
+  const scrollToDate = (d: Date) => { const el = scrollRef.current; if (el) el.scrollLeft = Math.max(0, idxOf(d) * colW) }
+  // Mide el ancho visible (para encajar 7 días) y reposiciona al cambiar de vista.
+  useLayoutEffect(() => {
+    const el = scrollRef.current; if (!el) return
+    const ro = new ResizeObserver(() => setViewW(el.clientWidth))
+    ro.observe(el); setViewW(el.clientWidth)
+    return () => ro.disconnect()
+  }, [view])
+  useLayoutEffect(() => { scrollToDate(today); syncLeft() }, [view, viewW]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const syncLeft = () => { const el = scrollRef.current; if (!el) return; setLeftDate(addDays(rangeStart, Math.floor(el.scrollLeft / colW))) }
 
@@ -128,20 +165,17 @@ export default function AgendaView({
     const step = (now: number) => { const t = Math.min(1, (now - t0) / dur); el.scrollLeft = start + dist * ease(t); if (t < 1) animScroll.current = requestAnimationFrame(step); else { animScroll.current = null; syncLeft() } }
     animScroll.current = requestAnimationFrame(step)
   }
-  const magnetMonday = () => {
+  // Imán suave: alinea el inicio del día MÁS CERCANO con el inicio de la línea
+  // (no fuerza al lunes). Como siempre se ven 7 días, la vista queda encuadrada.
+  const snapToDay = () => {
     const el = scrollRef.current; if (!el) return
-    const leftF = el.scrollLeft / colW
-    const base = Math.round(leftF)
-    const leftD = addDays(rangeStart, base)
-    let mIdx = base - ((leftD.getDay() + 6) % 7)
-    if (Math.abs(mIdx + 7 - leftF) < Math.abs(mIdx - leftF)) mIdx += 7
-    const target = Math.max(0, mIdx * colW)
-    if (Math.abs(target - el.scrollLeft) > 1) animateScrollTo(target, 600)
+    const target = Math.max(0, Math.round(el.scrollLeft / colW) * colW)
+    if (Math.abs(target - el.scrollLeft) > 1) animateScrollTo(target, 320)
   }
 
   const onDown = (e: RPointerEvent) => {
     const el = scrollRef.current; if (!el) return
-    if ((e.target as HTMLElement).closest('[data-block],[data-add]')) return // no robar clics de bloques/+
+    if ((e.target as HTMLElement).closest('[data-block],[data-add],[data-ruler]')) return // no robar clics de bloques/+/regla
     if (momentum.current) { cancelAnimationFrame(momentum.current); momentum.current = null }
     if (animScroll.current) { cancelAnimationFrame(animScroll.current); animScroll.current = null }
     panMoved.current = false
@@ -163,7 +197,7 @@ export default function AgendaView({
     const step = (now: number) => {
       const dt = Math.min(48, now - last); last = now
       v *= Math.pow(0.95, dt / 16)
-      if (Math.abs(v) < 0.01) { momentum.current = null; magnetMonday(); return }
+      if (Math.abs(v) < 0.01) { momentum.current = null; snapToDay(); return }
       pos += v * dt
       const max = el.scrollWidth - el.clientWidth
       if (pos <= 0 || pos >= max) { el.scrollLeft = Math.max(0, Math.min(max, pos)); momentum.current = null; return }
@@ -207,6 +241,57 @@ export default function AgendaView({
     if (!t) return
     onDropNew?.(addDays(rangeStart, t.dayIdx), t.startMin >= 0 ? hhmm(t.startMin) : undefined, attrs())
   }
+
+  // ----- mover / redimensionar un bloque (precisión 5 min) -----
+  const SNAP = 5
+  const snap5 = (m: number) => Math.round(m / SNAP) * SNAP
+  // clientX/clientY → { dayIdx, min } en coordenadas de la rejilla (sin snap).
+  const pointToGrid = (x: number, y: number): { dayIdx: number; min: number } | null => {
+    const el = scrollRef.current; if (!el) return null
+    const r = el.getBoundingClientRect()
+    const cx = x - r.left + el.scrollLeft
+    const dayIdx = Math.max(0, Math.min(days.length - 1, Math.floor((cx - GUTTER) / colW)))
+    const cy = y - r.top + el.scrollTop - HEADER_H
+    const min = Math.max(hMin * 60, Math.min(hMax * 60, hMin * 60 + (cy / PPH) * 60))
+    return { dayIdx, min }
+  }
+  const onBlockDown = (b: { id: string; startMin: number; endMin: number; color: string }, dayIdx: number, mode: 'move' | 'top' | 'bottom') => (e: RPointerEvent) => {
+    e.stopPropagation()
+    const g = pointToGrid(e.clientX, e.clientY)
+    blockRef.current = { id: b.id, mode, sx: e.clientX, sy: e.clientY, grabMin: g ? g.min - b.startMin : 0, s0: b.startMin, e0: b.endMin, day0: dayIdx, color: b.color, moved: false }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const onBlockMove = (e: RPointerEvent) => {
+    const d = blockRef.current; if (!d) return
+    if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 4) return
+    d.moved = true
+    const g = pointToGrid(e.clientX, e.clientY); if (!g) return
+    const dur = d.e0 - d.s0
+    if (d.mode === 'move') {
+      const s = Math.max(hMin * 60, Math.min(hMax * 60 - dur, snap5(g.min - d.grabMin)))
+      setBlockDrag({ id: d.id, dayIdx: g.dayIdx, startMin: s, endMin: s + dur, color: d.color })
+    } else if (d.mode === 'bottom') {
+      const eMin = Math.max(d.s0 + SNAP, Math.min(hMax * 60, snap5(g.min)))
+      setBlockDrag({ id: d.id, dayIdx: d.day0, startMin: d.s0, endMin: eMin, color: d.color })
+    } else {
+      const s = Math.min(d.e0 - SNAP, Math.max(hMin * 60, snap5(g.min)))
+      setBlockDrag({ id: d.id, dayIdx: d.day0, startMin: s, endMin: d.e0, color: d.color })
+    }
+  }
+  const onBlockUp = () => {
+    const d = blockRef.current; blockRef.current = null
+    const drag = blockDrag
+    if (!d) return
+    if (!d.moved) { setBlockDrag(null); onEdit?.(d.id); return }
+    setBlockDrag(null)
+    if (!drag) return
+    onBlockChange?.(d.id, { date: addDays(rangeStart, drag.dayIdx), startMin: drag.startMin, endMin: drag.endMin, toOneOff: drag.dayIdx !== d.day0 })
+  }
+
+  // ----- zoom arrastrando la regla de horas (arriba = acercar, abajo = alejar) -----
+  const onRulerDown = (e: RPointerEvent) => { e.stopPropagation(); zoomRef.current = { y: e.clientY, pph }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) }
+  const onRulerMove = (e: RPointerEvent) => { const z = zoomRef.current; if (!z) return; const dy = z.y - e.clientY; setPph(Math.max(PPH_MIN, Math.min(PPH_MAX, Math.round(z.pph + dy * 0.5)))) }
+  const onRulerUp = () => { zoomRef.current = null }
 
   const goToday = () => { scrollToDate(today); syncLeft() }
   const toggleCls = (v: View) => `rounded-lg px-3 py-1 text-xs font-medium transition ${view === v ? 'bg-sage-light text-sage-dark' : 'text-graysage hover:bg-sage-light/60'}`
@@ -302,10 +387,32 @@ export default function AgendaView({
             </span>
             {view !== 'month' && <span className="text-xs text-graysage">· arrastra para moverte</span>}
           </div>
-          <div className="flex items-center gap-1 rounded-xl border border-graysage/20 p-0.5">
-            <button type="button" onClick={() => setView('compact')} className={toggleCls('compact')}>Compacto</button>
-            <button type="button" onClick={() => setView('expanded')} className={toggleCls('expanded')}>Ampliado</button>
-            <button type="button" onClick={() => setView('month')} className={toggleCls('month')}>Mes</button>
+          <div className="flex items-center gap-2">
+            {view === 'expanded' && (
+              <div className="flex items-center gap-1 text-xs text-graysage">
+                <span className="hidden sm:inline">Jornada</span>
+                <select
+                  value={startH}
+                  onChange={(e) => { const v = Number(e.target.value); setStartH(v); if (v >= endH) setEndH(Math.min(24, v + 1)) }}
+                  className="rounded-lg border border-graysage/25 bg-white px-1.5 py-1 tabular-nums"
+                >
+                  {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{`${String(h).padStart(2, '0')}:00`}</option>)}
+                </select>
+                <span>–</span>
+                <select
+                  value={endH}
+                  onChange={(e) => { const v = Number(e.target.value); setEndH(v); if (v <= startH) setStartH(Math.max(0, v - 1)) }}
+                  className="rounded-lg border border-graysage/25 bg-white px-1.5 py-1 tabular-nums"
+                >
+                  {Array.from({ length: 24 }, (_, i) => i + 1).map((h) => <option key={h} value={h}>{`${String(h).padStart(2, '0')}:00`}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="flex items-center gap-1 rounded-xl border border-graysage/20 p-0.5">
+              <button type="button" onClick={() => setView('compact')} className={toggleCls('compact')}>Compacto</button>
+              <button type="button" onClick={() => setView('expanded')} className={toggleCls('expanded')}>Ampliado</button>
+              <button type="button" onClick={() => setView('month')} className={toggleCls('month')}>Mes</button>
+            </div>
           </div>
         </div>
 
@@ -321,9 +428,9 @@ export default function AgendaView({
                 const isToday = sameDay(d, today)
                 return (
                   <div key={i} style={{ width: colW }} className={`shrink-0 overflow-hidden rounded-xl bg-white shadow-sm ${dropTarget?.dayIdx === i ? 'ring-2 ring-sage-dark' : isToday ? 'ring-2 ring-sage' : 'border border-black/5'}`}>
-                    <div className="bg-charcoal px-2.5 py-2 text-sage-light">
-                      <span className="text-[0.7rem] font-medium uppercase">{WD_SHORT[(d.getDay() + 6) % 7]}</span>{' '}
-                      <span className="text-base font-bold">{d.getDate()}</span>
+                    <div className="bg-charcoal px-2.5 py-2">
+                      <span className={`text-[0.7rem] font-medium uppercase ${dowText(d)}`}>{WD_SHORT[(d.getDay() + 6) % 7]}</span>{' '}
+                      <span className={`text-base font-bold ${dowText(d)}`}>{d.getDate()}</span>
                     </div>
                     <div className="space-y-1 p-1.5">
                       {acts.length === 0 && <p className="py-1 text-center text-[0.62rem] text-graysage/40">—</p>}
@@ -341,39 +448,61 @@ export default function AgendaView({
             </div>
           </div>
         ) : (
-          /* ---- TIRA AMPLIADA (rejilla de horas) ---- */
-          <div ref={scrollRef} onScroll={syncLeft} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} className="max-h-[620px] cursor-grab touch-none select-none overflow-auto rounded-2xl border border-black/5 bg-white shadow-sm [scrollbar-width:none] active:cursor-grabbing [&::-webkit-scrollbar]:hidden">
-            <div className="relative flex" style={{ width: GUTTER + days.length * colW }}>
-              {/* eje de horas (fijo a la izquierda) */}
-              <div className="sticky left-0 z-20 shrink-0 bg-white" style={{ width: GUTTER }}>
-                <div className="sticky top-0 z-10 bg-white" style={{ height: HEADER_H }} />
-                <div className="relative" style={{ height: gridH }}>
+          /* ---- TIRA AMPLIADA (tarjetas separadas que crecen hacia abajo) ---- */
+          <div ref={scrollRef} onScroll={syncLeft} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} className="max-h-[640px] cursor-grab touch-none select-none overflow-auto [scrollbar-width:none] active:cursor-grabbing [&::-webkit-scrollbar]:hidden">
+            <style>{AGENDA_GROW_CSS}</style>
+            <div className="relative flex pb-1" style={{ width: GUTTER + days.length * colW }}>
+              {/* regla de horas (fija a la izquierda). Arrastrar vertical = zoom. */}
+              <div data-ruler onPointerDown={onRulerDown} onPointerMove={onRulerMove} onPointerUp={onRulerUp} onPointerCancel={onRulerUp} className="sticky left-0 z-20 shrink-0 cursor-ns-resize touch-none bg-white" style={{ width: GUTTER }} title="Arrastra arriba/abajo para hacer zoom">
+                <div style={{ height: HEADER_H }} />
+                <div className="relative origin-top" style={{ height: gridH, animation: 'agendaGrow .45s cubic-bezier(.22,1,.36,1)' }}>
                   {hours.map((h) => (
-                    <div key={h} style={{ top: yOf(h * 60) }} className="absolute right-1.5 -translate-y-1/2 text-[0.6rem] text-graysage">{fmtMin(h * 60)}</div>
+                    <div key={h} style={{ top: yOf(h * 60) }} className="absolute right-1.5 -translate-y-1/2 text-[0.6rem] tabular-nums text-graysage">{fmtHourShort(h)}</div>
                   ))}
                 </div>
               </div>
-              {/* columnas de día */}
+              {/* tarjetas de día (mismo estilo que el modo reducido, ampliadas) */}
               {days.map((d, i) => {
                 const { timed } = dayData(d)
                 const isToday = sameDay(d, today)
-                const weekend = d.getDay() === 0 || d.getDay() === 6
+                const ring = dropTarget?.dayIdx === i ? 'ring-2 ring-sage-dark' : isToday ? 'ring-2 ring-sage' : 'border border-black/5'
                 return (
-                  <div key={i} className="shrink-0 border-l border-black/5" style={{ width: colW }}>
-                    <div className={`sticky top-0 z-10 border-b border-black/5 py-2 text-center ${isToday ? 'bg-sage-light/60' : weekend ? 'bg-cream/60' : 'bg-white'}`} style={{ height: HEADER_H }}>
-                      <div className="text-[0.68rem] font-medium uppercase text-graysage">{WD_SHORT[(d.getDay() + 6) % 7]}</div>
-                      <div className={`text-lg font-semibold leading-none ${isToday ? 'text-sage-dark' : 'text-charcoal'}`}>{d.getDate()}</div>
-                    </div>
-                    <div className="relative cursor-pointer" style={{ height: gridH }} onClick={onSlotClick(d)}>
+                  <div key={i} className="shrink-0 px-1" style={{ width: colW }}>
+                    <div className={`overflow-hidden rounded-xl bg-white shadow-sm ${ring}`}>
+                      <div className="flex items-center gap-1.5 bg-charcoal px-2.5" style={{ height: HEADER_H }}>
+                        <span className={`text-[0.7rem] font-medium uppercase ${dowText(d)}`}>{WD_SHORT[(d.getDay() + 6) % 7]}</span>
+                        <span className={`text-base font-bold ${dowText(d)}`}>{d.getDate()}</span>
+                      </div>
+                      <div className="relative origin-top cursor-pointer" style={{ height: gridH, animation: 'agendaGrow .45s cubic-bezier(.22,1,.36,1)' }} onClick={onSlotClick(d)}>
                       {hours.map((h) => <div key={h} style={{ top: yOf(h * 60) }} className="pointer-events-none absolute inset-x-0 border-t border-black/5" />)}
                       {timed.map((b) => {
                         const top = yOf(b.startMin), hh = Math.max(20, yOf(b.endMin) - top), w = 100 / b.lanes
+                        const dragging = blockDrag?.id === b.id
                         return (
-                          <button key={b.id} data-block type="button" onClick={(e) => { e.stopPropagation(); onEdit?.(b.id) }} style={{ top, height: hh, left: `calc(${b.lane * w}% + 2px)`, width: `calc(${w}% - 4px)`, backgroundColor: withAlpha(b.color, 0.16), borderLeft: `3px solid ${b.color}` }} className="absolute overflow-hidden rounded-md px-1.5 py-1 text-left transition hover:brightness-95" title={b.title}>
-                            <span className="block truncate text-[0.7rem] font-semibold leading-tight text-charcoal">{b.title}</span>
-                            <span className="block truncate text-[0.6rem] leading-tight text-graysage">{fmtMin(b.startMin)} – {fmtMin(b.endMin)}</span>
-                            {b.responsibles && hh > 50 && <span className="block truncate text-[0.58rem] leading-tight text-graysage">{b.responsibles}</span>}
-                          </button>
+                          <div
+                            key={b.id}
+                            data-block
+                            onPointerDown={onBlockDown(b, i, 'move')}
+                            onPointerMove={onBlockMove}
+                            onPointerUp={onBlockUp}
+                            style={{ top, height: hh, left: `calc(${b.lane * w}% + 2px)`, width: `calc(${w}% - 4px)`, backgroundColor: withAlpha(b.color, 0.16), borderLeft: `3px solid ${b.color}` }}
+                            className={`group absolute touch-none select-none overflow-hidden rounded-md text-left transition active:cursor-grabbing ${dragging ? 'opacity-30' : 'cursor-grab hover:brightness-95'}`}
+                            title={b.title}
+                          >
+                            <div data-block onPointerDown={onBlockDown(b, i, 'top')} className="absolute inset-x-0 top-0 h-2 cursor-ns-resize" />
+                            <div className="pointer-events-none px-1.5 py-1">
+                              <span className="block truncate text-[0.7rem] font-semibold leading-tight text-charcoal">{b.title}</span>
+                              <span className="flex items-center gap-1 truncate text-[0.6rem] leading-tight text-graysage">{b.recurring && <span title="Se repite cada semana">↻</span>}{fmtMin(b.startMin)} – {fmtMin(b.endMin)}</span>
+                              {b.responsibles && hh > 50 && <span className="block truncate text-[0.58rem] leading-tight text-graysage">{b.responsibles}</span>}
+                            </div>
+                            <div data-block onPointerDown={onBlockDown(b, i, 'bottom')} className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize" />
+                            {/* acciones de la tarjeta (al pasar el cursor) */}
+                            <div className="absolute right-0.5 top-0.5 hidden gap-0.5 group-hover:flex">
+                              <button data-block onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleRecurring?.(b.id, d, b.recurring) }} className={`flex h-4 w-4 items-center justify-center rounded text-[0.65rem] leading-none shadow-sm ${b.recurring ? 'bg-sage-dark text-white' : 'bg-white text-graysage'}`} title={b.recurring ? 'Recurrente — tocar para hacerla puntual' : 'Puntual — tocar para repetir cada semana'}>↻</button>
+                              <button data-block onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDuplicate?.(b.id, d) }} className="flex h-4 w-4 items-center justify-center rounded bg-white text-[0.65rem] leading-none text-graysage shadow-sm hover:text-sage-dark" title="Duplicar">⧉</button>
+                              <button data-block onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDeleteBlock?.(b.id) }} className="flex h-4 w-4 items-center justify-center rounded bg-white text-[0.65rem] leading-none text-graysage shadow-sm hover:text-clay" title="Eliminar">✕</button>
+                            </div>
+                          </div>
                         )
                       })}
                       {dropTarget && dropTarget.dayIdx === i && dropTarget.startMin >= 0 && (
@@ -384,10 +513,20 @@ export default function AgendaView({
                           <span className="block px-1.5 py-1 text-[0.6rem] font-semibold" style={{ color: dragColor ?? '#5CA27B' }}>{fmtMin(dropTarget.startMin)}</span>
                         </div>
                       )}
+                      </div>
                     </div>
                   </div>
                 )
               })}
+              {/* previsualización del bloque mientras se mueve/redimensiona */}
+              {blockDrag && (
+                <div
+                  className="pointer-events-none absolute z-30 overflow-hidden rounded-md border-2 shadow-sm"
+                  style={{ left: GUTTER + blockDrag.dayIdx * colW + 6, top: HEADER_H + yOf(blockDrag.startMin), width: colW - 14, height: Math.max(20, yOf(blockDrag.endMin) - yOf(blockDrag.startMin)), borderColor: blockDrag.color, backgroundColor: withAlpha(blockDrag.color, 0.3) }}
+                >
+                  <span className="block px-1.5 py-1 text-[0.6rem] font-semibold text-charcoal">{fmtMin(blockDrag.startMin)} – {fmtMin(blockDrag.endMin)}</span>
+                </div>
+              )}
             </div>
           </div>
         )}
