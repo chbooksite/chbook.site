@@ -6,6 +6,7 @@ import ResetPassword from './pages/ResetPassword'
 import Join from './pages/Join'
 import Onboarding from './pages/Onboarding'
 import Dashboard from './pages/Dashboard'
+import People from './pages/People'
 import Members from './pages/Members'
 import MemberProfile from './pages/MemberProfile'
 import Calendar from './pages/Calendar'
@@ -25,6 +26,7 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/" element={<Dashboard />} />
+            <Route path="/personas" element={<People />} />
             <Route path="/miembros" element={<Members />} />
             <Route path="/miembros/:id" element={<MemberProfile />} />
             <Route path="/culto" element={<Service />} />

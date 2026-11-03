@@ -11,7 +11,8 @@ export const fieldCls =
   'w-full rounded-xl border border-clay-light bg-white px-3.5 py-2.5 text-base text-charcoal outline-none transition placeholder:text-faint focus:border-sage-dark focus:ring-4 focus:ring-sage-light'
 
 // Series de los gráficos (paleta oficial). Orden fijo: principal, segunda, tercera.
-export const SERIES = { main: '#2D5A50', second: '#B8956A', third: '#6B9E91' }
+// Variables CSS: siguen la paleta elegida en Apariencia (usar en `style`, no en atributos SVG).
+export const SERIES = { main: 'var(--sage-dark)', second: '#B8956A', third: 'var(--sage-water)' }
 
 // Saludo según la hora (login y banda del Dashboard).
 export function greeting(d: Date): string {

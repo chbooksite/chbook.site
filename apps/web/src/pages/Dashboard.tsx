@@ -9,7 +9,8 @@ import { churchInsights, type InsightMember, type InsightService } from '../lib/
 import PageShell, { PageLoading } from '../components/PageShell'
 import Avatar from '../components/Avatar'
 import WelcomeBand from '../components/WelcomeBand'
-import { AttendanceColumns, Funnel, Legend, Meter, Segments, Sparkline, type ServicePoint } from '../components/charts'
+import { AttendanceColumns, Legend, type ServicePoint } from '../components/charts'
+import { CountUp, Delta, Icon, Panel } from '../components/DashKit'
 import { SERIES } from '../lib/ui'
 
 interface Church {
@@ -40,14 +41,6 @@ const SHORT_FMT = new Intl.DateTimeFormat('es', { day: 'numeric', month: 'short'
 const DAY_FMT = new Intl.DateTimeFormat('es', { weekday: 'short', day: 'numeric' })
 const NUM = new Intl.NumberFormat('es')
 
-function Icon({ children, className = 'h-[18px] w-[18px]' }: { children: ReactNode; className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
-      {children}
-    </svg>
-  )
-}
-
 const I = {
   chart: <><path d="M3 20h18" /><path d="M6 16V9M11 16V5M16 16v-4M21 16V8" /></>,
   people: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a5.5 5.5 0 0 1 3.5 6" /></>,
@@ -59,78 +52,20 @@ const I = {
   bell: <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></>,
 }
 
-// Número que cuenta desde 0 al cargar (sin animación si se pidió menos movimiento).
-function CountUp({ to, suffix = '' }: { to: number; suffix?: string }) {
-  const [v, setV] = useState(0)
-  useEffect(() => {
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const start = performance.now()
-    const dur = reduce ? 0 : 800
-    let raf = requestAnimationFrame(function tick(t) {
-      const k = dur ? Math.min(1, (t - start) / dur) : 1
-      setV(Math.round(to * (1 - Math.pow(1 - k, 3))))
-      if (k < 1) raf = requestAnimationFrame(tick)
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [to])
-  return <>{NUM.format(v)}{suffix}</>
-}
-
-// Tarjeta con título: todas las secciones usan la misma cabecera.
-function Panel({ title, sub, action, className = '', delay = 0, children }: { title: string; sub?: string; action?: ReactNode; className?: string; delay?: number; children: ReactNode }) {
+// Puerta a un entorno (Personas, Calendario): grande y tranquila, como en una web.
+function EnvCard({ to, icon, title, text, stat }: { to: string; icon: ReactNode; title: string; text: string; stat: string | null }) {
   return (
-    <section className={`subir vidrio flex flex-col p-5 ${className}`} style={{ animationDelay: `${delay}ms` }} aria-label={title}>
-      <header className="mb-4 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="font-serif text-xl leading-tight text-charcoal">{title}</h2>
-          {sub && <p className="mt-0.5 text-xs text-graysage">{sub}</p>}
-        </div>
-        {action}
-      </header>
-      {children}
-    </section>
-  )
-}
-
-// Indicador pequeño: cabecera, número, contexto y mini gráfico a la misma altura.
-// Sin datos muestra qué hacer (`empty`) en vez de un "—".
-function Stat({ label, value, icon, chip, foot, viz, empty, className = '', delay = 0 }: { label: string; value: ReactNode; icon: ReactNode; chip?: ReactNode; foot: ReactNode; viz?: ReactNode; empty?: { text: string; to: string; cta: string } | null; className?: string; delay?: number }) {
-  return (
-    <div className={`subir vidrio group flex flex-col p-5 transition duration-300 hover:-translate-y-0.5 ${className}`} style={{ animationDelay: `${delay}ms` }}>
-      <div className="flex h-9 items-center justify-between gap-3">
-        <p className="line-clamp-2 text-xs font-semibold uppercase leading-tight tracking-wider text-graysage">{label}</p>
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sage-dark/[0.08] text-sage-dark transition group-hover:bg-sage-dark group-hover:text-paper">
-          <Icon>{icon}</Icon>
-        </span>
-      </div>
-      {empty ? (
-        <div className="mt-3 flex flex-1 flex-col justify-between gap-3">
-          <p className="text-sm leading-snug text-graysage">{empty.text}</p>
-          <Link to={empty.to} className="inline-flex w-fit items-center gap-1 rounded-full bg-sage-dark px-3.5 py-1.5 text-xs font-semibold text-paper transition hover:bg-sage-deep">
-            {empty.cta} →
-          </Link>
-        </div>
-      ) : (
-        <>
-          <div className="mt-3 flex h-10 items-end gap-2.5">
-            <p className="text-[2.4rem] font-bold leading-none tracking-[-0.03em] tabular-nums text-charcoal">{value}</p>
-            {chip}
-          </div>
-          <p className="mt-2 line-clamp-2 h-8 text-xs leading-4 text-graysage">{foot}</p>
-          <div className="mt-4 flex h-9 items-end">{viz ?? <div className="h-px w-full bg-charcoal/[0.08]" />}</div>
-        </>
-      )}
-    </div>
-  )
-}
-
-// Variación: verde si sube, neutra si baja o no cambia.
-function Delta({ value, suffix = '' }: { value: number; suffix?: string }) {
-  const up = value > 0
-  return (
-    <span className={`mb-1 inline-flex items-center gap-0.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${up ? 'bg-sage-light text-sage-dark' : 'bg-charcoal/[0.06] text-graysage'}`}>
-      {up ? '↑ +' : value < 0 ? '↓ ' : '· '}{value}{suffix}
-    </span>
+    <Link to={to} className="subir vidrio group flex items-center gap-4 p-5 transition duration-300 hover:-translate-y-0.5" style={{ animationDelay: '200ms' }}>
+      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-sage-dark text-paper transition group-hover:bg-sage-deep">
+        <Icon className="h-7 w-7">{icon}</Icon>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-serif text-2xl leading-tight text-charcoal">{title}</span>
+        <span className="block text-sm text-graysage">{text}</span>
+        {stat && <span className="mt-1.5 block text-xs font-semibold text-sage-dark">{stat}</span>}
+      </span>
+      <Icon className="h-5 w-5 shrink-0 text-graysage transition group-hover:translate-x-1 group-hover:text-sage-dark"><path d="M5 12h14M13 6l6 6-6 6" /></Icon>
+    </Link>
   )
 }
 
@@ -226,9 +161,9 @@ function ApprovalsDialog({ items, onDecide, onClose }: { items: WeekItem[]; onDe
   )
 }
 
-// Dashboard del pastor en rejilla bento: el último culto manda (tarjeta grande
-// con su gráfico), al lado la salud de la iglesia y lo pendiente; debajo el
-// camino de discipulado, la semana y la agenda.
+// Inicio (entorno central): el último culto manda, al lado la agenda corta y
+// lo pendiente; debajo la semana y las puertas a Personas y Calendario.
+// La salud de la iglesia (indicadores, equipos, edades) vive en Personas.
 export default function Dashboard() {
   const { membership, membershipLoading } = useAuth()
   const [church, setChurch] = useState<Church | null>(null)
@@ -341,9 +276,9 @@ export default function Dashboard() {
 
       {decideError && <p className="mb-4 rounded-xl border border-danger/25 bg-danger/5 px-4 py-3 text-sm text-danger" role="alert">{decideError}</p>}
 
-      {/* Bento: el último culto (2×2) y a su lado los indicadores y lo pendiente */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <section className="subir vidrio col-span-2 flex flex-col p-5 sm:p-6 lg:row-span-2" aria-label="Último culto">
+      {/* Inicio: el culto manda; al lado la agenda corta y lo pendiente */}
+      <div className="grid gap-3 sm:gap-4 lg:grid-cols-3">
+        <section className="subir vidrio flex flex-col p-5 sm:p-6 lg:col-span-2 lg:row-span-2" aria-label="Último culto">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-graysage">Último culto{ins?.last ? ` · ${ins.last.name}` : ''}</p>
@@ -380,46 +315,42 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <Stat
-          label="Miembros"
-          value={ins ? <CountUp to={ins.members} /> : '—'}
-          icon={I.people}
-          chip={ins?.newThisMonth ? <Delta value={ins.newThisMonth} suffix=" este mes" /> : undefined}
-          foot="Crecimiento, últimos 6 meses"
-          viz={ins ? <Sparkline values={ins.growth.map((g) => g.value)} /> : undefined}
-          delay={50}
-        />
-        <Stat
-          label="Vienen con constancia"
-          value={ins?.regular ? <CountUp to={ins.regular.pct} suffix="%" /> : '—'}
-          icon={I.calendarCheck}
-          foot={ins?.regular ? `${ins.regular.count} de ${ins.members} vinieron a ${Math.ceil(ins.regular.window / 2)}+ de los últimos ${ins.regular.window}` : ''}
-          viz={ins?.regular ? <Segments pct={ins.regular.pct} /> : undefined}
-          empty={ins && !ins.regular ? { text: 'Se calcula cuando registres 2 cultos o más.', to: '/culto', cta: 'Ir a Culto' } : null}
-          delay={100}
-        />
-        <Stat
-          label="Sirven en un equipo"
-          value={ins ? <CountUp to={ins.serving.pct} suffix="%" /> : '—'}
-          icon={I.hands}
-          foot={ins ? `${ins.serving.count} de ${ins.members} · ${ins.leaders} ${ins.leaders === 1 ? 'líder' : 'líderes'}` : ''}
-          viz={ins ? <Meter value={ins.serving.count} total={ins.members} /> : undefined}
-          empty={ins && ins.members > 0 && ins.serving.count === 0 ? { text: 'Nadie sirve aún. Asigna equipos desde el perfil de cada miembro.', to: '/miembros', cta: 'Ir a Miembros' } : null}
-          className="col-span-2 lg:col-span-1"
-          delay={150}
-        />
+        <Panel title="Próximos 7 días" sub="Del calendario" action={<Link to="/calendario" className="shrink-0 text-xs font-semibold text-sage-dark hover:underline">Ver todo →</Link>} delay={60}>
+          {upcoming.length === 0 ? (
+            <div className="flex flex-1 flex-col items-start justify-center gap-3">
+              <p className="text-sm text-graysage">Sin actividades esta semana.</p>
+              <Link to="/calendario" className="rounded-full bg-sage-dark px-3.5 py-1.5 text-xs font-semibold text-paper transition hover:bg-sage-deep">Crear actividad →</Link>
+            </div>
+          ) : (
+            <ul className="-mx-1 space-y-1">
+              {upcoming.slice(0, 4).map((u) => (
+                <li key={u.key} className="flex items-center gap-3 rounded-xl px-1 py-1.5">
+                  <span className="flex w-10 shrink-0 flex-col items-center rounded-lg bg-white/70 py-1 leading-none">
+                    <span className="text-[0.65rem] font-semibold uppercase text-graysage">{DAY_FMT.format(u.date).split(' ')[0].replace('.', '')}</span>
+                    <span className="mt-0.5 text-base font-bold tabular-nums text-charcoal">{u.date.getDate()}</span>
+                  </span>
+                  <span className="h-8 w-1 shrink-0 rounded-full" style={{ backgroundColor: u.color }} aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-charcoal">{u.name}</p>
+                    {u.start && <p className="font-mono text-xs text-graysage">{formatTime(u.start)}</p>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
 
         {/* Pendientes: lo que pide acción hoy, compacto */}
-        <section className="subir vidrio col-span-2 flex flex-col p-5 lg:col-span-1" style={{ animationDelay: '200ms' }} aria-label="Pendientes">
+        <section className="subir vidrio flex flex-col p-5" style={{ animationDelay: '120ms' }} aria-label="Pendientes">
           <div className="flex h-9 items-center justify-between gap-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-graysage">Pendientes</p>
+            <h2 className="font-serif text-xl leading-tight text-charcoal">Pendientes</h2>
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-vela-light text-clay"><Icon>{I.bell}</Icon></span>
           </div>
           <ul className="mt-1 divide-y divide-charcoal/[0.06]">
             <PendingRow
               icon={I.personPlus}
               count={prospects.length}
-              label={prospects.length === 1 ? 'por aprobar' : 'por aprobar'}
+              label="por aprobar"
               done="Nadie por aprobar"
               action={
                 <button type="button" onClick={() => setApproving(true)} className="flex items-center gap-1.5 rounded-full bg-sage-dark py-1 pl-1 pr-3 text-xs font-semibold text-paper transition hover:bg-sage-deep">
@@ -446,79 +377,42 @@ export default function Dashboard() {
         </section>
       </div>
 
-      {/* Fila inferior: discipulado (ancho), la semana y la agenda */}
-      <div className="mt-4 grid gap-3 sm:gap-4 lg:grid-cols-4">
-        <Panel title="Camino de discipulado" sub="Cuántos avanzan en cada paso, sobre el total de miembros" className="lg:col-span-2" delay={60}>
-          {ins ? (
-            <Funnel
-              steps={[
-                { label: 'Miembros', value: ins.members, hint: 'en la iglesia' },
-                { label: 'Constantes', value: ins.regular?.count ?? 0, hint: ins.regular ? 'vienen seguido' : 'faltan cultos' },
-                { label: 'Bautizados', value: ins.baptized.count, hint: 'dieron el paso' },
-                { label: 'Sirven', value: ins.serving.count, hint: 'en un equipo' },
-                { label: 'Líderes', value: ins.leaders, hint: 'guían un equipo' },
-              ]}
-            />
-          ) : (
-            <div className="h-56 animate-pulse rounded-xl bg-white/50" />
-          )}
-          {ins && ins.members > 0 && (
-            <p className="mt-5 flex items-start gap-2 rounded-xl bg-vela-light/80 px-3 py-2.5 text-sm text-clay">
-              <Icon className="mt-0.5 h-4 w-4 shrink-0"><path d="M9 18h6M10 21h4" /><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.8V16h5v-.3c0-.7.4-1.4 1-1.8A6 6 0 0 0 12 3Z" /></Icon>
-              {ins.serving.count === 0
-                ? 'Aún nadie sirve en un equipo: asígnalos desde el perfil de cada miembro.'
-                : ins.serving.pct < 30
-                  ? `Solo ${ins.serving.pct}% sirve en un equipo: invita a alguien constante a servir.`
-                  : ins.baptized.pct < 50
-                    ? `${ins.members - ins.baptized.count} miembros aún no se bautizan: buen momento para una clase.`
-                    : 'Buen avance: la mayoría ya da pasos de compromiso.'}
-            </p>
-          )}
-        </Panel>
-
-        <div id="semana" className="scroll-mt-24">
-          <Panel title="Esta semana" sub="Personas que necesitan tu atención" className="h-full" delay={100}>
-            {week ? (
-              <div className="space-y-5">
-                <div>
-                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-clay"><Icon className="h-3.5 w-3.5">{I.clock}</Icon>Por visitar</p>
-                  <PeopleList items={week.absent} empty={week.tracksAttendance ? 'Todos han venido en las últimas 3 semanas.' : 'Cuando registres asistencia, aquí verás a quién visitar.'} />
-                </div>
-                <div>
-                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-clay"><Icon className="h-3.5 w-3.5">{I.cake}</Icon>Cumpleaños</p>
-                  <PeopleList items={week.birthdays} empty="Nadie cumple años en los próximos 7 días." />
-                </div>
+      {/* Esta semana: a quién visitar y quién cumple años */}
+      <div id="semana" className="mt-3 scroll-mt-24 sm:mt-4">
+        <Panel title="Esta semana" sub="Personas que necesitan tu atención" delay={160}>
+          {week ? (
+            <div className="grid gap-6 sm:grid-cols-2">
+              <div>
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-clay"><Icon className="h-3.5 w-3.5">{I.clock}</Icon>Por visitar</p>
+                <PeopleList items={week.absent} empty={week.tracksAttendance ? 'Todos han venido en las últimas 3 semanas.' : 'Cuando registres asistencia, aquí verás a quién visitar.'} />
               </div>
-            ) : (
-              <div className="h-40 animate-pulse rounded-xl bg-white/50" />
-            )}
-          </Panel>
-        </div>
-
-        <Panel title="Próximos 7 días" sub="Del calendario" action={<Link to="/calendario" className="shrink-0 text-xs font-semibold text-sage-dark hover:underline">Ver todo →</Link>} delay={140}>
-          {upcoming.length === 0 ? (
-            <div className="flex flex-1 flex-col items-start justify-center gap-3">
-              <p className="text-sm text-graysage">Sin actividades esta semana.</p>
-              <Link to="/calendario" className="rounded-full bg-sage-dark px-3.5 py-1.5 text-xs font-semibold text-paper transition hover:bg-sage-deep">Crear actividad →</Link>
+              <div>
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-clay"><Icon className="h-3.5 w-3.5">{I.cake}</Icon>Cumpleaños</p>
+                <PeopleList items={week.birthdays} empty="Nadie cumple años en los próximos 7 días." />
+              </div>
             </div>
           ) : (
-            <ul className="-mx-1 space-y-1">
-              {upcoming.map((u) => (
-                <li key={u.key} className="flex items-center gap-3 rounded-xl px-1 py-1.5">
-                  <span className="flex w-10 shrink-0 flex-col items-center rounded-lg bg-white/70 py-1 leading-none">
-                    <span className="text-[0.65rem] font-semibold uppercase text-graysage">{DAY_FMT.format(u.date).split(' ')[0].replace('.', '')}</span>
-                    <span className="mt-0.5 text-base font-bold tabular-nums text-charcoal">{u.date.getDate()}</span>
-                  </span>
-                  <span className="h-8 w-1 shrink-0 rounded-full" style={{ backgroundColor: u.color }} aria-hidden />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-charcoal">{u.name}</p>
-                    {u.start && <p className="font-mono text-xs text-graysage">{formatTime(u.start)}</p>}
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <div className="h-32 animate-pulse rounded-xl bg-white/50" />
           )}
         </Panel>
+      </div>
+
+      {/* Los dos entornos de trabajo: la gente y la organización */}
+      <div className="mt-3 grid gap-3 sm:mt-4 sm:grid-cols-2 sm:gap-4">
+        <EnvCard
+          to="/personas"
+          icon={I.people}
+          title="Personas"
+          text="Miembros, equipos y edades: entra a cada grupo."
+          stat={ins ? `${NUM.format(ins.members)} miembros · ${ins.serving.pct}% sirve` : null}
+        />
+        <EnvCard
+          to="/calendario"
+          icon={I.calendarCheck}
+          title="Calendario"
+          text="Cultos, reuniones y actividades de la iglesia."
+          stat={upcoming.length ? `${upcoming.length} ${upcoming.length === 1 ? 'actividad' : 'actividades'} en 7 días` : 'Sin actividades esta semana'}
+        />
       </div>
 
       {approving && <ApprovalsDialog items={prospects} onDecide={decide} onClose={() => setApproving(false)} />}

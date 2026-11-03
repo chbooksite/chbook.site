@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import AppHeader from './AppHeader'
 
 // Marco común de las pantallas protegidas (paleta oficial, ver docs/DISENO.md):
@@ -6,6 +7,7 @@ import AppHeader from './AppHeader'
 // hueco para la barra inferior móvil.
 // `bare`: sin fondo propio (la página pinta el suyo detrás, p. ej. Calendario).
 export default function PageShell({
+  back,
   title,
   subtitle,
   actions,
@@ -14,6 +16,8 @@ export default function PageShell({
   aura = true,
   children,
 }: {
+  // Enlace de vuelta al entorno (p. ej. Miembros → Personas).
+  back?: { to: string; label: string }
   title?: ReactNode
   subtitle?: ReactNode
   actions?: ReactNode
@@ -32,6 +36,12 @@ export default function PageShell({
         {title && (
           <header className="subir mb-7 flex flex-wrap items-end justify-between gap-4">
             <div className="min-w-0">
+              {back && (
+                <Link to={back.to} className="mb-1 inline-flex items-center gap-1 text-sm font-medium text-sage-dark underline-offset-2 hover:underline">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden><path d="M19 12H5M11 18l-6-6 6-6" /></svg>
+                  {back.label}
+                </Link>
+              )}
               <h1 className="font-serif text-3xl font-bold text-charcoal">{title}</h1>
               {subtitle && <p className="mt-1 text-graysage">{subtitle}</p>}
             </div>

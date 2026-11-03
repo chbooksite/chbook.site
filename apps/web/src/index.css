@@ -1,6 +1,21 @@
 @import "tailwindcss";
 @config "../tailwind.config.js";
 
+/* Color principal (familia sage). Ajustes → Apariencia permite probar otras
+   paletas: cambian solo estas variables, el resto de la marca se mantiene. */
+:root {
+  --sage-deep: #244A42;
+  --sage-dark: #2D5A50;
+  --sage: #4A7C6F;
+  --sage-water: #6B9E91;
+  --sage-light: #E6EFEC;
+}
+:root[data-paleta="eucalipto"] { --sage-deep: #2A4746; --sage-dark: #345857; --sage: #557C7A; --sage-water: #7FA19F; --sage-light: #E5EEED; }
+:root[data-paleta="petroleo"]  { --sage-deep: #1F3D4A; --sage-dark: #284C5B; --sage: #456F82; --sage-water: #6D96A7; --sage-light: #E3ECF0; }
+:root[data-paleta="bosque"]    { --sage-deep: #1D4433; --sage-dark: #24533F; --sage: #3E7A5C; --sage-water: #66A083; --sage-light: #E2EFE8; }
+:root[data-paleta="oliva"]     { --sage-deep: #3D472C; --sage-dark: #4A5636; --sage: #6A784C; --sage-water: #929F72; --sage-light: #ECEFE2; }
+:root[data-paleta="pizarra"]   { --sage-deep: #2C3236; --sage-dark: #384045; --sage: #5A656B; --sage-water: #85909A; --sage-light: #E9ECEE; }
+
 @layer base {
   html {
     font-family: "Plus Jakarta Sans", system-ui, sans-serif;
@@ -15,11 +30,11 @@
     color: #1E2A24; /* carbón verde */
   }
   ::selection {
-    background: #E6EFEC;
+    background: var(--sage-light);
     color: #1E2A24;
   }
   :focus-visible {
-    outline: 2px solid #2D5A50;
+    outline: 2px solid var(--sage-dark);
     outline-offset: 2px;
   }
 }
@@ -82,10 +97,10 @@
   pointer-events: none;
   background-color: #EEF1EC;
   background-image:
-    radial-gradient(38rem 30rem at 6% 8%, rgba(107, 158, 145, 0.62), transparent 68%),
+    radial-gradient(38rem 30rem at 6% 8%, color-mix(in srgb, var(--sage-water) 62%, transparent), transparent 68%),
     radial-gradient(32rem 26rem at 96% 14%, rgba(184, 149, 106, 0.50), transparent 68%),
-    radial-gradient(46rem 34rem at 72% 100%, rgba(74, 124, 111, 0.48), transparent 68%),
-    radial-gradient(28rem 22rem at 40% 48%, rgba(230, 239, 236, 0.9), transparent 70%),
+    radial-gradient(46rem 34rem at 72% 100%, color-mix(in srgb, var(--sage) 48%, transparent), transparent 68%),
+    radial-gradient(28rem 22rem at 40% 48%, color-mix(in srgb, var(--sage-light) 90%, transparent), transparent 70%),
     radial-gradient(30rem 24rem at 10% 92%, rgba(139, 111, 71, 0.28), transparent 70%);
 }
 

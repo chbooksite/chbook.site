@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import PageShell, { PageLoading } from '../components/PageShell'
@@ -144,24 +144,29 @@ export default function Members() {
   const [rules, setRules] = useState<ChurchRules>(DEFAULT_RULES)
   const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
   const [loading, setLoading] = useState(true)
+  // Entradas desde Personas: ?equipo=<id>, ?edad=<rango>, ?ver=<atajo>, ?nuevo=1.
+  const [params] = useSearchParams()
 
   // Búsqueda y filtros
   const [search, setSearch] = useState('')
   const [fRoles, setFRoles] = useState<string[]>([])
-  const [fTeams, setFTeams] = useState<string[]>([])
+  const [fTeams, setFTeams] = useState<string[]>(() => (params.get('equipo') ? [params.get('equipo')!] : []))
   const [fStatuses, setFStatuses] = useState<string[]>([])
   const [fBaptized, setFBaptized] = useState<string[]>([])
-  const [fAges, setFAges] = useState<string[]>([])
+  const [fAges, setFAges] = useState<string[]>(() => (params.get('edad') ? [params.get('edad')!] : []))
   const [sortBy, setSortBy] = useState('name')
   const [expandedDeps, setExpandedDeps] = useState<Set<string>>(new Set())
   const [showFilters, setShowFilters] = useState(false)
   // Filtro rápido (pastillas y tarjetas de resumen), además de los filtros avanzados.
-  const [quick, setQuick] = useState<Quick>('all')
+  const [quick, setQuick] = useState<Quick>(() => {
+    const v = params.get('ver')
+    return v && v in QUICK_TEST ? (v as Quick) : 'all'
+  })
   const toggleArr = (arr: string[], setArr: (v: string[]) => void, v: string) =>
     setArr(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
 
   // Formulario de alta
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(() => params.get('nuevo') === '1')
   const [fullName, setFullName] = useState('')
   const [newCedula, setNewCedula] = useState('')
   const [email, setEmail] = useState('')
@@ -477,6 +482,7 @@ export default function Members() {
 
   return (
     <PageShell
+      back={{ to: '/personas', label: 'Personas' }}
       title="Miembros"
       subtitle={
         <>
@@ -865,6 +871,23 @@ export default function Members() {
             )}
             </div>
             )}
+          </div>
+        )}
+
+        {/* Grupo elegido (equipo o edad, p. ej. al entrar desde Personas): siempre a la vista */}
+        {(fTeams.length > 0 || fAges.length > 0) && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-graysage">Viendo:</span>
+            {fTeams.map((t) => (
+              <button key={t} type="button" onClick={() => setFTeams(fTeams.filter((x) => x !== t))} className="inline-flex items-center gap-1.5 rounded-full bg-sage-dark px-3 py-1 font-medium text-paper transition hover:bg-sage-deep" aria-label={`Quitar equipo ${teamName(t)}`}>
+                Equipo {teamName(t)} <span aria-hidden>✕</span>
+              </button>
+            ))}
+            {fAges.map((a) => (
+              <button key={a} type="button" onClick={() => setFAges(fAges.filter((x) => x !== a))} className="inline-flex items-center gap-1.5 rounded-full bg-sage-dark px-3 py-1 font-medium text-paper transition hover:bg-sage-deep" aria-label={`Quitar edad ${a}`}>
+                {a} <span aria-hidden>✕</span>
+              </button>
+            ))}
           </div>
         )}
 

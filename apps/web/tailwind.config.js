@@ -10,7 +10,7 @@ export default {
       colors: {
         // Sage — color principal. dark=headers/CTA · DEFAULT=acentos e iconos activos
         // · water=verde agua (métricas, highlights) · light=tinte de fondo.
-        sage:     { deep: "#244A42", dark: "#2D5A50", DEFAULT: "#4A7C6F", water: "#6B9E91", light: "#E6EFEC" }, // deep = hover del CTA
+        sage:     { deep: "var(--sage-deep)", dark: "var(--sage-dark)", DEFAULT: "var(--sage)", water: "var(--sage-water)", light: "var(--sage-light)" }, // deep = hover del CTA · valores en index.css (:root y paletas)
         // Marrón cálido — CTAs secundarios y contraste (equipos, cumpleaños, prospectos).
         clay:     { DEFAULT: "#8B6F47", light: "#E8E0D2" }, // light = bordes cálidos
         vela:     { DEFAULT: "#8B6F47", light: "#F2EBDF", dark: "#6F5836" },

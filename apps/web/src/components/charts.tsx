@@ -102,8 +102,8 @@ export function AttendanceColumns({ data, height = 250 }: { data: ServicePoint[]
             return (
               <g key={d.id} opacity={dim ? 0.45 : 1} style={{ transition: 'opacity .15s' }}>
                 {/* presencial desde la base; recto abajo, redondeado arriba si es el último tramo */}
-                {hP > 0 && <path d={colPath(cx - barW / 2, height, barW, hP, d.online === 0)} fill={SERIES.main} />}
-                {hO > 0 && <path d={colPath(cx - barW / 2, height - hP - gap, barW, Math.max(0, hO - gap), true)} fill={SERIES.second} />}
+                {hP > 0 && <path d={colPath(cx - barW / 2, height, barW, hP, d.online === 0)} style={{ fill: SERIES.main }} />}
+                {hO > 0 && <path d={colPath(cx - barW / 2, height - hP - gap, barW, Math.max(0, hO - gap), true)} style={{ fill: SERIES.second }} />}
                 {(i === last || i === best) && total > 0 && (
                   <text x={cx} y={y(total) - 6} textAnchor="middle" className="fill-charcoal text-[11px] font-semibold">{total}</text>
                 )}
@@ -175,11 +175,11 @@ export function GrowthLine({ data, height = 120 }: { data: { label: string; valu
           }}
         >
           <line x1={0} x2={width} y1={height} y2={height} stroke={GRID} />
-          <path d={area} fill={SERIES.main} opacity={0.1} />
-          <path d={line} fill="none" stroke={SERIES.main} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          <path d={area} style={{ fill: SERIES.main }} opacity={0.1} />
+          <path d={line} fill="none" style={{ stroke: SERIES.main }} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
           {hover != null && <line x1={x(hover)} x2={x(hover)} y1={0} y2={height} stroke="rgba(30,42,36,0.25)" />}
           {[hover ?? lastI].map((i) => (
-            <circle key={i} cx={x(i)} cy={y(data[i].value)} r={4.5} fill={SERIES.main} stroke="#fff" strokeWidth={2} />
+            <circle key={i} cx={x(i)} cy={y(data[i].value)} r={4.5} style={{ fill: SERIES.main }} stroke="#fff" strokeWidth={2} />
           ))}
           {hover == null && (
             <text x={x(lastI)} y={y(data[lastI].value) - 10} textAnchor="end" className="fill-charcoal text-[11px] font-semibold">{NUM.format(data[lastI].value)}</text>
@@ -240,9 +240,9 @@ export function Sparkline({ values, color = SERIES.main, height = 36 }: { values
     <div ref={ref} className="w-full" style={{ height }} aria-hidden>
       {width > 0 && values.length > 1 && (
         <svg width={width} height={height} className="overflow-visible">
-          <path d={`${line} L${x(last)},${height} L${x(0)},${height} Z`} fill={color} opacity={0.1} />
-          <path d={line} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-          <circle cx={x(last)} cy={y(values[last])} r={3.5} fill={color} stroke="#fff" strokeWidth={2} />
+          <path d={`${line} L${x(last)},${height} L${x(0)},${height} Z`} style={{ fill: color }} opacity={0.1} />
+          <path d={line} fill="none" style={{ stroke: color }} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx={x(last)} cy={y(values[last])} r={3.5} style={{ fill: color }} stroke="#fff" strokeWidth={2} />
         </svg>
       )}
     </div>

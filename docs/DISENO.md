@@ -104,3 +104,24 @@ El contenido sigue el flujo #7 de *02_ChBook_Flujos_Usuario*:
   - personas por aprobar;
   - miembros activos que asistieron en los últimos 90 días pero no en las últimas 3 semanas.
 - Próximos 7 días del calendario.
+
+## Entornos (navegación)
+
+La app se ve como una web, no como un sistema con menú lateral. Solo hay tres entornos:
+
+- **Inicio** (`/`, al centro): el último culto, los próximos 7 días, lo pendiente, «Esta semana» y las dos puertas a los otros entornos. El culto en vivo se abre desde aquí.
+- **Personas** (`/personas`): la salud de la iglesia y la entrada a cada grupo.
+  - Indicadores: miembros, constancia, servicio y por aprobar.
+  - Tarjetas por equipo y por rango de edad.
+  - Camino de discipulado y atajos.
+  - Cada tarjeta abre `/miembros` ya filtrado (`?equipo=`, `?edad=`, `?ver=`, `?nuevo=1`).
+- **Calendario** (`/calendario`): la organización (actividades, cultos, horarios).
+
+Ajustes, la invitación y la apariencia viven en el menú de cuenta.
+
+## Paletas de prueba
+
+El color principal (familia sage) son variables CSS en `index.css` (`--sage-*`).
+- **Ajustes → Apariencia** y el menú de cuenta permiten probar otras paletas: Eucalipto, Bosque, Oliva, Petróleo y Pizarra.
+- Cambian solo esas variables; los marrones, la crema, el dorado y los textos no cambian.
+- La elección se guarda en el navegador. Si se elige una paleta definitiva, se copia a `:root`.
