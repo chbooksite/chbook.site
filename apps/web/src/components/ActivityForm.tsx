@@ -116,21 +116,6 @@ function PopCard({ color, open, originRect, onExited, children }: { color: strin
   )
 }
 
-const DEFAULT_TIMELINE: { name: string; min: number; tag: string }[] = [
-  { name: 'Inicio', min: 5, tag: 'Bienvenida' },
-  { name: 'Alabanza', min: 25, tag: 'Alabanza' },
-  { name: 'Palabra', min: 35, tag: 'Prédica' },
-  { name: 'Ofrenda', min: 15, tag: 'Ofrenda' },
-  { name: 'Anuncios', min: 5, tag: 'Anuncios' },
-  { name: 'Despedida', min: 5, tag: 'Despedida' },
-]
-function defaultSegments(tags: Tag[]): Seg[] {
-  return DEFAULT_TIMELINE.map((d) => {
-    const t = tags.find((x) => x.name.toLowerCase() === d.tag.toLowerCase())
-    return withKey({ tagId: t?.id ?? null, name: d.name, durationMin: d.min, assignees: [], pinned: false, level: 1, color: null, startOffset: 0 })
-  })
-}
-
 function reorderRespectingPins(arr: Seg[], from: number, to: number): Seg[] {
   const moved = [...arr]
   const [m] = moved.splice(from, 1)
@@ -249,7 +234,9 @@ export default function ActivityForm({
   )
   const [tpls, setTpls] = useState<ActivityTemplate[]>(templates)
   const [templateName, setTemplateName] = useState('')
-  const [segments, setSegments] = useState<Seg[]>(editing ? editingSegments.map(withKey) : defaultSegments(tags))
+  // La línea de tiempo empieza VACÍA (nueva o sin segmentos); se arma desde el
+  // catálogo. El estado vacío de ServiceTimeline invita a agregar actividades.
+  const [segments, setSegments] = useState<Seg[]>(editingSegments.map(withKey))
   const [newTagName, setNewTagName] = useState('')
   const [listOpen, setListOpen] = useState(false)
   const [menuKey, setMenuKey] = useState<string | null>(null)

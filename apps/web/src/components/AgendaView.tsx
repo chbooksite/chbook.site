@@ -119,18 +119,21 @@ export default function AgendaView({
 
   // mover / redimensionar bloques (vista ampliada)
   const [blockDrag, setBlockDrag] = useState<{ id: string; dayIdx: number; startMin: number; endMin: number; color: string } | null>(null)
-  const blockRef = useRef<{ id: string; mode: 'move' | 'top' | 'bottom'; sx: number; sy: number; grabMin: number; s0: number; e0: number; day0: number; color: string; moved: boolean } | null>(null)
+  const blockRef = useRef<{ id: string; mode: 'move' | 'top' | 'bottom'; sx: number; sy: number; lx: number; ly: number; grabMin: number; s0: number; e0: number; day0: number; color: string; moved: boolean } | null>(null)
   // arrastrar etiquetas en modo compacto (mover a otro día / eliminar abajo)
-  type CTarget = { kind: 'day'; dayIdx: number } | { kind: 'delete' } | null
+  type CTarget = { kind: 'day'; dayIdx: number } | null
   const [cDrag, setCDrag] = useState<{ id: string; color: string; name: string; x: number; y: number; target: CTarget } | null>(null)
   const cRef = useRef<{ id: string; color: string; name: string; sx: number; sy: number; day0: number; moved: boolean } | null>(null)
-  const delRef = useRef<HTMLDivElement>(null)
+  // portapapeles (copiar/pegar) y menús flotantes (soltar = mover/copiar; clic derecho)
+  const [clip, setClip] = useState<string | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; kind: 'activity' | 'empty'; id?: string; date?: Date } | null>(null)
+  const [dropMenu, setDropMenu] = useState<{ x: number; y: number; id: string; date: Date; startMin?: number; endMin?: number } | null>(null)
   const [selDay, setSelDay] = useState<number | null>(null) // día seleccionado (modo compacto)
   const [editInline, setEditInline] = useState<{ id: string | null } | null>(null) // editor embebido en el panel
   const [leftSlotEl, setLeftSlotEl] = useState<HTMLElement | null>(null) // contenedor en la franja para las entradas del editor
   // mover / redimensionar actividades dentro del recuadro del día (eje horizontal)
   const [dayBlock, setDayBlock] = useState<{ id: string; startMin: number; endMin: number } | null>(null)
-  const dayRef = useRef<{ id: string; mode: 'move' | 'l' | 'r'; sx: number; s0: number; e0: number; gx: number; gw: number; moved: boolean } | null>(null)
+  const dayRef = useRef<{ id: string; mode: 'move' | 'l' | 'r'; sx: number; sy: number; s0: number; e0: number; gx: number; gw: number; moved: boolean } | null>(null)
 
   // Jornada visible (regla de horas) + zoom. startH/endH definen la ventana; incluye
   // madrugada (0) para vigilias. pph = px por hora (zoom arrastrando la regla).
@@ -295,15 +298,17 @@ export default function AgendaView({
     return { dayIdx, min }
   }
   const onBlockDown = (b: { id: string; startMin: number; endMin: number; color: string }, dayIdx: number, mode: 'move' | 'top' | 'bottom') => (e: RPointerEvent) => {
+    if (e.button !== 0) return
     e.stopPropagation()
     const g = pointToGrid(e.clientX, e.clientY)
-    blockRef.current = { id: b.id, mode, sx: e.clientX, sy: e.clientY, grabMin: g ? g.min - b.startMin : 0, s0: b.startMin, e0: b.endMin, day0: dayIdx, color: b.color, moved: false }
+    blockRef.current = { id: b.id, mode, sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY, grabMin: g ? g.min - b.startMin : 0, s0: b.startMin, e0: b.endMin, day0: dayIdx, color: b.color, moved: false }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   }
   const onBlockMove = (e: RPointerEvent) => {
     const d = blockRef.current; if (!d) return
     if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 4) return
     d.moved = true
+    d.lx = e.clientX; d.ly = e.clientY
     const g = pointToGrid(e.clientX, e.clientY); if (!g) return
     const dur = d.e0 - d.s0
     if (d.mode === 'move') {
@@ -330,7 +335,12 @@ export default function AgendaView({
     }
     setBlockDrag(null)
     if (!drag) return
-    onBlockChange?.(d.id, { date: addDays(rangeStart, drag.dayIdx), startMin: drag.startMin, endMin: drag.endMin, toOneOff: drag.dayIdx !== d.day0 })
+    // Mover el cuerpo a OTRO día → menú Mover/Copiar; mismo día o redimensionar → aplica.
+    if (d.mode === 'move' && drag.dayIdx !== d.day0) {
+      setDropMenu({ x: d.lx, y: d.ly, id: d.id, date: addDays(rangeStart, drag.dayIdx), startMin: drag.startMin, endMin: drag.endMin })
+      return
+    }
+    onBlockChange?.(d.id, { date: addDays(rangeStart, drag.dayIdx), startMin: drag.startMin, endMin: drag.endMin, toOneOff: false })
   }
 
   // ----- zoom arrastrando la regla de horas (arriba = acercar, abajo = alejar) -----
@@ -338,10 +348,8 @@ export default function AgendaView({
   const onRulerMove = (e: RPointerEvent) => { const z = zoomRef.current; if (!z) return; const dy = z.y - e.clientY; setPph(Math.max(PPH_MIN, Math.min(PPH_MAX, Math.round(z.pph + dy * 0.5)))) }
   const onRulerUp = () => { zoomRef.current = null }
 
-  // ----- arrastrar etiquetas (modo compacto): mover a otro día o eliminar -----
+  // ----- arrastrar etiquetas (modo compacto): soltar en otro día → Mover/Copiar -----
   const cTargetAt = (x: number, y: number): CTarget => {
-    const dz = delRef.current
-    if (dz) { const r = dz.getBoundingClientRect(); if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return { kind: 'delete' } }
     const el = scrollRef.current; if (!el) return null
     const r = el.getBoundingClientRect()
     if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null
@@ -349,6 +357,7 @@ export default function AgendaView({
     return { kind: 'day', dayIdx: Math.max(0, Math.min(days.length - 1, Math.floor(cx / stride))) }
   }
   const cDown = (a: { id: string; color: string; name: string }, dayIdx: number) => (e: RPointerEvent) => {
+    if (e.button !== 0) return
     e.stopPropagation()
     cRef.current = { id: a.id, color: a.color, name: a.name, sx: e.clientX, sy: e.clientY, day0: dayIdx, moved: false }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
@@ -363,23 +372,23 @@ export default function AgendaView({
     const d = cRef.current; cRef.current = null
     const drag = cDrag; setCDrag(null)
     if (!d) return
-    if (!d.moved) { onEdit?.(d.id); return }
+    if (!d.moved) { if (renderDayEditor) { setSelDay(d.day0); setEditInline({ id: d.id }) } else onEdit?.(d.id); return }
     if (!drag || !drag.target) return
-    if (drag.target.kind === 'delete') { onDeleteBlock?.(d.id); return }
-    if (drag.target.kind === 'day' && drag.target.dayIdx !== d.day0) onMoveToDay?.(d.id, addDays(rangeStart, drag.target.dayIdx))
+    if (drag.target.dayIdx !== d.day0) setDropMenu({ x: drag.x, y: drag.y, id: d.id, date: addDays(rangeStart, drag.target.dayIdx) })
   }
 
   // ----- mover / redimensionar una actividad en el recuadro del día (horizontal) -----
   const dayDown = (b: { id: string; startMin: number; endMin: number }, mode: 'move' | 'l' | 'r') => (e: RPointerEvent) => {
+    if (e.button !== 0) return
     e.stopPropagation()
     const track = (e.currentTarget as HTMLElement).closest('[data-daytrack]') as HTMLElement | null
     const r = track?.getBoundingClientRect()
-    dayRef.current = { id: b.id, mode, sx: e.clientX, s0: b.startMin, e0: b.endMin, gx: r?.left ?? 0, gw: r?.width ?? 1, moved: false }
+    dayRef.current = { id: b.id, mode, sx: e.clientX, sy: e.clientY, s0: b.startMin, e0: b.endMin, gx: r?.left ?? 0, gw: r?.width ?? 1, moved: false }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   }
   const dayMove = (e: RPointerEvent) => {
     const d = dayRef.current; if (!d) return
-    if (!d.moved && Math.abs(e.clientX - d.sx) < 4) return
+    if (!d.moved && Math.abs(e.clientX - d.sx) < 4 && Math.abs(e.clientY - d.sy) < 4) return
     d.moved = true
     const spanMin = (hMax - hMin) * 60
     const deltaMin = ((e.clientX - d.sx) / d.gw) * spanMin
@@ -578,7 +587,7 @@ export default function AgendaView({
                       <span className={`text-[0.7rem] font-medium uppercase ${dowText(d)}`}>{WD_SHORT[(d.getDay() + 6) % 7]}</span>{' '}
                       <span className={`text-base font-bold ${dowText(d)}`}>{d.getDate()}</span>
                     </button>
-                    <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain p-1.5 [scrollbar-width:thin]">
+                    <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain p-1.5 [scrollbar-width:thin]" onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'empty', date: d }) }}>
                       {acts.length === 0 && <p className="py-1 text-center text-[0.62rem] text-graysage/40">—</p>}
                       {acts.map((a) => (
                         <div
@@ -587,6 +596,7 @@ export default function AgendaView({
                           onPointerDown={cDown(a, i)}
                           onPointerMove={cMove}
                           onPointerUp={cUp}
+                          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'activity', id: a.id }) }}
                           style={{ backgroundColor: soft(a.color, 0.65), borderLeft: `4px solid ${soft(a.color, 0.2)}` }}
                           className={`group relative flex min-h-[48px] w-full touch-none flex-col gap-0.5 rounded-md px-2 py-1.5 text-left active:cursor-grabbing ${cDrag?.id === a.id ? 'opacity-40' : 'cursor-grab'}`}
                         >
@@ -602,14 +612,6 @@ export default function AgendaView({
                               title={a.recurring ? 'Recurrente — tocar para hacerla puntual' : 'Puntual — tocar para repetir cada semana'}
                             >↻</button>
                           </span>
-                          {/* copiar: aparece al pasar el cursor */}
-                          <button
-                            data-block
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => { e.stopPropagation(); onDuplicate?.(a.id, d) }}
-                            className="absolute right-1 top-1 hidden h-6 w-6 items-center justify-center rounded-md bg-white text-sm leading-none text-graysage shadow-sm transition hover:text-sage-dark group-hover:flex"
-                            title="Duplicar"
-                          >⧉</button>
                         </div>
                       ))}
                       <button data-add type="button" onClick={() => onNewAt?.(d)} className="mx-auto flex h-6 w-6 items-center justify-center rounded-full text-graysage hover:bg-cream" title="Nueva actividad">+</button>
@@ -641,7 +643,7 @@ export default function AgendaView({
                 </div>
 
                 {/* pista horizontal del día: arrastra para mover / bordes para redimensionar; clic abre el editor */}
-                <div data-daytrack className="relative w-full overflow-hidden" style={{ height: lanes * laneH + 6 }}>
+                <div data-daytrack className="relative w-full overflow-hidden" style={{ height: lanes * laneH + 6 }} onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'empty', date: sd }) }}>
                   {hoursArr.map((h) => <div key={h} style={{ left: xPct(h * 60) }} className="pointer-events-none absolute inset-y-0 border-l border-black/5" />)}
                   {timed.length === 0 && <div className="absolute inset-0 flex items-center text-sm text-graysage/60">Sin actividades. Usa «+ Actividad».</div>}
                   {timed.map((b) => {
@@ -653,6 +655,7 @@ export default function AgendaView({
                         onPointerDown={dayDown({ id: b.id, startMin: b.startMin, endMin: b.endMin }, 'move')}
                         onPointerMove={dayMove}
                         onPointerUp={dayUp}
+                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'activity', id: b.id }) }}
                         style={{ left: xPct(bs), width: `calc(${((be - bs) / span) * 100}% - 2px)`, top: b.lane * laneH, height: laneH - 4, backgroundColor: soft(b.color, 0.65) }}
                         className={`group absolute cursor-grab touch-none overflow-hidden rounded-md text-center leading-[26px] transition hover:brightness-95 active:cursor-grabbing ${editInline?.id === b.id ? 'ring-2 ring-sage-dark' : ''}`}
                         title={`${b.title} · ${fmtMin(bs)}–${fmtMin(be)}`}
@@ -688,12 +691,6 @@ export default function AgendaView({
               {renderDayEditor({ date: days[selDay], activityId: editInline.id, onClose: () => setEditInline(null), leftSlot: leftSlotEl })}
             </div>
           )}
-          {/* zona de eliminar (aparece al arrastrar una etiqueta) */}
-          {cDrag && (
-            <div ref={delRef} className={`mt-2 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-medium transition ${cDrag.target?.kind === 'delete' ? 'border-clay bg-clay/10 text-clay' : 'border-graysage/30 text-graysage'}`}>
-              🗑 Suelta aquí para eliminar
-            </div>
-          )}
           </div>
         ) : (
           /* ---- TIRA AMPLIADA (tarjetas separadas que crecen hacia abajo) ---- */
@@ -721,7 +718,7 @@ export default function AgendaView({
                         <span className={`text-[0.7rem] font-medium uppercase ${dowText(d)}`}>{WD_SHORT[(d.getDay() + 6) % 7]}</span>
                         <span className={`text-base font-bold ${dowText(d)}`}>{d.getDate()}</span>
                       </div>
-                      <div className="relative origin-top cursor-pointer" style={{ height: gridH, animation: 'agendaGrow .45s cubic-bezier(.22,1,.36,1)' }} onClick={onSlotClick(d)}>
+                      <div className="relative origin-top cursor-pointer" style={{ height: gridH, animation: 'agendaGrow .45s cubic-bezier(.22,1,.36,1)' }} onClick={onSlotClick(d)} onContextMenu={(e) => { if ((e.target as HTMLElement).closest('[data-block]')) return; e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'empty', date: d }) }}>
                       {hours.map((h) => <div key={h} style={{ top: yOf(h * 60) }} className="pointer-events-none absolute inset-x-0 border-t border-black/5" />)}
                       {timed.map((b) => {
                         const top = yOf(b.startMin), hh = Math.max(20, yOf(b.endMin) - top), w = 100 / b.lanes
@@ -733,6 +730,7 @@ export default function AgendaView({
                             onPointerDown={onBlockDown(b, i, 'move')}
                             onPointerMove={onBlockMove}
                             onPointerUp={onBlockUp}
+                            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'activity', id: b.id }) }}
                             style={{ top, height: hh, left: `calc(${b.lane * w}% + 2px)`, width: `calc(${w}% - 4px)`, backgroundColor: soft(b.color, 0.65), borderLeft: `3px solid ${soft(b.color, 0.2)}` }}
                             className={`group absolute touch-none select-none overflow-hidden rounded-md text-left transition active:cursor-grabbing ${dragging ? 'opacity-30' : 'cursor-grab hover:brightness-95'}`}
                             title={b.title}
@@ -744,11 +742,9 @@ export default function AgendaView({
                               {b.responsibles && hh > 50 && <span className="block truncate text-[0.58rem] leading-tight text-graysage">{b.responsibles}</span>}
                             </div>
                             <div data-block onPointerDown={onBlockDown(b, i, 'bottom')} className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize" />
-                            {/* acciones de la tarjeta (al pasar el cursor) */}
-                            <div className="absolute right-0.5 top-0.5 hidden gap-0.5 group-hover:flex">
+                            {/* recurrencia (al pasar el cursor); copiar/eliminar por clic derecho */}
+                            <div className="absolute right-0.5 top-0.5 hidden group-hover:block">
                               <button data-block onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleRecurring?.(b.id, d, b.recurring) }} className={`flex h-4 w-4 items-center justify-center rounded text-[0.65rem] leading-none shadow-sm ${b.recurring ? 'bg-sage-dark text-white' : 'bg-white text-graysage'}`} title={b.recurring ? 'Recurrente — tocar para hacerla puntual' : 'Puntual — tocar para repetir cada semana'}>↻</button>
-                              <button data-block onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDuplicate?.(b.id, d) }} className="flex h-4 w-4 items-center justify-center rounded bg-white text-[0.65rem] leading-none text-graysage shadow-sm hover:text-sage-dark" title="Duplicar">⧉</button>
-                              <button data-block onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDeleteBlock?.(b.id) }} className="flex h-4 w-4 items-center justify-center rounded bg-white text-[0.65rem] leading-none text-graysage shadow-sm hover:text-clay" title="Eliminar">✕</button>
                             </div>
                           </div>
                         )
@@ -787,9 +783,37 @@ export default function AgendaView({
         </div>
       )}
       {cDrag && (
-        <div style={{ left: cDrag.x, top: cDrag.y, backgroundColor: soft(cDrag.color, 0.55), borderLeft: `3px solid ${soft(cDrag.color, 0.2)}` }} className={`pointer-events-none fixed z-[80] max-w-[160px] -translate-x-1/2 -translate-y-1/2 truncate rounded-md px-2 py-1 text-[0.72rem] font-medium text-charcoal shadow-lg ${cDrag.target?.kind === 'delete' ? 'opacity-50' : ''}`}>
+        <div style={{ left: cDrag.x, top: cDrag.y, backgroundColor: soft(cDrag.color, 0.55), borderLeft: `3px solid ${soft(cDrag.color, 0.2)}` }} className="pointer-events-none fixed z-[80] max-w-[160px] -translate-x-1/2 -translate-y-1/2 truncate rounded-md px-2 py-1 text-[0.72rem] font-medium text-charcoal shadow-lg">
           {cDrag.name}
         </div>
+      )}
+
+      {/* menú al soltar en otro día: Mover / Copiar */}
+      {dropMenu && (
+        <>
+          <div className="fixed inset-0 z-[90]" onClick={() => setDropMenu(null)} onContextMenu={(e) => { e.preventDefault(); setDropMenu(null) }} />
+          <div style={{ left: dropMenu.x, top: dropMenu.y }} className="fixed z-[91] min-w-28 -translate-x-1/2 overflow-hidden rounded-lg border border-black/10 bg-white py-1 text-sm shadow-xl">
+            <button type="button" onClick={() => { const m = dropMenu; setDropMenu(null); if (m.startMin != null) onBlockChange?.(m.id, { date: m.date, startMin: m.startMin, endMin: m.endMin ?? m.startMin, toOneOff: true }); else onMoveToDay?.(m.id, m.date) }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream">Mover aquí</button>
+            <button type="button" onClick={() => { const m = dropMenu; setDropMenu(null); onDuplicate?.(m.id, m.date) }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream">Copiar aquí</button>
+          </div>
+        </>
+      )}
+
+      {/* menú contextual (clic derecho): Copiar/Eliminar en actividad; Pegar en vacío */}
+      {ctxMenu && (
+        <>
+          <div className="fixed inset-0 z-[90]" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null) }} />
+          <div style={{ left: ctxMenu.x, top: ctxMenu.y }} className="fixed z-[91] min-w-28 overflow-hidden rounded-lg border border-black/10 bg-white py-1 text-sm shadow-xl">
+            {ctxMenu.kind === 'activity' ? (
+              <>
+                <button type="button" onClick={() => { if (ctxMenu.id) setClip(ctxMenu.id); setCtxMenu(null) }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream">Copiar</button>
+                <button type="button" onClick={() => { if (ctxMenu.id) onDeleteBlock?.(ctxMenu.id); setCtxMenu(null) }} className="block w-full px-3 py-1.5 text-left text-clay hover:bg-cream">Eliminar</button>
+              </>
+            ) : (
+              <button type="button" disabled={!clip} onClick={() => { if (clip && ctxMenu.date) onDuplicate?.(clip, ctxMenu.date); setCtxMenu(null) }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream disabled:opacity-40">Pegar{clip ? '' : ' (nada copiado)'}</button>
+            )}
+          </div>
+        </>
       )}
     </div>
   )
