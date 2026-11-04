@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
 import ServiceTimeline, { type TimelineHandle } from './ServiceTimeline'
 import AudiencePicker from './AudiencePicker'
@@ -6,6 +7,7 @@ import type { AgeRangeDef } from '../lib/member'
 import {
   AUDIENCE_ALL,
   WEEKDAYS,
+  assigneeColor,
   clockToMin,
   serviceMinutes,
   type ActivityType,
@@ -155,6 +157,21 @@ function reorderWithinLevel(arr: Seg[], level: number, key: string, toIdx: numbe
   return copy
 }
 
+// Sección: en modo embebido (dentro del recuadro del día) se vuelve desplegable
+// (acordeón); en el modal se muestra tal cual.
+function Section({ embedded, title, defaultOpen = false, orderCls = '', children }: { embedded: boolean; title: string; defaultOpen?: boolean; orderCls?: string; children: ReactNode }) {
+  if (!embedded) return <>{children}</>
+  return (
+    <details open={defaultOpen} className={`group border-b border-graysage/10 pb-2 ${orderCls}`}>
+      <summary className="flex cursor-pointer list-none items-center justify-between py-1.5 text-sm font-medium text-charcoal">
+        <span>{title}</span>
+        <span className="text-graysage transition group-open:rotate-180">▾</span>
+      </summary>
+      <div className="pt-2">{children}</div>
+    </details>
+  )
+}
+
 export default function ActivityForm({
   churchId,
   editing,
@@ -175,11 +192,17 @@ export default function ActivityForm({
   onClose,
   onSaved,
   onTagCreated,
+  embedded = false,
+  leftSlot = null,
+  defaultName,
 }: {
   churchId: string
   editing: Schedule | null
   defaultWeekday?: number
   defaultStart?: string
+  embedded?: boolean
+  leftSlot?: HTMLElement | null
+  defaultName?: (typeId: string | null) => string
   editingTeams: ScheduleTeam[]
   editingSegments: Segment[]
   types: ActivityType[]
@@ -468,15 +491,13 @@ export default function ActivityForm({
   const deleteTemplate = (nm: string) => persistTemplates(tpls.filter((t) => t.name !== nm))
 
   const save = async () => {
-    if (!name.trim()) {
-      setError('Ponle un nombre a la actividad.')
-      return
-    }
+    // Sin nombre: se usa el del tipo + numeración (o "Actividad N").
+    const finalName = name.trim() || (defaultName ? defaultName(typeId || null) : 'Actividad')
     setSaving(true)
     setError(null)
     const payload = {
       church_id: churchId,
-      name: name.trim(),
+      name: finalName,
       type_id: typeId || null,
       freq,
       weekday,
@@ -544,10 +565,30 @@ export default function ActivityForm({
     onClose()
   }
 
+  // Portal a la franja izquierda: en modo embebido con slot, las entradas (nombre,
+  // tipo, horarios, ¿para quién?, encargados, plantillas) se renderizan en la franja
+  // izquierda y el recuadro queda solo con la línea de tiempo. Si no, van inline.
+  const toLeft = (node: ReactNode) => (embedded && leftSlot ? createPortal(node, leftSlot) : node)
+
+  // Chips de equipos participantes (reutilizables): en el modal van en su sección;
+  // en el recuadro van en la misma barra del botón Ajustar de la línea de tiempo.
+  const teamChips = (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {teams.map((t) => {
+        const active = partTeams.some((p) => p.teamId === t.id)
+        return (
+          <button key={t.id} type="button" onPointerDown={startTeamChip(t.id)} onPointerMove={onChipMove} onPointerUp={onChipUp} onClick={() => { if (chipDidDrag.current) return; active ? removeTeam(t.id) : addTeam(t.id) }} className={`${catalogChipCls(active)} inline-flex items-center gap-1 touch-none`}>
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: assigneeColor(t.id) }} />{t.name}
+          </button>
+        )
+      })}
+    </div>
+  )
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8">
+    <div className={embedded ? '' : 'fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-charcoal/30 p-4 sm:p-8'}>
       <div
-        className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
+        className={embedded ? 'w-full' : 'w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl'}
         onClick={(e) => e.stopPropagation()}
         onClickCapture={(e) => {
           if (!cards.some((c) => c.open && !c.pinned)) return
@@ -556,34 +597,53 @@ export default function ActivityForm({
           closeUnpinned()
         }}
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-serif text-lg text-charcoal">{editing ? 'Editar actividad' : 'Nueva actividad'}</h3>
-          <button type="button" onClick={handleClose} className="rounded-lg px-2 py-1 text-lg text-graysage hover:bg-cream hover:text-charcoal" title="Cerrar">✕</button>
-        </div>
-
-        {/* Plantillas: reutilizar un arreglo (equipos + línea de tiempo) */}
-        <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-xl bg-cream/50 px-3 py-2">
-          <span className="mr-1 text-xs font-medium text-graysage">Plantillas:</span>
-          {tpls.length === 0 && <span className="text-xs text-graysage/50">ninguna guardada</span>}
-          {tpls.map((t) => (
-            <span key={t.name} className="inline-flex items-center gap-1 rounded-full border border-sage/30 bg-white px-2.5 py-1 text-xs text-charcoal">
-              <button type="button" onClick={() => applyTemplate(t)} title="Partir de esta plantilla" className="hover:text-sage-dark">{t.name}</button>
-              <button type="button" onClick={() => deleteTemplate(t.name)} title="Eliminar plantilla" className="text-graysage/60 hover:text-clay">✕</button>
-            </span>
-          ))}
-          <div className="ml-auto flex items-center gap-1.5">
-            <input
-              value={templateName}
-              onChange={(e) => setTemplateName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), saveTemplate())}
-              placeholder="Nombra este esquema de planificación"
-              className="w-56 rounded-lg border border-graysage/25 bg-white px-2.5 py-1 text-xs outline-none focus:border-sage"
-            />
-            <button type="button" onClick={saveTemplate} disabled={!templateName.trim()} className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs text-sage-dark hover:bg-sage/10 disabled:opacity-50">Guardar como plantilla</button>
+        {!embedded && (
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-serif text-lg text-charcoal">{editing ? 'Editar actividad' : 'Nueva actividad'}</h3>
+            <button type="button" onClick={handleClose} className="rounded-lg px-2 py-1 text-lg text-graysage hover:bg-cream hover:text-charcoal" title="Cerrar">✕</button>
           </div>
-        </div>
+        )}
 
-        <div className="space-y-5">
+        <div className={embedded ? 'flex flex-col gap-4' : 'space-y-5'}>
+          {/* Encabezado editable (nombre + tipo + hora inicio/fin): va a la franja izquierda al editar */}
+          {embedded && toLeft(
+            <div className="order-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre" className="w-44 border-b border-transparent bg-transparent px-0.5 py-1 text-sm font-medium text-charcoal outline-none hover:border-graysage/30 focus:border-sage" />
+              <select value={typeId} onChange={(e) => { const id = e.target.value; setTypeId(id); if (!name) setName(typeById.get(id)?.name ?? '') }} className="border-b border-transparent bg-transparent px-0.5 py-1 text-sm text-graysage outline-none hover:border-graysage/30 focus:border-sage">
+                <option value="">Tipo</option>
+                {types.map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
+              </select>
+              <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="border-b border-transparent bg-transparent px-0.5 py-1 text-sm text-charcoal outline-none hover:border-graysage/30 focus:border-sage" />
+              <span className="text-graysage">–</span>
+              <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="border-b border-transparent bg-transparent px-0.5 py-1 text-sm text-charcoal outline-none hover:border-graysage/30 focus:border-sage" />
+            </div>
+          )}
+          {/* Plantillas: reutilizar un arreglo (equipos + línea de tiempo) */}
+          {toLeft(<Section embedded={embedded} title="Plantillas" orderCls="order-4">
+          <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-xl bg-white px-3 py-2">
+            <span className="mr-1 text-xs font-medium text-graysage">Plantillas:</span>
+            {tpls.length === 0 && <span className="text-xs text-graysage/50">ninguna guardada</span>}
+            {tpls.map((t) => (
+              <span key={t.name} className="inline-flex items-center gap-1 rounded-full border border-sage/30 bg-white px-2.5 py-1 text-xs text-charcoal">
+                <button type="button" onClick={() => applyTemplate(t)} title="Partir de esta plantilla" className="hover:text-sage-dark">{t.name}</button>
+                <button type="button" onClick={() => deleteTemplate(t.name)} title="Eliminar plantilla" className="text-graysage/60 hover:text-clay">✕</button>
+              </span>
+            ))}
+            <div className="ml-auto flex items-center gap-1.5">
+              <input
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), saveTemplate())}
+                placeholder="Nombra este esquema de planificación"
+                className="w-56 rounded-lg border border-graysage/25 bg-white px-2.5 py-1 text-xs outline-none focus:border-sage"
+              />
+              <button type="button" onClick={saveTemplate} disabled={!templateName.trim()} className="rounded-lg border border-sage/40 px-2.5 py-1 text-xs text-sage-dark hover:bg-sage/10 disabled:opacity-50">Guardar como plantilla</button>
+            </div>
+          </div>
+          </Section>)}
+
+          {!embedded && (
+          <Section embedded={embedded} title="Datos de la actividad" orderCls="order-5">
           <div>
             <label className="mb-1 block text-sm font-medium text-graysage">Nombre</label>
             <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Culto de oración" autoFocus />
@@ -630,7 +690,10 @@ export default function ActivityForm({
               <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className={inputCls} />
             </div>
           </div>
+          </Section>
+          )}
 
+          {toLeft(<Section embedded={embedded} title="¿Para quién?" orderCls="order-6">
           <div>
             <label className="mb-2 block text-sm font-medium text-graysage">¿Para quién?</label>
             <AudiencePicker
@@ -641,9 +704,11 @@ export default function ActivityForm({
               ages={ageRanges.filter((r) => r.enabled).map((r) => ({ key: r.key, name: r.name }))}
             />
           </div>
+          </Section>)}
 
           {/* Capa 2: encargados de la actividad (equipo / rol / persona) */}
-          <div className="rounded-xl bg-cream/50 p-4">
+          {toLeft(<Section embedded={embedded} title="Encargados de la actividad" orderCls="order-7">
+          <div className="rounded-xl bg-white p-4">
             <p className="text-sm font-medium text-charcoal">Encargados de la actividad</p>
             <p className="mb-3 text-xs text-graysage">Quién es responsable de esta actividad. Asigna un equipo, un rol o personas concretas; en equipos y roles puedes marcar a quién específicamente.</p>
             {actAssignees.length === 0 && <p className="mb-2 text-xs text-graysage/60">Aún sin encargados.</p>}
@@ -655,7 +720,7 @@ export default function ActivityForm({
                 return (
                   <div key={`${a.kind}:${a.id}`} className="rounded-lg bg-white p-2">
                     <div className="flex items-center gap-2">
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${badge}`}>{kindLabel}: {actLabel(a)}</span>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${badge}`}><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: assigneeColor(a.id) }} />{kindLabel}: {actLabel(a)}</span>
                       <button type="button" onClick={() => actRemove(ai)} className="ml-auto text-xs text-graysage hover:text-clay">✕</button>
                     </div>
                     {a.kind !== 'member' && (
@@ -679,32 +744,28 @@ export default function ActivityForm({
               <optgroup label="Personas">{members.map((m) => (<option key={m.id} value={`member:${m.id}`}>{m.name}</option>))}</optgroup>
             </select>
           </div>
+          </Section>)}
 
-          {/* Capa 1: equipos participantes (en formato etiqueta) */}
-          <div className="rounded-xl bg-cream/50 p-4">
-            <p className="text-sm font-medium text-charcoal">Equipos participantes</p>
-            <p className="mb-3 text-xs text-graysage">Toca un equipo para activarlo durante todo el servicio, o arrástralo sobre una actividad para asignarlo. Los activos cambian de color.</p>
-            <div className="flex flex-wrap gap-1.5">
-              {teams.map((t) => {
-                const active = partTeams.some((p) => p.teamId === t.id)
-                return (
-                  <button key={t.id} type="button" onPointerDown={startTeamChip(t.id)} onPointerMove={onChipMove} onPointerUp={onChipUp} onClick={() => { if (chipDidDrag.current) return; active ? removeTeam(t.id) : addTeam(t.id) }} className={`${catalogChipCls(active)} touch-none`}>{t.name}</button>
-                )
-              })}
+          {/* Capa 1: equipos participantes — en el modal, sección propia (en el recuadro
+              embebido van en la barra del botón Ajustar de la línea de tiempo) */}
+          {!embedded && (
+            <div className="rounded-xl bg-white p-4">
+              <p className="text-sm font-medium text-charcoal">Equipos participantes</p>
+              <p className="mb-3 text-xs text-graysage">Toca un equipo para activarlo durante todo el servicio, o arrástralo sobre una actividad para asignarlo. Los activos cambian de color.</p>
+              {teamChips}
             </div>
-          </div>
+          )}
 
           {/* Capa 2: línea de tiempo horizontal */}
-          <div className="rounded-xl bg-cream/50 p-4">
-            <p className="text-sm font-medium text-charcoal">Línea de tiempo del servicio</p>
-            <p className="mb-3 text-xs text-graysage">Arrastra el borde derecho para la duración, el cuerpo para moverla. Toca una actividad para ver y asignar sus encargados.</p>
-
+          <div className={`rounded-xl bg-white p-4 ${embedded ? 'order-2' : ''}`}>
             <div className="relative mb-3">
               <ServiceTimeline
                 ref={timelineRef}
                 dropActive={!!chipDrag}
                 dropTarget={dropTarget}
                 assigneeText={assigneeMarker}
+                assigneeColors={(s) => s.assignees.map((a) => assigneeColor(a.id))}
+                toolbarLeft={embedded ? teamChips : undefined}
                 segments={segments}
                 totalMin={total}
                 startMin={startMin}
@@ -772,8 +833,8 @@ export default function ActivityForm({
                           return (
                             <div key={`${a.kind}:${a.id}`} className="rounded-lg bg-cream/60 p-2">
                               <div className="flex items-center gap-2">
-                                <span className={`rounded-full px-2 py-0.5 text-xs ${a.kind === 'team' ? 'bg-clay/10 text-clay' : 'bg-sage-water/15 text-sage-dark'}`}>
-                                  {a.kind === 'team' ? 'Equipo' : 'Rol'}: {assigneeLabel(a)}
+                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${a.kind === 'team' ? 'bg-clay/10 text-clay' : 'bg-sage-water/15 text-sage-dark'}`}>
+                                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: assigneeColor(a.id) }} />{a.kind === 'team' ? 'Equipo' : 'Rol'}: {assigneeLabel(a)}
                                 </span>
                                 <button type="button" onClick={() => removeAssignee(seg._k, ai)} className="ml-auto text-xs text-graysage hover:text-clay">✕</button>
                               </div>
@@ -870,7 +931,7 @@ export default function ActivityForm({
             )}
           </div>
 
-          {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
+          {error && <p className={`rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay ${embedded ? 'order-8' : ''}`}>{error}</p>}
         </div>
 
         {chipDrag && (

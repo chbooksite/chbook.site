@@ -7,6 +7,7 @@ import ActivityForm from '../components/ActivityForm'
 import AgendaView, { type NewActivityAttrs } from '../components/AgendaView'
 import { DEFAULT_AGE_RANGES, readAgeRanges, type AgeRangeDef } from '../lib/member'
 import {
+  audienceFilterLabel,
   formatTime,
   readActivityTemplates,
   readAssignees,
@@ -27,6 +28,10 @@ interface Opt {
   name: string
   key?: string
 }
+
+// Paleta de tonos distintos para auto-asignar color a tipos nuevos (la agenda los
+// muestra suavizados). Se elige el primero que no esté en uso.
+const TYPE_PALETTE = ['#2f6f4f', '#8a5a44', '#b08900', '#3b6ea5', '#7a4ea3', '#a83e5b', '#4f8f8f', '#6b7a2e', '#9a5b2e', '#577590', '#845ec2', '#2c7a7b', '#b5651d', '#4a5d8f']
 
 export default function Calendar() {
   const { membership, membershipLoading } = useAuth()
@@ -167,12 +172,21 @@ export default function Calendar() {
 
   const colorOf = (s: Schedule) => typeById.get(s.typeId ?? '')?.color ?? '#94a3b8'
 
+  // Nombre por defecto cuando no se escribe uno: nombre del tipo + numeración
+  // (cuenta de actividades del mismo tipo + 1). Sin tipo → "Actividad N".
+  const defaultActivityName = (typeId: string | null): string => {
+    const base = (typeId ? typeById.get(typeId)?.name : '') || 'Actividad'
+    const n = schedules.filter((s) => !s.parentId && (s.typeId ?? null) === (typeId ?? null)).length + 1
+    return `${base} ${n}`
+  }
+
   const audienceLabel = (a: Audience): string => {
     if (a.all) return 'Toda la iglesia'
     const parts = [
       ...a.teamIds.map((id) => teamById.get(id)),
       ...a.roleIds.map((id) => roleById.get(id)),
       ...a.ageKeys.map((k) => ageRanges.find((r) => r.key === k)?.name),
+      ...a.filters.map((k) => audienceFilterLabel(k)),
     ].filter(Boolean)
     return parts.join(', ') || 'Toda la iglesia'
   }
@@ -194,12 +208,11 @@ export default function Calendar() {
   // recurrencia apagada, bloque de 1 h alineado a la hora. Se edita luego.
   const createQuick = async (d: Date, start?: string, attrs?: NewActivityAttrs) => {
     if (!churchId) return
-    const type = attrs?.typeId ? typeById.get(attrs.typeId) : undefined
     const s = start ?? '08:00'
     const end = `${String(Math.min(23, Number(s.slice(0, 2)) + 1)).padStart(2, '0')}:${s.slice(3, 5)}`
     const onDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     const { data } = await supabase.from('activity_schedules').insert({
-      church_id: churchId, name: type?.name ?? 'Nueva actividad', type_id: attrs?.typeId ?? null,
+      church_id: churchId, name: defaultActivityName(attrs?.typeId ?? null), type_id: attrs?.typeId ?? null,
       freq: 'weekly', weekday: d.getDay(),
       start_time: s, end_time: end, on_date: onDate,
       audience: (attrs?.audience ?? { scope: 'all' }) as never, assignees: [] as never, enabled: true,
@@ -212,6 +225,24 @@ export default function Calendar() {
       )
     }
     await load()
+  }
+  // Crear un TIPO de servicio. El color no se repite: si no se pasa uno, el sistema
+  // toma el primer tono de la paleta que no esté en uso (o uno aleatorio si se agota).
+  const createType = async (name: string, color?: string): Promise<{ id: string; name: string; color: string } | null> => {
+    if (!churchId || !name.trim()) return null
+    const used = new Set(types.map((t) => (t.color || '').toLowerCase()))
+    const chosen = color || TYPE_PALETTE.find((c) => !used.has(c.toLowerCase())) || `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')}`
+    const slug = name.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'tipo'
+    const key = `${slug}-${Math.random().toString(36).slice(2, 6)}`
+    const { data, error } = await supabase
+      .from('activity_types')
+      .insert({ church_id: churchId, key, name: name.trim(), color: chosen, is_system: false })
+      .select('id, key, name, color, is_system')
+      .single()
+    if (error || !data) return null
+    const t: ActivityType = { id: data.id, key: data.key, name: data.name, color: data.color, isSystem: !!data.is_system }
+    setTypes((prev) => [...prev, t].sort((a, b) => Number(b.isSystem) - Number(a.isSystem) || a.name.localeCompare(b.name)))
+    return { id: t.id, name: t.name, color: t.color }
   }
   // Mover / redimensionar un bloque en la agenda. Cambia hora siempre; si cruzó de
   // día, lo vuelve one-off en esa fecha (recurrencia apagada).
@@ -260,6 +291,15 @@ export default function Calendar() {
     await load()
   }
   const deleteBlock = (id: string) => { const s = schedules.find((x) => x.id === id); if (s) remove(s) }
+  // Mover a OTRO día desde el modo compacto: conserva la hora, se vuelve puntual
+  // de esa fecha (recurrencia apagada). Optimista para que no parpadee.
+  const moveToDay = async (id: string, date: Date) => {
+    if (!churchId) return
+    const onDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    setSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, onDate, weekday: date.getDay() } : s)))
+    const { error } = await supabase.from('activity_schedules').update({ on_date: onDate, weekday: date.getDay() } as never).eq('id', id)
+    if (error) await load()
+  }
   const openEdit = (s: Schedule) => {
     setEditing(s)
     setShowForm(true)
@@ -307,6 +347,7 @@ export default function Calendar() {
           <AgendaView
             recurring={schedules.filter((s) => !s.parentId && s.enabled).map((s) => ({ ...s, color: typeById.get(s.typeId ?? '')?.color ?? '#94a3b8', responsibles: s.assignees.length ? encargadosLabel(s) : null, preacher: preacherOf(s) }))}
             typeOptions={types.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
+            onCreateType={createType}
             teamOptions={teams.map((t) => ({ id: t.id, name: t.name }))}
             roleOptions={roles.map((r) => ({ id: r.id, name: r.name }))}
             ageOptions={ageRanges.map((r) => ({ key: r.key, name: r.name }))}
@@ -317,6 +358,35 @@ export default function Calendar() {
             onToggleRecurring={toggleRecurring}
             onDuplicate={duplicateBlock}
             onDeleteBlock={deleteBlock}
+            onMoveToDay={moveToDay}
+            renderDayEditor={({ date, activityId, onClose, leftSlot }) => {
+              const ed = activityId ? schedules.find((s) => s.id === activityId) ?? null : null
+              return (
+                <ActivityForm
+                  embedded
+                  leftSlot={leftSlot}
+                  defaultName={defaultActivityName}
+                  churchId={churchId!}
+                  editing={ed}
+                  defaultWeekday={date.getDay()}
+                  editingTeams={ed ? teamsBySchedule.get(ed.id) ?? [] : []}
+                  editingSegments={ed ? segmentsBySchedule.get(ed.id) ?? [] : []}
+                  types={types}
+                  teams={teams}
+                  roles={roles}
+                  ageRanges={ageRanges}
+                  tags={tags}
+                  members={members}
+                  membersByTeam={membersByTeam}
+                  membersByRole={membersByRole}
+                  templates={templates}
+                  onTemplatesChange={setTemplates}
+                  onClose={onClose}
+                  onSaved={() => { onClose(); load() }}
+                  onTagCreated={(tag) => setTags((prev) => [...prev, tag].sort((a, b) => a.name.localeCompare(b.name)))}
+                />
+              )
+            }}
           />
         </section>
 
@@ -357,6 +427,7 @@ export default function Calendar() {
         <ActivityForm
           churchId={churchId!}
           editing={editing}
+          defaultName={defaultActivityName}
           defaultWeekday={newWeekday ?? undefined}
           defaultStart={newStart ?? undefined}
           editingTeams={editing ? teamsBySchedule.get(editing.id) ?? [] : []}

@@ -14,10 +14,24 @@ export interface Audience {
   roleIds: string[]
   teamIds: string[]
   ageKeys: string[]
+  filters: string[] // atributos seleccionados (claves dentro de AUDIENCE_ATTRS)
 }
-export const AUDIENCE_ALL: Audience = { all: true, roleIds: [], teamIds: [], ageKeys: [] }
+export const AUDIENCE_ALL: Audience = { all: true, roleIds: [], teamIds: [], ageKeys: [], filters: [] }
+// ATRIBUTOS de persona para dirigir por ellos (cada opción seleccionada es, de por
+// sí, un filtro). Bautismo es el atributo base que TODOS los miembros tienen
+// (members.is_baptized). Semántica: si ambos (bautizados/no bautizados) están
+// apagados o ambos encendidos → no filtra (todos); solo excluye cuando uno solo
+// está encendido. (Estado activo/inactivo se quitó: la clasificación por asistencia
+// —Inactivo = +3 meses sin asistir— aún no se calcula; Capacitación tampoco existe.)
+export const AUDIENCE_ATTRS: { cat: string; label: string; options: { key: string; label: string }[] }[] = [
+  { cat: 'bautismo', label: 'Bautismo', options: [{ key: 'baptized', label: 'Bautizados' }, { key: 'unbaptized', label: 'No bautizados' }] },
+]
+export function audienceFilterLabel(key: string): string {
+  for (const g of AUDIENCE_ATTRS) { const o = g.options.find((x) => x.key === key); if (o) return o.label }
+  return key
+}
 export function audienceIsEmpty(a: Audience): boolean {
-  return !a.roleIds.length && !a.teamIds.length && !a.ageKeys.length
+  return !a.roleIds.length && !a.teamIds.length && !a.ageKeys.length && !a.filters.length
 }
 
 export interface ActivityType {
@@ -160,19 +174,27 @@ export function readActivityTemplates(settings: unknown): ActivityTemplate[] {
 
 // Lee la audiencia de una fila. Acepta el formato NUEVO (all/roleIds/teamIds/
 // ageKeys) y el LEGADO (scope + ids/keys) de filas creadas antes.
+// Color estable (determinista) para un participante (equipo/rol/persona) a partir
+// de su id, para distinguirlos con un punto de color sin guardar colores en BD.
+export function assigneeColor(id: string): string {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return `hsl(${h % 360} 58% 58%)`
+}
+
 export function readAudience(json: unknown): Audience {
   const a = (json ?? {}) as Record<string, unknown>
   const arr = (v: unknown): string[] => (Array.isArray(v) ? (v.filter((x) => typeof x === 'string') as string[]) : [])
-  if ('all' in a || 'roleIds' in a || 'teamIds' in a || 'ageKeys' in a) {
-    const roleIds = arr(a.roleIds), teamIds = arr(a.teamIds), ageKeys = arr(a.ageKeys)
-    const all = a.all === true || (!roleIds.length && !teamIds.length && !ageKeys.length)
-    return { all, roleIds, teamIds, ageKeys }
+  if ('all' in a || 'roleIds' in a || 'teamIds' in a || 'ageKeys' in a || 'filters' in a) {
+    const roleIds = arr(a.roleIds), teamIds = arr(a.teamIds), ageKeys = arr(a.ageKeys), filters = arr(a.filters)
+    const all = a.all === true || (!roleIds.length && !teamIds.length && !ageKeys.length && !filters.length)
+    return { all, roleIds, teamIds, ageKeys, filters }
   }
   // legado: scope único + ids/keys
   const ids = arr(a.ids), keys = arr(a.keys)
-  if (a.scope === 'roles') return { all: false, roleIds: ids, teamIds: [], ageKeys: [] }
-  if (a.scope === 'teams') return { all: false, roleIds: [], teamIds: ids, ageKeys: [] }
-  if (a.scope === 'ages') return { all: false, roleIds: [], teamIds: [], ageKeys: keys }
+  if (a.scope === 'roles') return { all: false, roleIds: ids, teamIds: [], ageKeys: [], filters: [] }
+  if (a.scope === 'teams') return { all: false, roleIds: [], teamIds: ids, ageKeys: [], filters: [] }
+  if (a.scope === 'ages') return { all: false, roleIds: [], teamIds: [], ageKeys: keys, filters: [] }
   return { ...AUDIENCE_ALL }
 }
 

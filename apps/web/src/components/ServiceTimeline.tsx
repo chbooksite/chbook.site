@@ -1,5 +1,13 @@
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
 import { minToClock, type Segment } from '../lib/activity'
+
+// Suaviza un color del usuario hacia un tono pastel (mezcla con blanco).
+function soft(hex: string, mix = 0.6): string {
+  const h = (hex || '#94a3b8').replace('#', '')
+  const n = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const m = (c: number) => Math.round(c * (1 - mix) + 255 * mix)
+  return `rgb(${m(parseInt(n.slice(0, 2), 16) || 0)}, ${m(parseInt(n.slice(2, 4), 16) || 0)}, ${m(parseInt(n.slice(4, 6), 16) || 0)})`
+}
 
 // Resultado de ubicar un punto (x,y) sobre la línea de tiempo: nivel, tiempo
 // en minutos (0 = inicio del servicio) y el segmento que esté debajo, si hay.
@@ -27,6 +35,8 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   dropActive?: boolean
   dropTarget?: { kind: 'activity' | 'team'; level: number | null; segmentKey: string | null; timeMin: number | null; durationMin?: number | null } | null
   assigneeText?: (s: Segment) => string
+  assigneeColors?: (s: Segment) => string[]
+  toolbarLeft?: ReactNode
   keyOf: (s: Segment, i: number) => string
 }>(function ServiceTimeline({
   segments,
@@ -43,16 +53,16 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   dropActive,
   dropTarget,
   assigneeText,
+  assigneeColors,
+  toolbarLeft,
   keyOf,
 }, ref) {
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const barsRef = useRef<HTMLDivElement>(null)
-  const ovRef = useRef<HTMLDivElement>(null)
-  const drag = useRef<{ mode: 'resize' | 'resizeR' | 'resizeL' | 'body'; key: string; level: number; grab?: number } | null>(null)
+  const drag = useRef<{ mode: 'resize' | 'resizeR' | 'resizeL' | 'body'; key: string; level: number; grab?: number; gx?: number; gw?: number; gspan?: number } | null>(null)
   const pending = useRef<{ key: string; level: number; pinned: boolean; x: number; y: number; rect: { left: number; top: number; width: number; height: number }; moved: boolean; pointerId: number } | null>(null)
-  const navDrag = useRef(false)
   const overTrash = useRef(false)
   const segEls = useRef(new Map<string, HTMLElement>())
   const levelBarEls = useRef(new Map<number, HTMLElement>())
@@ -60,8 +70,8 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   const prevLefts = useRef(new Map<string, number>())
   const prevOrder = useRef<string[]>([])
   const prevPreview = useRef<number | null>(null)
-  const [zoom, setZoom] = useState(1)
-  const [win, setWin] = useState({ left: 0, width: 100 })
+  const [equalize, setEqualize] = useState(false) // ver todas las actividades del mismo tamaño
+  const [resizeTip, setResizeTip] = useState<{ x: number; y: number; text: string } | null>(null) // hora al arrastrar bordes
   const [dragActive, setDragActive] = useState(false)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null)
@@ -95,14 +105,11 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
     if (previewL1Idx === l1.length) previewGapStart = a
   }
 
-  const parallel = [...levelSegs(2), ...levelSegs(3)]
-  // El servicio arranca en 0 y, si hay hora de fin, el eje llega justo hasta ella
-  // (no se amplía más allá). Sin hora de fin, el eje crece con el contenido.
+  // El eje se basa SIEMPRE en la línea principal (nivel 1): su duración total define
+  // el rango de tiempo. Los niveles 2 y 3 se normalizan a ESE mismo rango (misma
+  // escala), así quedan alineados bajo la línea principal y la línea llena el recuadro.
   const t0 = 0
-  const t1 =
-    totalMin != null
-      ? totalMin
-      : Math.max(sum1 + (previewL1Idx != null ? previewDur : 0), ...parallel.map((s) => Math.max(0, s.startOffset ?? 0) + (s.durationMin ?? 0)), 1)
+  const t1 = Math.max(sum1 + (previewL1Idx != null ? previewDur : 0), 1)
   const span = Math.max(t1 - t0, 1)
   const xPct = (t: number) => ((t - t0) / span) * 100
   const boundaryLabel = (offset: number) => (startMin != null ? minToClock(startMin + offset) : `${offset}′`)
@@ -129,17 +136,11 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
     },
   }))
 
-  const syncWin = () => {
-    const el = scrollRef.current
-    if (!el || el.scrollWidth === 0) return
-    setWin({ left: (el.scrollLeft / el.scrollWidth) * 100, width: (el.clientWidth / el.scrollWidth) * 100 })
-  }
-  useEffect(syncWin, [zoom, segments])
   useLayoutEffect(() => {
     if (barsRef.current && rootRef.current && onBarBottom) {
       onBarBottom(barsRef.current.getBoundingClientRect().bottom - rootRef.current.getBoundingClientRect().top)
     }
-  }, [zoom, segments, onBarBottom])
+  }, [segments, onBarBottom])
 
   // FLIP: cuando cambia el ORDEN del nivel 1, las actividades se deslizan.
   useLayoutEffect(() => {
@@ -169,19 +170,27 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
     prevOrder.current = order
   })
 
+  // Geometría del eje (rect + span) para traducir píxeles a minutos. Al arrastrar se
+  // CONGELA en drag.current para no entrar en bucle cuando el propio arrastre cambia
+  // el span (p. ej. estirar la última actividad del nivel 1 cambia sum1).
+  const freezeGeom = () => { const r = trackRef.current!.getBoundingClientRect(); return { gx: r.left, gw: r.width, gspan: span } }
   const cursorTime = (clientX: number) => {
-    const rect = trackRef.current!.getBoundingClientRect()
-    return t0 + ((clientX - rect.left) / rect.width) * span
+    const d = drag.current
+    const r = trackRef.current!.getBoundingClientRect()
+    const left = d?.gx ?? r.left
+    const width = d?.gw ?? r.width
+    const sp = d?.gspan ?? span
+    return t0 + ((clientX - left) / width) * sp
   }
 
   const onLeftDown = (key: string, level: number) => (e: RPointerEvent) => {
     e.stopPropagation()
-    drag.current = { mode: 'resizeL', key, level }
+    drag.current = { mode: 'resizeL', key, level, ...freezeGeom() }
     rootRef.current?.setPointerCapture(e.pointerId)
   }
   const onRightDown = (key: string, level: number) => (e: RPointerEvent) => {
     e.stopPropagation()
-    drag.current = { mode: level === 1 ? 'resize' : 'resizeR', key, level }
+    drag.current = { mode: level === 1 ? 'resize' : 'resizeR', key, level, ...freezeGeom() }
     rootRef.current?.setPointerCapture(e.pointerId)
   }
   const onBodyDown = (key: string, level: number, pinned: boolean) => (e: RPointerEvent) => {
@@ -200,7 +209,9 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
       if (!p.pinned) {
         const seg = segments.find((s, i) => keyOf(s, i) === p.key)
         const startAtDown = p.level === 1 ? l1Starts.get(p.key) ?? 0 : seg?.startOffset ?? 0
-        drag.current = { mode: 'body', key: p.key, level: p.level, grab: cursorTime(p.x) - startAtDown }
+        const g = freezeGeom()
+        const grab = t0 + ((p.x - g.gx) / g.gw) * g.gspan - startAtDown
+        drag.current = { mode: 'body', key: p.key, level: p.level, grab, ...g }
         rootRef.current?.setPointerCapture(p.pointerId)
         setDragActive(true)
         setDraggingKey(p.key)
@@ -215,15 +226,17 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
     if (d.mode === 'resizeL') {
       const start = seg.startOffset ?? 0
       const end = start + (seg.durationMin ?? 0)
-      const ns = Math.max(0, Math.min(end - 1, Math.round(ct))) // no antes del inicio del servicio
+      const ns = Math.max(0, Math.min(end - 1, Math.round(ct))) // no antes del inicio (0)
       onPatchSeg(d.key, { startOffset: ns, durationMin: end - ns })
+      setResizeTip({ x: e.clientX, y: e.clientY, text: boundaryLabel(ns) })
       return
     }
     if (d.mode === 'resizeR') {
       const start = seg.startOffset ?? 0
       let dur = Math.max(1, Math.round(ct - start))
-      if (totalMin != null) dur = Math.min(dur, Math.max(1, totalMin - start)) // no después del fin
+      dur = Math.min(dur, Math.max(1, sum1 - start)) // no pasar del fin de la línea principal
       onPatchSeg(d.key, { durationMin: dur })
+      setResizeTip({ x: e.clientX, y: e.clientY, text: boundaryLabel(start + dur) })
       return
     }
     if (d.mode === 'resize') {
@@ -236,10 +249,12 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
         const pair = (segs[idx].durationMin ?? 0) + (next.durationMin ?? 0)
         const newI = Math.max(1, Math.min(pair - 1, Math.round(ct - before)))
         onResize(d.key, newI, keyOf(next, idx + 1), pair - newI)
+        setResizeTip({ x: e.clientX, y: e.clientY, text: boundaryLabel(before + newI) })
       } else {
         let dur = Math.max(1, Math.round(ct - before))
         if (totalMin != null) dur = Math.min(dur, Math.max(1, totalMin - before)) // no pasar del fin
         onResize(d.key, dur, null, 0)
+        setResizeTip({ x: e.clientX, y: e.clientY, text: boundaryLabel(before + dur) })
       }
       return
     }
@@ -267,8 +282,8 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
       }
       onReorder(1, d.key, ins)
     } else {
-      let ns = Math.max(0, Math.round(ct - (d.grab ?? 0))) // no antes del inicio
-      if (totalMin != null) ns = Math.min(ns, Math.max(0, totalMin - (seg.durationMin ?? 0))) // no después del fin
+      let ns = Math.max(0, Math.round(ct - (d.grab ?? 0))) // no antes del inicio (0)
+      ns = Math.min(ns, Math.max(0, sum1 - (seg.durationMin ?? 0))) // no después del fin de la línea principal
       onPatchSeg(d.key, { level: targetLevel, startOffset: ns })
     }
   }
@@ -286,61 +301,65 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
     setGhost(null)
     setTrashing(false)
     setOverLevel(null)
-  }
-
-  const scrollToFrac = (frac: number, behavior: ScrollBehavior = 'auto') => {
-    const el = scrollRef.current
-    if (!el) return
-    const w = win.width / 100
-    el.scrollTo({ left: Math.max(0, Math.min(1, frac - w / 2)) * el.scrollWidth, behavior })
-  }
-  const onNavDown = (e: RPointerEvent) => {
-    navDrag.current = true
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-    const r = ovRef.current!.getBoundingClientRect()
-    scrollToFrac((e.clientX - r.left) / r.width, 'smooth')
-  }
-  const onNavMove = (e: RPointerEvent) => {
-    if (!navDrag.current || !ovRef.current) return
-    const r = ovRef.current.getBoundingClientRect()
-    scrollToFrac((e.clientX - r.left) / r.width)
-  }
-  const onNavUp = () => {
-    navDrag.current = false
+    setResizeTip(null)
   }
 
   if (levelSegs(1).length === 0 && activeLevels.length === 1) {
     return <p className="rounded-lg border border-dashed border-graysage/30 py-4 text-center text-xs text-graysage/60">Agrega actividades para ver la línea de tiempo.</p>
   }
 
+  // Tiempo (min, 0 = inicio del servicio) → posición %. En modo normal es lineal.
+  // En reparto equitativo, se mapea a la posición EQUITATIVA de la línea principal:
+  // el instante t cae en la actividad de nivel 1 que lo contiene y se desfasa
+  // proporcionalmente dentro de ella, para no perder el orden de los simultáneos.
+  const timeToXpct = (t: number): number => {
+    if (!equalize) return ((t - t0) / span) * 100
+    const n = Math.max(1, l1.length)
+    for (let i = 0; i < l1.length; i++) {
+      const s0 = l1Starts.get(keyOf(l1[i], i)) ?? 0
+      const d = l1[i].durationMin ?? 0
+      if (t <= s0) return (i / n) * 100
+      if (t < s0 + d) return ((i + (d > 0 ? (t - s0) / d : 0)) / n) * 100
+    }
+    return 100
+  }
+
   const renderBar = (L: number, mini: boolean) => {
     const segs = levelSegs(L)
-    const h = mini ? (L === 1 ? 'h-3' : 'h-2') : L === 1 ? 'h-16' : 'h-8'
+    const h = mini ? (L === 1 ? 'h-3' : 'h-2') : L === 1 ? 'h-11' : 'h-8'
     return (
-      <div className={`relative ${h} w-full overflow-hidden rounded-lg border border-graysage/20 bg-cream/50 ${L > 1 && !mini ? 'mt-3' : ''}`}>
+      <div className={`relative ${h} w-full overflow-hidden rounded-lg ${mini ? 'border border-graysage/20 bg-cream/50' : ''} ${L > 1 && !mini ? 'mt-2' : ''}`}>
         {segs.map((s, i) => {
           const k = keyOf(s, i)
-          const left = xPct(segStart(s, k))
-          const w = ((s.durationMin ?? 0) / span) * 100
+          const n1 = Math.max(1, segs.length)
+          const eq = equalize && L === 1 // nivel 1: tamaño igual repartido en el espacio
+          const segS = segStart(s, k)
+          const segE = segS + (s.durationMin ?? 0)
+          // nivel 1 en equitativo: ancho fijo; niveles 2/3: normalizados al rango equitativo del nivel 1
+          const left = eq ? (i / n1) * 100 : timeToXpct(segS)
+          const w = eq ? (1 / n1) * 100 : Math.max(0, timeToXpct(segE) - timeToXpct(segS))
           return (
             <div
               key={k}
               ref={mini ? undefined : (el) => { const m = segEls.current; if (el) m.set(k, el); else m.delete(k) }}
               data-seg={mini ? undefined : ''}
               onPointerDown={mini ? undefined : onBodyDown(k, L, !!s.pinned)}
-              style={{ left: `${left}%`, width: `${w}%`, backgroundColor: colorOf(s) }}
-              className={`absolute top-0 flex h-full flex-col justify-center overflow-hidden ${mini ? '' : 'cursor-grab px-1.5 transition hover:brightness-110 active:cursor-grabbing'} ${!mini && openKeys?.includes(k) ? 'ring-2 ring-inset ring-white' : ''} ${draggingKey === k ? 'opacity-50 ring-2 ring-inset ring-charcoal/40' : ''} ${!mini && dropTarget?.kind === 'team' && dropTarget.segmentKey === k ? 'z-10 ring-4 ring-inset ring-white brightness-110' : ''}`}
+              style={{ left: `${left}%`, width: mini ? `${w}%` : `calc(${w}% - 2px)`, backgroundColor: mini ? colorOf(s) : soft(colorOf(s), 0.65) }}
+              className={`absolute top-0 flex h-full flex-col items-center justify-center overflow-hidden text-center ${mini ? '' : 'cursor-grab rounded-md px-1 shadow-sm transition hover:brightness-95 active:cursor-grabbing'} ${!mini && openKeys?.includes(k) ? 'ring-2 ring-inset ring-sage-dark' : ''} ${draggingKey === k ? 'opacity-50 ring-2 ring-inset ring-charcoal/40' : ''} ${!mini && dropTarget?.kind === 'team' && dropTarget.segmentKey === k ? 'z-10 ring-2 ring-inset ring-sage-dark brightness-95' : ''}`}
               title={mini ? undefined : `${s.name} · ${s.durationMin ?? 0} min`}
             >
               {!mini && (
                 <>
-                  {L > 1 && <span onPointerDown={onLeftDown(k, L)} className="absolute left-0 top-0 h-full w-2 cursor-ew-resize bg-black/15 hover:bg-black/30" title="Inicio" />}
-                  <span className="truncate text-[0.7rem] font-medium leading-tight text-white/95">{s.name}</span>
-                  {L === 1 && <span className="text-[0.6rem] leading-tight text-white/80">{s.durationMin ?? 0}′{s.pinned ? ' 📌' : ''}</span>}
-                  {assigneeText && assigneeText(s) && (
-                    <span className="mt-0.5 max-w-full truncate rounded bg-black/25 px-1 text-[0.55rem] leading-tight text-white/90" title={assigneeText(s)}>👥 {assigneeText(s)}</span>
+                  {L > 1 && <span onPointerDown={onLeftDown(k, L)} className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize bg-charcoal/10 hover:bg-charcoal/25" title="Inicio" />}
+                  <span className="w-full truncate text-[0.7rem] font-medium leading-tight text-charcoal">{s.name}</span>
+                  <span className="text-[0.56rem] leading-tight text-graysage">{s.durationMin ?? 0}′{s.pinned ? ' 📌' : ''}</span>
+                  {/* participantes: puntos de color pegados al borde derecho */}
+                  {assigneeColors && assigneeColors(s).length > 0 && (
+                    <span className="pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 flex-col gap-0.5" title={assigneeText ? assigneeText(s) : undefined}>
+                      {assigneeColors(s).map((c, di) => <span key={di} className="h-1.5 w-1.5 rounded-full ring-1 ring-white/70" style={{ backgroundColor: c }} />)}
+                    </span>
                   )}
-                  <span onPointerDown={onRightDown(k, L)} className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-black/15 hover:bg-black/30" title={L === 1 ? 'Duración' : 'Fin'} />
+                  {!eq && !(L === 1 && i === segs.length - 1) && <span onPointerDown={onRightDown(k, L)} className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize bg-charcoal/10 hover:bg-charcoal/25" title={L === 1 ? 'Duración' : 'Fin'} />}
                 </>
               )}
             </div>
@@ -356,18 +375,17 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
     )
   }
 
-  const zoomed = zoom > 1.01
-
   return (
     <div ref={rootRef} onPointerMove={onMove} onPointerUp={onUp} className="select-none">
-      <div className="mb-1.5 flex items-center gap-2">
-        <span className="text-[0.65rem] text-graysage">Zoom</span>
-        <input type="range" min={1} max={6} step={0.5} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="h-1 flex-1 cursor-pointer accent-sage" />
-        <span className="w-8 text-right font-mono text-[0.65rem] text-graysage">{zoom}×</span>
+      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+        {toolbarLeft}
+        <button type="button" onClick={() => setEqualize((v) => !v)} aria-pressed={equalize} className={`ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[0.7rem] transition ${equalize ? 'border-sage bg-sage-light text-sage-dark' : 'border-graysage/30 text-graysage hover:bg-cream'}`} title="Ajustar: repartir las actividades del mismo tamaño">
+          <span className={`h-2 w-2 rounded-full ${equalize ? 'bg-sage-dark' : 'bg-graysage/40'}`} />Ajustar
+        </button>
       </div>
 
-      <div ref={scrollRef} onScroll={syncWin} className="overflow-x-auto">
-        <div ref={trackRef} style={{ width: `${zoom * 100}%` }} className="touch-none transition-[width] duration-300 ease-out">
+      <div ref={scrollRef}>
+        <div ref={trackRef} className="w-full touch-none">
           <div ref={barsRef}>
             {activeLevels.map((L) => (
               <div
@@ -392,31 +410,32 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
             <div className="relative mt-1 h-4">
               {levelSegs(1).map((s, i) => {
                 const k = keyOf(s, i)
-                return <span key={k} style={{ left: `${xPct(l1Starts.get(k) ?? 0)}%` }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] text-graysage">{boundaryLabel(l1Starts.get(k) ?? 0)}</span>
+                const n = Math.max(1, levelSegs(1).length)
+                const leftP = equalize ? (i / n) * 100 : xPct(l1Starts.get(k) ?? 0)
+                return <span key={k} style={{ left: `${leftP}%` }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] text-graysage">{boundaryLabel(l1Starts.get(k) ?? 0)}</span>
               })}
-              <span style={{ left: `${xPct(sum1)}%` }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] text-graysage">{boundaryLabel(sum1)}</span>
+              <span style={{ left: `${equalize ? 100 : xPct(sum1)}%` }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] text-graysage">{boundaryLabel(sum1)}</span>
             </div>
           </div>
         </div>
       </div>
-
-      {zoomed && (
-        <div ref={ovRef} onPointerDown={onNavDown} onPointerMove={onNavMove} onPointerUp={onNavUp} className="relative mt-1.5 cursor-pointer touch-none">
-          {renderBar(1, true)}
-          <div style={{ left: `${win.left}%`, width: `${win.width}%` }} className="pointer-events-none absolute top-0 h-3 rounded border-2 border-charcoal/50 bg-charcoal/10 transition-[left,width] duration-150 ease-out" />
-        </div>
-      )}
 
       <p className="mt-1 text-[0.65rem] text-graysage/70">
         Nivel 1: {sum1} min{totalMin != null ? ` · servicio ${totalMin} min` : ''}
         {totalMin != null && totalMin - sum1 < 0 ? ` · ⚠ excede ${sum1 - totalMin} min` : ''}
       </p>
 
+      {resizeTip && (
+        <div style={{ left: resizeTip.x, top: resizeTip.y - 26 }} className="pointer-events-none fixed z-[70] -translate-x-1/2 rounded bg-charcoal px-1.5 py-0.5 font-mono text-[0.62rem] font-medium text-cream shadow-lg">
+          {resizeTip.text}
+        </div>
+      )}
+
       {ghost && draggingKey && (() => {
         const s = segments.find((x, i) => keyOf(x, i) === draggingKey)
         if (!s) return null
         return (
-          <div style={{ left: ghost.x, top: ghost.y, backgroundColor: colorOf(s) }} className="pointer-events-none fixed z-[70] max-w-[40vw] -translate-x-1/2 -translate-y-1/2 truncate rounded-lg px-2.5 py-1 text-xs font-medium text-white opacity-50 shadow-lg">
+          <div style={{ left: ghost.x, top: ghost.y, backgroundColor: soft(colorOf(s), 0.6) }} className="pointer-events-none fixed z-[70] max-w-[40vw] -translate-x-1/2 -translate-y-1/2 truncate rounded-md px-2.5 py-1 text-xs font-medium text-charcoal opacity-70 shadow-lg">
             {s.name}
           </div>
         )
