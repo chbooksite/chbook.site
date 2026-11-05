@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
 import { AUDIENCE_ALL, occursOn, type Audience, type Schedule } from '../lib/activity'
 import AudiencePicker from './AudiencePicker'
 
@@ -128,6 +128,26 @@ export default function AgendaView({
   const [clip, setClip] = useState<string | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; kind: 'activity' | 'empty'; id?: string; date?: Date } | null>(null)
   const [dropMenu, setDropMenu] = useState<{ x: number; y: number; id: string; date: Date; startMin?: number; endMin?: number } | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimer = useRef<number | null>(null)
+  const showToast = (m: string) => { setToast(m); if (toastTimer.current) clearTimeout(toastTimer.current); toastTimer.current = window.setTimeout(() => setToast(null), 1600) }
+  const pendingScroll = useRef<Date | null>(null) // día al que ir tras cambiar de vista
+
+  // Escape cierra menús y editor; scroll/resize cierran los menús flotantes.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setCtxMenu(null); setDropMenu(null); setEditInline(null) } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  useEffect(() => {
+    if (!ctxMenu && !dropMenu) return
+    const close = () => { setCtxMenu(null); setDropMenu(null) }
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close) }
+  }, [ctxMenu, dropMenu])
+  // reubica un menú para que no se salga de la pantalla
+  const clampMenu = (x: number, y: number, w: number, h: number) => ({ left: Math.max(8, Math.min(x, window.innerWidth - w - 8)), top: Math.max(8, Math.min(y, window.innerHeight - h - 8)) })
   const [selDay, setSelDay] = useState<number | null>(null) // día seleccionado (modo compacto)
   const [editInline, setEditInline] = useState<{ id: string | null } | null>(null) // editor embebido en el panel
   const [leftSlotEl, setLeftSlotEl] = useState<HTMLElement | null>(null) // contenedor en la franja para las entradas del editor
@@ -194,7 +214,7 @@ export default function AgendaView({
     ro.observe(el); setViewW(el.clientWidth)
     return () => ro.disconnect()
   }, [view])
-  useLayoutEffect(() => { scrollToDate(today); syncLeft() }, [view, viewW]) // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { const d = pendingScroll.current; pendingScroll.current = null; scrollToDate(d ?? today); syncLeft() }, [view, viewW]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const syncLeft = () => { const el = scrollRef.current; if (!el) return; setLeftDate(addDays(rangeStart, Math.floor(el.scrollLeft / stride))) }
 
@@ -328,8 +348,8 @@ export default function AgendaView({
     if (!d) return
     if (!d.moved) {
       setBlockDrag(null)
-      // Seleccionar en ampliado → pasar a reducido y abrir el editor bajo el día.
-      if (renderDayEditor) { setView('compact'); setSelDay(d.day0); setEditInline({ id: d.id }) }
+      // Seleccionar en ampliado → pasar a reducido, ir al día y abrir el editor bajo él.
+      if (renderDayEditor) { pendingScroll.current = days[d.day0]; setView('compact'); setSelDay(d.day0); setEditInline({ id: d.id }) }
       else onEdit?.(d.id)
       return
     }
@@ -564,7 +584,13 @@ export default function AgendaView({
         </div>
 
         {view === 'month' ? (
-          <MonthAgenda cursor={monthCursor} today={today} recurring={recurring} onPick={(d) => { setView('expanded'); requestAnimationFrame(() => { scrollToDate(d); syncLeft() }) }} onNewAt={onNewAt} />
+          <MonthAgenda
+            cursor={monthCursor}
+            today={today}
+            recurring={recurring}
+            onPick={(d) => { const i = idxOf(d); pendingScroll.current = d; setView('compact'); if (i >= 0 && i < days.length) setSelDay(i) }}
+            onNewAt={(d) => { const i = idxOf(d); if (renderDayEditor && i >= 0 && i < days.length) { pendingScroll.current = d; setView('compact'); setSelDay(i); setEditInline({ id: null }) } else onNewAt?.(d) }}
+          />
         ) : view === 'compact' ? (
           /* ---- TIRA COMPACTA ---- */
           <div className="relative">
@@ -614,7 +640,7 @@ export default function AgendaView({
                           </span>
                         </div>
                       ))}
-                      <button data-add type="button" onClick={() => onNewAt?.(d)} className="mx-auto flex h-6 w-6 items-center justify-center rounded-full text-graysage hover:bg-cream" title="Nueva actividad">+</button>
+                      <button data-add type="button" onClick={() => { if (renderDayEditor) { setSelDay(i); setEditInline({ id: null }) } else onNewAt?.(d) }} className="mx-auto flex h-6 w-6 items-center justify-center rounded-full text-graysage hover:bg-cream" title="Nueva actividad">+</button>
                     </div>
                   </div>
                 )
@@ -792,25 +818,36 @@ export default function AgendaView({
       {dropMenu && (
         <>
           <div className="fixed inset-0 z-[90]" onClick={() => setDropMenu(null)} onContextMenu={(e) => { e.preventDefault(); setDropMenu(null) }} />
-          <div style={{ left: dropMenu.x, top: dropMenu.y }} className="fixed z-[91] min-w-28 -translate-x-1/2 overflow-hidden rounded-lg border border-black/10 bg-white py-1 text-sm shadow-xl">
-            <button type="button" onClick={() => { const m = dropMenu; setDropMenu(null); if (m.startMin != null) onBlockChange?.(m.id, { date: m.date, startMin: m.startMin, endMin: m.endMin ?? m.startMin, toOneOff: true }); else onMoveToDay?.(m.id, m.date) }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream">Mover aquí</button>
-            <button type="button" onClick={() => { const m = dropMenu; setDropMenu(null); onDuplicate?.(m.id, m.date) }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream">Copiar aquí</button>
+          <div style={clampMenu(dropMenu.x, dropMenu.y, 150, 84)} className="fixed z-[91] min-w-28 overflow-hidden rounded-lg border border-black/10 bg-white py-1 text-sm shadow-xl">
+            <button type="button" onClick={() => { const m = dropMenu; setDropMenu(null); if (m.startMin != null) onBlockChange?.(m.id, { date: m.date, startMin: m.startMin, endMin: m.endMin ?? m.startMin, toOneOff: true }); else onMoveToDay?.(m.id, m.date); showToast('Movido') }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream">Mover aquí</button>
+            <button type="button" onClick={() => { const m = dropMenu; setDropMenu(null); onDuplicate?.(m.id, m.date); showToast('Copiado aquí') }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream">Copiar aquí</button>
           </div>
         </>
       )}
 
+      {/* aviso breve (copiado/pegado/movido) */}
+      {toast && (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[95] -translate-x-1/2 rounded-full bg-charcoal px-4 py-2 text-sm font-medium text-cream shadow-lg">{toast}</div>
+      )}
+      {/* indicador de portapapeles: hay una actividad copiada lista para pegar */}
+      {clip && (
+        <div className="fixed bottom-6 right-6 z-[85] flex items-center gap-2 rounded-full border border-sage/40 bg-white px-3 py-1.5 text-xs text-sage-dark shadow-md">
+          <span>📋 Copiada · clic derecho → Pegar</span>
+          <button type="button" onClick={() => setClip(null)} className="text-graysage hover:text-clay" title="Descartar">✕</button>
+        </div>
+      )}
       {/* menú contextual (clic derecho): Copiar/Eliminar en actividad; Pegar en vacío */}
       {ctxMenu && (
         <>
           <div className="fixed inset-0 z-[90]" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null) }} />
-          <div style={{ left: ctxMenu.x, top: ctxMenu.y }} className="fixed z-[91] min-w-28 overflow-hidden rounded-lg border border-black/10 bg-white py-1 text-sm shadow-xl">
+          <div style={clampMenu(ctxMenu.x, ctxMenu.y, 170, ctxMenu.kind === 'activity' ? 84 : 44)} className="fixed z-[91] min-w-28 overflow-hidden rounded-lg border border-black/10 bg-white py-1 text-sm shadow-xl">
             {ctxMenu.kind === 'activity' ? (
               <>
-                <button type="button" onClick={() => { if (ctxMenu.id) setClip(ctxMenu.id); setCtxMenu(null) }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream">Copiar</button>
+                <button type="button" onClick={() => { if (ctxMenu.id) { setClip(ctxMenu.id); showToast('Copiado') } setCtxMenu(null) }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream">Copiar</button>
                 <button type="button" onClick={() => { if (ctxMenu.id) onDeleteBlock?.(ctxMenu.id); setCtxMenu(null) }} className="block w-full px-3 py-1.5 text-left text-clay hover:bg-cream">Eliminar</button>
               </>
             ) : (
-              <button type="button" disabled={!clip} onClick={() => { if (clip && ctxMenu.date) onDuplicate?.(clip, ctxMenu.date); setCtxMenu(null) }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream disabled:opacity-40">Pegar{clip ? '' : ' (nada copiado)'}</button>
+              <button type="button" disabled={!clip} onClick={() => { if (clip && ctxMenu.date) { onDuplicate?.(clip, ctxMenu.date); showToast('Pegado') } setCtxMenu(null) }} className="block w-full px-3 py-1.5 text-left text-charcoal hover:bg-cream disabled:opacity-40">Pegar{clip ? '' : ' (nada copiado)'}</button>
             )}
           </div>
         </>
