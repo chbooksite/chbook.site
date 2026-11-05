@@ -304,9 +304,10 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
     setResizeTip(null)
   }
 
-  if (levelSegs(1).length === 0 && activeLevels.length === 1) {
-    return <p className="rounded-lg border border-dashed border-graysage/30 py-4 text-center text-xs text-graysage/60">Agrega actividades para ver la línea de tiempo.</p>
-  }
+  // NB: cuando la línea está VACÍA ya NO se retorna temprano un <p>: hay que
+  // renderizar la barra real (trackRef + levelBarEls) para que el hit-test
+  // funcione y se puedan SOLTAR actividades del catálogo sobre la barra vacía.
+  // El estado vacío se muestra como una pista dentro de la propia barra.
 
   // Tiempo (min, 0 = inicio del servicio) → posición %. En modo normal es lineal.
   // En reparto equitativo, se mapea a la posición EQUITATIVA de la línea principal:
@@ -370,6 +371,11 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
             style={L === 1 ? { left: `${xPct(previewGapStart)}%`, width: `${(previewDur / span) * 100}%` } : { left: `${xPct(dropTarget.timeMin ?? 0)}%`, width: `${(previewDur / span) * 100}%` }}
             className="pointer-events-none absolute top-0 h-full rounded border-2 border-dashed border-sage-dark/70 bg-sage/20 transition-[left] duration-300 ease-out"
           />
+        )}
+        {!mini && L === 1 && segs.length === 0 && (
+          <span className={`pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg border border-dashed px-2 text-center text-[0.66rem] transition ${dropTarget?.kind === 'activity' ? 'border-sage bg-sage/10 text-sage-dark' : 'border-graysage/35 text-graysage/70'}`}>
+            Arrastra actividades del catálogo aquí para armar el servicio
+          </span>
         )}
       </div>
     )

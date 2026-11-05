@@ -180,6 +180,7 @@ export default function ActivityForm({
   embedded = false,
   leftSlot = null,
   defaultName,
+  liveTime = null,
 }: {
   churchId: string
   editing: Schedule | null
@@ -188,6 +189,9 @@ export default function ActivityForm({
   embedded?: boolean
   leftSlot?: HTMLElement | null
   defaultName?: (typeId: string | null) => string
+  // Horario en vivo mientras se arrastra el borde de la tarjeta en la agenda:
+  // actualiza inicio/fin del editor y reescala los segmentos proporcionalmente.
+  liveTime?: { startMin: number; endMin: number } | null
   editingTeams: ScheduleTeam[]
   editingSegments: Segment[]
   types: ActivityType[]
@@ -333,6 +337,26 @@ export default function ActivityForm({
   const toggleArr = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
   const total = serviceMinutes(startTime || null, endTime || null)
   const startMin = clockToMin(startTime || null)
+
+  // Arrastre en vivo del borde de la tarjeta (agenda) → refleja el horario en el
+  // editor Y reescala los segmentos del servicio proporcionalmente. La base
+  // (duración + segmentos al empezar a arrastrar) se captura una vez para que el
+  // reescalado no se acumule tick a tick.
+  const resizeBase = useRef<{ total: number; segs: Seg[] } | null>(null)
+  useEffect(() => {
+    if (!liveTime) { resizeBase.current = null; return }
+    if (!resizeBase.current) resizeBase.current = { total: serviceMinutes(startTime || null, endTime || null) ?? 0, segs: segments }
+    const pad = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+    setStartTime(pad(liveTime.startMin))
+    setEndTime(pad(liveTime.endMin))
+    const base = resizeBase.current
+    const newTotal = liveTime.endMin - liveTime.startMin
+    if (base.total > 0 && newTotal > 0 && base.segs.length) {
+      const f = newTotal / base.total
+      setSegments(base.segs.map((s) => ({ ...s, durationMin: s.durationMin != null ? Math.max(1, Math.round(s.durationMin * f)) : s.durationMin, startOffset: Math.round(s.startOffset * f) })))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveTime])
 
   // Capa 1
   const addTeam = (teamId: string) => {
@@ -778,7 +802,10 @@ export default function ActivityForm({
               if (!seg) return null
               const w = Math.min(360, window.innerWidth - 16)
               const baseLeft = c.rect ? Math.max(8, Math.min(c.rect.left, window.innerWidth - w - 8)) : window.innerWidth / 2 - w / 2
-              const baseTop = c.rect ? c.rect.top + c.rect.height + 8 : 120
+              // Si la etiqueta está en la mitad BAJA de la vista, la tarjeta crece
+              // hacia ARRIBA (se ancla por 'bottom', justo encima de la barra) para
+              // no salirse de pantalla; si no, crece hacia abajo (ancla por 'top').
+              const openUp = !!c.rect && c.rect.top > window.innerHeight / 2
               return (
                 <div
                   key={c.key}
@@ -788,7 +815,7 @@ export default function ActivityForm({
                   onPointerUp={onCardHandleUp}
                   onPointerCancel={onCardHandleUp}
                   onLostPointerCapture={onCardHandleUp}
-                  style={{ position: 'fixed', left: baseLeft, top: baseTop, width: w, transform: `translate(${c.dx}px, ${c.dy}px)`, zIndex: 50 }}
+                  style={{ position: 'fixed', left: baseLeft, width: w, transform: `translate(${c.dx}px, ${c.dy}px)`, zIndex: 50, ...(openUp ? { bottom: window.innerHeight - c.rect!.top + 8 } : { top: c.rect ? c.rect.top + c.rect.height + 8 : 120 }) }}
                   className="cursor-grab touch-none active:cursor-grabbing"
                 >
                   <PopCard open={c.open} onExited={() => removeExitedCard(c.key)} originRect={c.rect} color={segColor(seg)}>

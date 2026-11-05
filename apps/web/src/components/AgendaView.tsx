@@ -91,11 +91,11 @@ export default function AgendaView({
   onDuplicate?: (id: string, date: Date) => void
   onDeleteBlock?: (id: string) => void
   onMoveToDay?: (id: string, date: Date) => void
-  renderDayEditor?: (opts: { date: Date; activityId: string | null; onClose: () => void; leftSlot: HTMLElement | null }) => ReactNode
+  renderDayEditor?: (opts: { date: Date; activityId: string | null; onClose: () => void; leftSlot: HTMLElement | null; liveTime: { startMin: number; endMin: number } | null }) => ReactNode
 }) {
   const today = startOfDay(new Date())
   const rangeStart = addDays(today, -RANGE_BACK)
-  const [view, setView] = useState<View>('expanded')
+  const [view, setView] = useState<View>('compact')
   const [monthCursor, setMonthCursor] = useState<Date>(new Date(today.getFullYear(), today.getMonth(), 1))
   const [leftDate, setLeftDate] = useState<Date>(today) // día más a la izquierda visible (para resaltar en el mini-mes)
   const [ghost, setGhost] = useState<{ x: number; y: number; over: boolean } | null>(null)
@@ -128,6 +128,7 @@ export default function AgendaView({
   const [clip, setClip] = useState<string | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; kind: 'activity' | 'empty'; id?: string; date?: Date } | null>(null)
   const [dropMenu, setDropMenu] = useState<{ x: number; y: number; id: string; date: Date; startMin?: number; endMin?: number } | null>(null)
+  const [resizeTip, setResizeTip] = useState<{ x: number; y: number; text: string } | null>(null) // hora al arrastrar bordes
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<number | null>(null)
   const showToast = (m: string) => { setToast(m); if (toastTimer.current) clearTimeout(toastTimer.current); toastTimer.current = window.setTimeout(() => setToast(null), 1600) }
@@ -153,7 +154,7 @@ export default function AgendaView({
   const [leftSlotEl, setLeftSlotEl] = useState<HTMLElement | null>(null) // contenedor en la franja para las entradas del editor
   // mover / redimensionar actividades dentro del recuadro del día (eje horizontal)
   const [dayBlock, setDayBlock] = useState<{ id: string; startMin: number; endMin: number } | null>(null)
-  const dayRef = useRef<{ id: string; mode: 'move' | 'l' | 'r'; sx: number; sy: number; s0: number; e0: number; gx: number; gw: number; moved: boolean } | null>(null)
+  const dayRef = useRef<{ id: string; mode: 'move' | 'l' | 'r'; sx: number; sy: number; lx: number; ly: number; s0: number; e0: number; gx: number; gw: number; moved: boolean } | null>(null)
 
   // Jornada visible (regla de horas) + zoom. startH/endH definen la ventana; incluye
   // madrugada (0) para vigilias. pph = px por hora (zoom arrastrando la regla).
@@ -267,7 +268,15 @@ export default function AgendaView({
     }
     momentum.current = requestAnimationFrame(step)
   }
-  const onUp = () => { if (pan.current) release() }
+  const onUp = (e: RPointerEvent) => {
+    const wasPan = !!pan.current, moved = panMoved.current
+    if (pan.current) release()
+    // tap (sin arrastrar) en zona vacía de un día → seleccionar ese día
+    if (wasPan && !moved && view === 'compact') {
+      const t = targetAt(e.clientX, e.clientY)
+      if (t) { setEditInline(null); setSelDay(t.dayIdx) }
+    }
+  }
 
   // ----- arrastrar la tarjeta "Nueva actividad" a la rejilla -----
   const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
@@ -334,17 +343,21 @@ export default function AgendaView({
     if (d.mode === 'move') {
       const s = Math.max(hMin * 60, Math.min(hMax * 60 - dur, snap5(g.min - d.grabMin)))
       setBlockDrag({ id: d.id, dayIdx: g.dayIdx, startMin: s, endMin: s + dur, color: d.color })
+      setResizeTip({ x: e.clientX, y: e.clientY, text: `${fmtMin(s)} – ${fmtMin(s + dur)}` })
     } else if (d.mode === 'bottom') {
       const eMin = Math.max(d.s0 + SNAP, Math.min(hMax * 60, snap5(g.min)))
       setBlockDrag({ id: d.id, dayIdx: d.day0, startMin: d.s0, endMin: eMin, color: d.color })
+      setResizeTip({ x: e.clientX, y: e.clientY, text: fmtMin(eMin) })
     } else {
       const s = Math.min(d.e0 - SNAP, Math.max(hMin * 60, snap5(g.min)))
       setBlockDrag({ id: d.id, dayIdx: d.day0, startMin: s, endMin: d.e0, color: d.color })
+      setResizeTip({ x: e.clientX, y: e.clientY, text: fmtMin(s) })
     }
   }
   const onBlockUp = () => {
     const d = blockRef.current; blockRef.current = null
     const drag = blockDrag
+    setResizeTip(null)
     if (!d) return
     if (!d.moved) {
       setBlockDrag(null)
@@ -403,7 +416,7 @@ export default function AgendaView({
     e.stopPropagation()
     const track = (e.currentTarget as HTMLElement).closest('[data-daytrack]') as HTMLElement | null
     const r = track?.getBoundingClientRect()
-    dayRef.current = { id: b.id, mode, sx: e.clientX, sy: e.clientY, s0: b.startMin, e0: b.endMin, gx: r?.left ?? 0, gw: r?.width ?? 1, moved: false }
+    dayRef.current = { id: b.id, mode, sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY, s0: b.startMin, e0: b.endMin, gx: r?.left ?? 0, gw: r?.width ?? 1, moved: false }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   }
   const dayMove = (e: RPointerEvent) => {
@@ -419,10 +432,12 @@ export default function AgendaView({
     else if (d.mode === 'l') { s = Math.max(lo, Math.min(d.e0 - 5, snap(d.s0 + deltaMin))); en = d.e0 }
     else { en = Math.max(d.s0 + 5, Math.min(hi, snap(d.e0 + deltaMin))); s = d.s0 }
     setDayBlock({ id: d.id, startMin: s, endMin: en })
+    setResizeTip({ x: e.clientX, y: e.clientY, text: d.mode === 'l' ? fmtMin(s) : d.mode === 'r' ? fmtMin(en) : `${fmtMin(s)} – ${fmtMin(en)}` })
   }
   const dayUp = () => {
     const d = dayRef.current; dayRef.current = null
     const prev = dayBlock; setDayBlock(null)
+    setResizeTip(null)
     if (!d) return
     if (!d.moved) { if (renderDayEditor) setEditInline({ id: d.id }); else onEdit?.(d.id); return }
     const sd = selDay != null ? days[selDay] : null
@@ -448,14 +463,19 @@ export default function AgendaView({
   return (
     <div className="flex flex-col gap-4 lg:flex-row">
       {/* ===== Columna izquierda ===== */}
+      {/* Columna izquierda: mini-mes + tarjeta crear. Permanece visible también al
+          editar (el mini-mes ayuda a navegar); las entradas del editor van en un
+          recuadro propio junto a la línea de tiempo (abajo). */}
       <aside className="w-full shrink-0 space-y-4 lg:w-72">
-        {/* Al editar una actividad, la franja aloja las ENTRADAS del editor (el
-            recuadro solo muestra la línea de tiempo). Si no, el mini-mes + crear. */}
+        <h1 className="font-serif text-2xl text-charcoal">Actividades</h1>
+        <MiniMonth cursor={monthCursor} setCursor={setMonthCursor} today={today} inRange={inRange} onPick={(d) => { setMonthCursor(new Date(d.getFullYear(), d.getMonth(), 1)); if (view === 'month') setView('expanded'); requestAnimationFrame(() => { scrollToDate(d); syncLeft() }) }} />
         {editInline ? (
+          // Al EDITAR: la franja izquierda conserva el mini-mes y, debajo, aloja
+          // las ENTRADAS del editor (portalizadas). Se ocultan la tarjeta crear y
+          // la configuración de tipo/equipos.
           <div ref={setLeftSlotEl} className="flex flex-col gap-3" />
         ) : (
         <>
-        <MiniMonth cursor={monthCursor} setCursor={setMonthCursor} today={today} inRange={inRange} onPick={(d) => { setMonthCursor(new Date(d.getFullYear(), d.getMonth(), 1)); if (view === 'month') setView('expanded'); requestAnimationFrame(() => { scrollToDate(d); syncLeft() }) }} />
         {/* Tarjeta ÚNICA "Nueva actividad": toma el tipo y los equipos elegidos
             abajo. Al arrastrarla a la rejilla, la actividad nace con esos campos
             ya llenos (sin formulario). */}
@@ -596,7 +616,7 @@ export default function AgendaView({
           <div className="relative">
           <div ref={scrollRef} onScroll={syncLeft} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} className="cursor-grab touch-none select-none overflow-x-auto [scrollbar-width:none] active:cursor-grabbing [&::-webkit-scrollbar]:hidden">
             <style>{AGENDA_SHRINK_CSS}</style>
-            <div className="flex gap-2 pb-1" style={{ width: days.length * (colW + 8) }}>
+            <div className="flex items-center gap-2 pb-1" style={{ width: days.length * (colW + 8) }}>
               {days.map((d, i) => {
                 const { timed, allDay } = dayData(d)
                 const acts = [
@@ -607,8 +627,17 @@ export default function AgendaView({
                 const isSel = selDay === i
                 const isTarget = (dropTarget?.dayIdx === i) || (cDrag?.target?.kind === 'day' && cDrag.target.dayIdx === i)
                 const ringC = isSel || isTarget ? 'ring-2 ring-sage-dark' : isToday ? 'ring-2 ring-sage' : 'border border-black/5'
+                // Al EDITAR, toda la tira se reduce para dejar ver el editor sin
+                // scroll; el día activo queda "ampliado pero escalado" a esa tira
+                // reducida. Fuera de edición, el día seleccionado se expande bien.
+                const editing = editInline != null
+                const baseH = editing ? 108 : COMPACT_H
+                const cardH = isSel ? baseH + (editing ? 38 : 110) : baseH
+                // los vecinos se CORREN a los lados (desplazamiento visual, no toca
+                // la aritmética de scroll/imán que asume ancho de día uniforme).
+                const part = selDay == null || isSel ? 0 : i < selDay ? -16 : 16
                 return (
-                  <div key={i} style={{ width: colW, height: COMPACT_H, animation: 'agendaShrink .7s cubic-bezier(.22,1,.36,1)' }} className={`relative flex origin-top flex-col overflow-hidden rounded-xl bg-white shadow-sm transition-transform duration-200 ${ringC} ${isSel ? 'z-10 scale-[1.05]' : 'hover:z-10 hover:scale-[1.05]'}`}>
+                  <div key={i} data-day={i} style={{ width: colW, height: cardH, transform: `translateX(${part}px)`, animation: 'agendaShrink .7s cubic-bezier(.22,1,.36,1)' }} className={`relative flex shrink-0 origin-center flex-col overflow-hidden rounded-xl bg-white transition-[height,transform,box-shadow] duration-300 ease-out ${ringC} ${isSel ? 'z-20 shadow-xl' : 'z-0 shadow-sm hover:shadow-md'}`}>
                     <button type="button" data-sel onClick={() => { setEditInline(null); setSelDay(isSel ? null : i) }} className="shrink-0 bg-charcoal px-2.5 py-2 text-left" title="Seleccionar día">
                       <span className={`text-[0.7rem] font-medium uppercase ${dowText(d)}`}>{WD_SHORT[(d.getDay() + 6) % 7]}</span>{' '}
                       <span className={`text-base font-bold ${dowText(d)}`}>{d.getDate()}</span>
@@ -659,9 +688,10 @@ export default function AgendaView({
             const hoursArr: number[] = []
             for (let h = Math.ceil(aStart / 60); h <= Math.floor(aEnd / 60); h++) hoursArr.push(h)
             const lanes = Math.max(1, ...timed.map((b) => b.lanes))
-            const laneH = 30
+            // al editar, el recuadro de horas también se reduce un poco.
+            const laneH = editInline != null ? 18 : 30
             return (
-              <div className="mt-3 w-full rounded-2xl border border-sage/30 bg-white p-4 shadow-sm">
+              <div className={`mt-3 w-full rounded-2xl border border-sage/30 bg-white shadow-sm transition-all duration-300 ${editInline ? 'p-3' : 'p-4'}`}>
                 <div className="mb-3 flex items-center gap-2">
                   <span className="font-serif text-base font-semibold capitalize text-charcoal">{cap(sd.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }))}</span>
                   <button type="button" onClick={() => (renderDayEditor ? setEditInline({ id: null }) : onNewAt?.(sd))} className="rounded-lg border border-sage/40 px-2 py-0.5 text-xs text-sage-dark hover:bg-sage/10">+ Actividad</button>
@@ -669,7 +699,7 @@ export default function AgendaView({
                 </div>
 
                 {/* pista horizontal del día: arrastra para mover / bordes para redimensionar; clic abre el editor */}
-                <div data-daytrack className="relative w-full overflow-hidden" style={{ height: lanes * laneH + 6 }} onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'empty', date: sd }) }}>
+                <div data-daytrack className="relative w-full overflow-hidden transition-[height] duration-300 ease-out" style={{ height: lanes * laneH + 6 }} onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'empty', date: sd }) }}>
                   {hoursArr.map((h) => <div key={h} style={{ left: xPct(h * 60) }} className="pointer-events-none absolute inset-y-0 border-l border-black/5" />)}
                   {timed.length === 0 && <div className="absolute inset-0 flex items-center text-sm text-graysage/60">Sin actividades. Usa «+ Actividad».</div>}
                   {timed.map((b) => {
@@ -706,17 +736,24 @@ export default function AgendaView({
               </div>
             )
           })()}
-          {/* editor de actividad: se despliega DEBAJO del recuadro del día, que sigue visible */}
-          {selDay != null && days[selDay] && editInline && renderDayEditor && (
-            <div className="mt-3 w-full rounded-2xl border border-sage/30 bg-white p-4 shadow-sm">
+          {/* editor de actividad: un solo recuadro con la LÍNEA DE TIEMPO del
+              servicio (las entradas viven en la franja izquierda, junto al
+              mini-mes). Lavado verde suave para señalar la zona de trabajo. */}
+          {selDay != null && days[selDay] && editInline && renderDayEditor && (() => {
+            const live = editInline.id && dayBlock?.id === editInline.id ? { startMin: dayBlock.startMin, endMin: dayBlock.endMin }
+              : editInline.id && blockDrag?.id === editInline.id ? { startMin: blockDrag.startMin, endMin: blockDrag.endMin }
+              : null
+            return (
+            <div className="mt-3 w-full rounded-2xl bg-gradient-to-b from-sage-light/45 to-white p-4 shadow-md ring-1 ring-sage-dark/15">
               <div className="mb-3 flex items-center gap-2">
-                <button type="button" onClick={() => setEditInline(null)} className="rounded-lg px-1.5 py-0.5 text-sm text-graysage hover:bg-cream" title="Volver">←</button>
+                <button type="button" onClick={() => setEditInline(null)} className="rounded-lg px-1.5 py-0.5 text-sm text-graysage hover:bg-white/70" title="Volver">←</button>
                 <span className="font-serif text-base font-semibold text-charcoal">{editInline.id ? 'Editar actividad' : 'Nueva actividad'}</span>
-                <button type="button" onClick={() => setEditInline(null)} className="ml-auto rounded-lg px-2 py-0.5 text-sm text-graysage hover:bg-cream" title="Cerrar">✕</button>
+                <button type="button" onClick={() => setEditInline(null)} className="ml-auto rounded-lg px-2 py-0.5 text-sm text-graysage hover:bg-white/70" title="Cerrar">✕</button>
               </div>
-              {renderDayEditor({ date: days[selDay], activityId: editInline.id, onClose: () => setEditInline(null), leftSlot: leftSlotEl })}
+              {renderDayEditor({ date: days[selDay], activityId: editInline.id, onClose: () => setEditInline(null), leftSlot: leftSlotEl, liveTime: live })}
             </div>
-          )}
+            )
+          })()}
           </div>
         ) : (
           /* ---- TIRA AMPLIADA (tarjetas separadas que crecen hacia abajo) ---- */
@@ -825,6 +862,10 @@ export default function AgendaView({
         </>
       )}
 
+      {/* hora exacta al arrastrar bordes de una tarjeta (ampliado / recuadro del día) */}
+      {resizeTip && (
+        <div style={{ left: resizeTip.x, top: resizeTip.y - 26 }} className="pointer-events-none fixed z-[95] -translate-x-1/2 rounded bg-charcoal px-1.5 py-0.5 font-mono text-[0.62rem] font-medium text-cream shadow-lg">{resizeTip.text}</div>
+      )}
       {/* aviso breve (copiado/pegado/movido) */}
       {toast && (
         <div className="pointer-events-none fixed bottom-6 left-1/2 z-[95] -translate-x-1/2 rounded-full bg-charcoal px-4 py-2 text-sm font-medium text-cream shadow-lg">{toast}</div>
