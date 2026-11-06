@@ -109,7 +109,11 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
   // el rango de tiempo. Los niveles 2 y 3 se normalizan a ESE mismo rango (misma
   // escala), así quedan alineados bajo la línea principal y la línea llena el recuadro.
   const t0 = 0
-  const t1 = Math.max(sum1 + (previewL1Idx != null ? previewDur : 0), 1)
+  // El eje representa la VENTANA DEL SERVICIO (duración real inicio→fin) para que la
+  // regla muestre las horas de reloj correctas. Si los segmentos suman menos, queda
+  // tiempo libre al final; si suman más, el excedente se ve más allá del fin.
+  const windowMin = totalMin != null && totalMin > 0 ? totalMin : sum1
+  const t1 = Math.max(windowMin, sum1 + (previewL1Idx != null ? previewDur : 0), 1)
   const span = Math.max(t1 - t0, 1)
   const xPct = (t: number) => ((t - t0) / span) * 100
   const boundaryLabel = (offset: number) => (startMin != null ? minToClock(startMin + offset) : `${offset}′`)
@@ -414,13 +418,19 @@ const ServiceTimeline = forwardRef<TimelineHandle, {
               ))}
             {/* horas en cada divisoria (según la línea principal) */}
             <div className="relative mt-1 h-4">
+              {/* sin segmentos: muestra al menos la hora de inicio a la izquierda */}
+              {l1.length === 0 && <span style={{ left: '0%' }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] text-graysage">{boundaryLabel(0)}</span>}
               {levelSegs(1).map((s, i) => {
                 const k = keyOf(s, i)
                 const n = Math.max(1, levelSegs(1).length)
                 const leftP = equalize ? (i / n) * 100 : xPct(l1Starts.get(k) ?? 0)
                 return <span key={k} style={{ left: `${leftP}%` }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] text-graysage">{boundaryLabel(l1Starts.get(k) ?? 0)}</span>
               })}
-              <span style={{ left: `${equalize ? 100 : xPct(sum1)}%` }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] text-graysage">{boundaryLabel(sum1)}</span>
+              {/* FIN DEL SERVICIO: etiqueta en la hora real de fin (ventana), no en
+                  la suma de segmentos; así la regla coincide con el horario real. */}
+              <span style={{ left: `${equalize ? 100 : xPct(windowMin)}%` }} className="absolute -translate-x-1/2 font-mono text-[0.6rem] font-medium text-sage-dark">{boundaryLabel(windowMin)}</span>
+              {/* si los segmentos no llenan la ventana, marca dónde acaba el servicio */}
+              {!equalize && sum1 < windowMin && <span style={{ left: `${xPct(windowMin)}%` }} className="pointer-events-none absolute -top-1 h-5 w-px -translate-x-1/2 bg-sage-dark/40" />}
             </div>
           </div>
         </div>
