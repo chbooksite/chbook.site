@@ -1,14 +1,18 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ForwardedRef, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
 import ServiceTimeline, { type TimelineHandle } from './ServiceTimeline'
 import AudiencePicker from './AudiencePicker'
+import MapPicker, { type Coords } from './MapPicker'
 import type { AgeRangeDef } from '../lib/member'
 import {
   AUDIENCE_ALL,
   WEEKDAYS,
   assigneeColor,
   clockToMin,
+  parsePlace,
+  placeMapUrl,
+  serializePlace,
   serviceMinutes,
   type ActivityType,
   type Assignee,
@@ -27,6 +31,15 @@ interface Opt {
   key?: string
 }
 type Seg = Segment & { _k: string }
+
+// Marcador de ubicación típico de mapas (en gris por defecto; hereda el color).
+function Pin({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className={`shrink-0 ${className}`}>
+      <path d="M12 2a7 7 0 0 0-7 7c0 4.8 6.2 12.3 6.46 12.62a.7.7 0 0 0 1.08 0C12.8 21.3 19 13.8 19 9a7 7 0 0 0-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5Z" />
+    </svg>
+  )
+}
 
 // Equipos activos por defecto al crear una actividad nueva.
 const DEFAULT_TEAM_KEYS = ['multimedia', 'diaconos', 'musica', 'finanzas']
@@ -157,7 +170,12 @@ function Section({ embedded, title, defaultOpen = false, orderCls = '', children
   )
 }
 
-export default function ActivityForm({
+export interface ActivityFormHandle {
+  isDirty: () => boolean
+  saveNow: () => Promise<boolean>
+}
+
+const ActivityForm = forwardRef(function ActivityForm({
   churchId,
   editing,
   defaultWeekday,
@@ -181,6 +199,8 @@ export default function ActivityForm({
   leftSlot = null,
   defaultName,
   liveTime = null,
+  churchName = '',
+  churchCoords = null,
 }: {
   churchId: string
   editing: Schedule | null
@@ -192,6 +212,10 @@ export default function ActivityForm({
   // Horario en vivo mientras se arrastra el borde de la tarjeta en la agenda:
   // actualiza inicio/fin del editor y reescala los segmentos proporcionalmente.
   liveTime?: { startMin: number; endMin: number } | null
+  // Nombre de la iglesia (lugar por defecto).
+  churchName?: string
+  // Coordenadas de la iglesia: centran el mapa (país/estado) al elegir otro lugar.
+  churchCoords?: Coords | null
   editingTeams: ScheduleTeam[]
   editingSegments: Segment[]
   types: ActivityType[]
@@ -207,7 +231,7 @@ export default function ActivityForm({
   onClose: () => void
   onSaved: () => void
   onTagCreated: (t: Tag) => void
-}) {
+}, ref: ForwardedRef<ActivityFormHandle>) {
   const typeById = new Map(types.map((t) => [t.id, t]))
   const teamName = (id: string) => teams.find((t) => t.id === id)?.name ?? '—'
   const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? 'Rol'
@@ -230,6 +254,13 @@ export default function ActivityForm({
   const [nth, setNth] = useState(editing?.nth && editing.nth !== 0 ? editing.nth : 1)
   const [startTime, setStartTime] = useState(editing?.startTime ? editing.startTime.slice(0, 5) : defaultStart ?? '')
   const [endTime, setEndTime] = useState(editing?.endTime ? editing.endTime.slice(0, 5) : '')
+  // Lugar: por defecto la iglesia. "Otro lugar" guarda nombre + (opcional) coords
+  // elegidas en el mapa; esos datos sirven para el botón de mapas en las apps.
+  const initPlace = parsePlace(editing?.location ?? null)
+  const [customLoc, setCustomLoc] = useState<boolean>(!!initPlace)
+  const [locName, setLocName] = useState(initPlace?.name ?? '')
+  const [locCoords, setLocCoords] = useState<Coords | null>(initPlace?.lat != null && initPlace?.lng != null ? { lat: initPlace.lat, lng: initPlace.lng } : null)
+  const [mapOpen, setMapOpen] = useState(false)
   const [audience, setAudience] = useState<Audience>(editing?.audience ?? { ...AUDIENCE_ALL })
 
   const teamsOf = (ids: string[]): ScheduleTeam[] => ids.filter((id) => teams.some((t) => t.id === id)).map((id) => ({ teamId: id, delegate: false, memberIds: [] }))
@@ -501,7 +532,10 @@ export default function ActivityForm({
   }
   const deleteTemplate = (nm: string) => persistTemplates(tpls.filter((t) => t.name !== nm))
 
-  const save = async () => {
+  // persist(): escribe en BD y devuelve si tuvo éxito, SIN cerrar ni avisar al
+  // padre. save() (botón Guardar) hace persist() y luego onSaved(). saveNow del
+  // handle usa persist() para "guardar y cambiar de tarjeta" sin cerrar el panel.
+  const persist = async (): Promise<boolean> => {
     // Sin nombre: se usa el del tipo + numeración (o "Actividad N").
     const finalName = name.trim() || (defaultName ? defaultName(typeId || null) : 'Actividad')
     setSaving(true)
@@ -515,6 +549,7 @@ export default function ActivityForm({
       nth: freq === 'monthly' ? nth : null,
       start_time: startTime || null,
       end_time: endTime || null,
+      location: customLoc ? serializePlace({ name: locName, lat: locCoords?.lat, lng: locCoords?.lng }) : null,
       audience: audience as never,
       assignees: actAssignees as never,
       enabled: editing?.enabled ?? true,
@@ -527,7 +562,7 @@ export default function ActivityForm({
     } else {
       const { data, error: err } = await supabase.from('activity_schedules').insert(payload).select('id').single()
       if (err || !data) return fail(err?.message ?? 'No se pudo crear')
-      scheduleId = data.id
+      scheduleId = data.id as string
     }
 
     await supabase.from('schedule_teams').delete().eq('schedule_id', scheduleId)
@@ -559,22 +594,32 @@ export default function ActivityForm({
     }
 
     setSaving(false)
-    onSaved()
+    initialSnap.current = snapshot() // guardado → ya no está "sucio"
+    return true
 
-    function fail(msg: string) {
+    function fail(msg: string): boolean {
       setSaving(false)
       setError(msg)
+      return false
     }
   }
+  const save = async () => { if (await persist()) onSaved() }
 
   // Confirmar al cerrar si hay cambios sin guardar (evita perder trabajo por toques accidentales).
-  const snapshot = () => JSON.stringify({ name, typeId, weekday, freq, nth, startTime, endTime, audience, actAssignees, partTeams, segments })
+  const snapshot = () => JSON.stringify({ name, typeId, weekday, freq, nth, startTime, endTime, customLoc, locName, locCoords, audience, actAssignees, partTeams, segments })
   const initialSnap = useRef<string | null>(null)
   if (initialSnap.current === null) initialSnap.current = snapshot()
   const handleClose = () => {
     if (initialSnap.current !== snapshot()) { setConfirmClose(true); return }
     onClose()
   }
+
+  // Handle para el padre: saber si hay cambios sin guardar y guardarlos al vuelo
+  // (usado al SALTAR entre tarjetas sin cerrar el panel).
+  useImperativeHandle(ref, () => ({
+    isDirty: () => initialSnap.current !== snapshot(),
+    saveNow: persist,
+  }))
 
   // Portal a la franja izquierda: en modo embebido con slot, las entradas (nombre,
   // tipo, horarios, ¿para quién?, encargados, plantillas) se renderizan en la franja
@@ -714,6 +759,47 @@ export default function ActivityForm({
               teams={teams.map((t) => ({ id: t.id, name: t.name }))}
               ages={ageRanges.filter((r) => r.enabled).map((r) => ({ key: r.key, name: r.name }))}
             />
+          </div>
+          </Section>)}
+
+          {/* Lugar: por defecto la IGLESIA (tarjeta). "Otro lugar" guarda nombre y,
+              con "Añadir ubicación", unas coordenadas elegidas en el mapa. */}
+          {toLeft(<Section embedded={embedded} title="Lugar" orderCls="order-7">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-graysage">Lugar</label>
+            {!customLoc ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 rounded-xl border border-graysage/25 bg-cream/40 px-3 py-2">
+                  <Pin className="h-5 w-5 text-graysage" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-charcoal">{churchName || 'Tu iglesia'}</p>
+                    <p className="text-xs text-graysage">Lugar por defecto</p>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setCustomLoc(true)} className="inline-flex items-center gap-1 text-xs font-medium text-sage-dark hover:underline"><Pin className="h-3 w-3" /> Otro lugar</button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <input
+                  value={locName}
+                  onChange={(e) => setLocName(e.target.value)}
+                  placeholder="Nombre del lugar"
+                  className="w-full rounded-xl border border-graysage/25 bg-white px-3 py-2 text-sm text-charcoal outline-none focus:border-sage"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => setMapOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-sage/40 px-2.5 py-1.5 text-xs text-sage-dark transition hover:bg-sage/10">
+                    <Pin className="h-3.5 w-3.5" />{locCoords ? 'Cambiar ubicación' : 'Añadir ubicación'}
+                  </button>
+                  {locCoords && <a href={placeMapUrl({ name: locName, lat: locCoords.lat, lng: locCoords.lng })} target="_blank" rel="noreferrer" className="text-xs text-sage-dark hover:underline">Ver en mapas</a>}
+                  <button type="button" onClick={() => { setCustomLoc(false); setLocName(''); setLocCoords(null) }} className="ml-auto text-xs text-graysage hover:text-clay">Volver a la iglesia</button>
+                </div>
+                {locCoords ? (
+                  <p className="font-mono text-[0.7rem] text-sage-dark">Ubicación fijada: {locCoords.lat.toFixed(5)}, {locCoords.lng.toFixed(5)} ✓</p>
+                ) : (
+                  <p className="text-xs text-graysage/70">Sin ubicación fija. Toca «Añadir ubicación» para marcarla en el mapa.</p>
+                )}
+              </div>
+            )}
           </div>
           </Section>)}
 
@@ -954,6 +1040,24 @@ export default function ActivityForm({
           </div>
         )}
 
+        {/* modal del mapa para fijar la ubicación del lugar */}
+        {mapOpen && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-charcoal/40 p-4" onClick={(e) => { if (e.target === e.currentTarget) setMapOpen(false) }}>
+            <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-2xl">
+              <div className="mb-2 flex items-center gap-2">
+                <Pin className="h-4 w-4 text-sage-dark" />
+                <span className="font-serif text-base font-semibold text-charcoal">Ubicación del lugar</span>
+                <button type="button" onClick={() => setMapOpen(false)} className="ml-auto rounded-lg px-2 py-0.5 text-graysage hover:bg-cream" title="Cerrar">✕</button>
+              </div>
+              <MapPicker value={locCoords} onChange={setLocCoords} fallbackCenter={churchCoords} defaultQuery={locName} />
+              <div className="mt-3 flex justify-end gap-2">
+                <button type="button" onClick={() => { setLocCoords(null); setMapOpen(false) }} className="rounded-lg px-3 py-1.5 text-sm text-graysage hover:bg-cream">Quitar ubicación</button>
+                <button type="button" onClick={() => setMapOpen(false)} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-white hover:brightness-95">Listo</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {confirmClose ? (
           <div className="mt-6 flex flex-wrap items-center gap-3 rounded-lg bg-clay/10 px-3 py-2.5">
             <span className="text-sm text-clay">Hay cambios sin guardar. Si sales, se perderán.</span>
@@ -973,4 +1077,6 @@ export default function ActivityForm({
       </div>
     </div>
   )
-}
+})
+
+export default ActivityForm

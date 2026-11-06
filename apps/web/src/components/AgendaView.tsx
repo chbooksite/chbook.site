@@ -1,6 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
-import { AUDIENCE_ALL, occursOn, type Audience, type Schedule } from '../lib/activity'
+import { AUDIENCE_ALL, occursOn, parsePlace, type Audience, type Schedule } from '../lib/activity'
 import AudiencePicker from './AudiencePicker'
+
+// Marcador de ubicación típico de mapas, en GRIS (no rojo). Hereda el color.
+function Pin({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className={`shrink-0 ${className}`}>
+      <path d="M12 2a7 7 0 0 0-7 7c0 4.8 6.2 12.3 6.46 12.62a.7.7 0 0 0 1.08 0C12.8 21.3 19 13.8 19 9a7 7 0 0 0-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5Z" />
+    </svg>
+  )
+}
 
 type RecSchedule = Schedule & { color: string; responsibles?: string | null; preacher?: string | null }
 type View = 'compact' | 'expanded' | 'month'
@@ -23,6 +32,7 @@ const MONTH_DOW = ['L', 'M', 'M', 'J', 'V', 'S', 'D']
 const PPH_DEFAULT = 46 // px por hora inicial (vista ampliada); ajustable con zoom
 const PPH_MIN = 24, PPH_MAX = 150
 const COMPACT_H = 215 // alto fijo de la tarjeta de día en modo compacto (con scroll)
+const DELETE_ZONE_H = 84 // franja inferior: soltar una tarjeta aquí la elimina
 const COL_W = 180 // ancho de columna de día (ampliada)
 const COL_W_C = 170 // ancho de tarjeta de día (compacta)
 const GUTTER = 38 // ancho del eje de horas (formato reducido)
@@ -70,12 +80,16 @@ export default function AgendaView({
   onEdit,
   onNewAt,
   onDropNew,
+  onCreateInDay,
+  isEditorDirty,
+  saveEditor,
   onBlockChange,
   onToggleRecurring,
   onDuplicate,
   onDeleteBlock,
   onMoveToDay,
   renderDayEditor,
+  churchName,
 }: {
   recurring: RecSchedule[]
   typeOptions?: TypeOpt[]
@@ -86,12 +100,19 @@ export default function AgendaView({
   onEdit?: (id: string) => void
   onNewAt?: (date: Date, startTime?: string) => void
   onDropNew?: (date: Date, startTime?: string, attrs?: NewActivityAttrs) => void
+  // Crear una actividad VACÍA (1 h) en ese día y devolver su id para abrir el editor.
+  onCreateInDay?: (date: Date) => Promise<string | null>
+  // Estado "sucio" del editor embebido y guardado al vuelo (para saltar de tarjeta).
+  isEditorDirty?: () => boolean
+  saveEditor?: () => Promise<boolean>
   onBlockChange?: (id: string, patch: { date: Date; startMin: number; endMin: number; toOneOff: boolean }) => void
   onToggleRecurring?: (id: string, date: Date, recurring: boolean) => void
   onDuplicate?: (id: string, date: Date) => void
   onDeleteBlock?: (id: string) => void
   onMoveToDay?: (id: string, date: Date) => void
   renderDayEditor?: (opts: { date: Date; activityId: string | null; onClose: () => void; leftSlot: HTMLElement | null; liveTime: { startMin: number; endMin: number } | null }) => ReactNode
+  // Nombre de la iglesia (lugar por defecto de toda actividad sin lugar propio).
+  churchName?: string
 }) {
   const today = startOfDay(new Date())
   const rangeStart = addDays(today, -RANGE_BACK)
@@ -123,6 +144,7 @@ export default function AgendaView({
   // arrastrar etiquetas en modo compacto (mover a otro día / eliminar abajo)
   type CTarget = { kind: 'day'; dayIdx: number } | null
   const [cDrag, setCDrag] = useState<{ id: string; color: string; name: string; x: number; y: number; target: CTarget } | null>(null)
+  const [dragOverDelete, setDragOverDelete] = useState(false) // arrastrando una tarjeta sobre la franja de eliminar
   const cRef = useRef<{ id: string; color: string; name: string; sx: number; sy: number; day0: number; moved: boolean } | null>(null)
   // portapapeles (copiar/pegar) y menús flotantes (soltar = mover/copiar; clic derecho)
   const [clip, setClip] = useState<string | null>(null)
@@ -151,6 +173,26 @@ export default function AgendaView({
   const clampMenu = (x: number, y: number, w: number, h: number) => ({ left: Math.max(8, Math.min(x, window.innerWidth - w - 8)), top: Math.max(8, Math.min(y, window.innerHeight - h - 8)) })
   const [selDay, setSelDay] = useState<number | null>(null) // día seleccionado (modo compacto)
   const [editInline, setEditInline] = useState<{ id: string | null } | null>(null) // editor embebido en el panel
+  // Al SALTAR entre tarjetas con cambios sin guardar, se pregunta antes de cambiar.
+  const [switchGuard, setSwitchGuard] = useState<{ dayIdx: number; id: string } | null>(null)
+  // Abre el editor de una actividad; si ya hay una abierta con cambios sin guardar
+  // y es OTRA, pide confirmación (guardar / descartar) antes de cambiar.
+  const openEditor = (dayIdx: number, id: string | null) => {
+    if (editInline && editInline.id && id && editInline.id !== id && isEditorDirty?.()) {
+      setSwitchGuard({ dayIdx, id })
+      return
+    }
+    setSelDay(dayIdx)
+    setEditInline({ id })
+  }
+  // El botón "+" crea una actividad VACÍA de 1 h en ese día (fecha ya cargada) y
+  // abre su editor. Si no hay creador disponible, cae al editor "nuevo" clásico.
+  const createAndEdit = async (dayIdx: number, d: Date) => {
+    if (!onCreateInDay) { if (renderDayEditor) openEditor(dayIdx, null); else onNewAt?.(d); return }
+    const id = await onCreateInDay(d)
+    if (id) openEditor(dayIdx, id)
+    else setSelDay(dayIdx)
+  }
   const [leftSlotEl, setLeftSlotEl] = useState<HTMLElement | null>(null) // contenedor en la franja para las entradas del editor
   // mover / redimensionar actividades dentro del recuadro del día (eje horizontal)
   const [dayBlock, setDayBlock] = useState<{ id: string; startMin: number; endMin: number } | null>(null)
@@ -165,13 +207,15 @@ export default function AgendaView({
   const zoomRef = useRef<{ y: number; pph: number } | null>(null)
 
   const scrollRef = useRef<HTMLDivElement>(null)
-  const pan = useRef<{ sl: number; x: number; lastX: number; lastT: number; v: number } | null>(null)
+  const pan = useRef<{ sl: number; x: number; y: number; lastX: number; lastT: number; v: number } | null>(null)
   const momentum = useRef<number | null>(null)
   const animScroll = useRef<number | null>(null)
   const panMoved = useRef(false)
   const [viewW, setViewW] = useState(0) // ancho visible de la tira (para encajar 7 días)
 
   const days = Array.from({ length: RANGE_DAYS }, (_, i) => addDays(rangeStart, i))
+  // Lugar por defecto (la iglesia): nombre abreviado para las tarjetas.
+  const churchAbbrev = churchName && churchName.trim() ? (churchName.length > 16 ? `${churchName.slice(0, 15)}…` : churchName) : 'Iglesia'
   // Ancho de columna para que SIEMPRE se vea una semana completa (7 días).
   const colW = view === 'compact'
     ? (viewW ? Math.max(90, Math.floor(viewW / 7) - 8) : COL_W_C)
@@ -180,7 +224,7 @@ export default function AgendaView({
   const stride = view === 'compact' ? colW + 8 : colW
 
   // Bloques/actividades por día.
-  interface Block { id: string; startMin: number; endMin: number; title: string; color: string; responsibles?: string | null; recurring: boolean; lane: number; lanes: number }
+  interface Block { id: string; startMin: number; endMin: number; title: string; color: string; responsibles?: string | null; preacher?: string | null; location?: string | null; recurring: boolean; lane: number; lanes: number }
   const dayData = (d: Date) => {
     const timed: Block[] = []
     const allDay: RecSchedule[] = []
@@ -189,7 +233,7 @@ export default function AgendaView({
       if (!r.startTime) { allDay.push(r); continue }
       const s = minutesOf(r.startTime)
       const e = r.endTime ? Math.max(minutesOf(r.endTime), s + 20) : s + 60
-      timed.push({ id: r.id, startMin: s, endMin: e, title: r.name, color: r.color, responsibles: r.responsibles, recurring: !r.onDate, lane: 0, lanes: 1 })
+      timed.push({ id: r.id, startMin: s, endMin: e, title: r.name, color: r.color, responsibles: r.responsibles, preacher: r.preacher, location: r.location, recurring: !r.onDate, lane: 0, lanes: 1 })
     }
     timed.sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin)
     const laneEnd: number[] = []
@@ -238,17 +282,17 @@ export default function AgendaView({
 
   const onDown = (e: RPointerEvent) => {
     const el = scrollRef.current; if (!el) return
-    if ((e.target as HTMLElement).closest('[data-block],[data-add],[data-ruler],[data-sel]')) return // no robar clics de bloques/+/regla/selección
+    if ((e.target as HTMLElement).closest('[data-block],[data-add],[data-ruler]')) return // no robar clics de bloques/+/regla (la cabecera del día SÍ participa: seleccionar/arrastrar)
     if (momentum.current) { cancelAnimationFrame(momentum.current); momentum.current = null }
     if (animScroll.current) { cancelAnimationFrame(animScroll.current); animScroll.current = null }
     panMoved.current = false
-    pan.current = { sl: el.scrollLeft, x: e.clientX, lastX: e.clientX, lastT: performance.now(), v: 0 }
+    pan.current = { sl: el.scrollLeft, x: e.clientX, y: e.clientY, lastX: e.clientX, lastT: performance.now(), v: 0 }
     el.setPointerCapture(e.pointerId)
   }
   const onMove = (e: RPointerEvent) => {
     const p = pan.current; if (!p) return
     if (e.buttons === 0) { release(); return }
-    if (Math.abs(e.clientX - p.x) > 4) panMoved.current = true
+    if (Math.abs(e.clientX - p.x) > 4 || Math.abs(e.clientY - p.y) > 6) panMoved.current = true // cualquier arrastre (horiz o vert) deja de ser "clic"
     const el = scrollRef.current; if (el) el.scrollLeft = p.sl - (e.clientX - p.x)
     const now = performance.now(), dt = now - p.lastT
     if (dt > 0) { p.v = p.v * 0.7 + (-(e.clientX - p.lastX) / dt) * 0.3; p.lastX = e.clientX; p.lastT = now }
@@ -271,10 +315,11 @@ export default function AgendaView({
   const onUp = (e: RPointerEvent) => {
     const wasPan = !!pan.current, moved = panMoved.current
     if (pan.current) release()
-    // tap (sin arrastrar) en zona vacía de un día → seleccionar ese día
+    // tap (sin arrastrar) en cualquier parte del recuadro (salvo + y tarjetas) →
+    // alterna seleccionar/deseleccionar ese día. Mantener presionado = paneo.
     if (wasPan && !moved && view === 'compact') {
       const t = targetAt(e.clientX, e.clientY)
-      if (t) { setEditInline(null); setSelDay(t.dayIdx) }
+      if (t) { setEditInline(null); setSelDay((prev) => (prev === t.dayIdx ? null : t.dayIdx)) }
     }
   }
 
@@ -338,6 +383,7 @@ export default function AgendaView({
     if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 4) return
     d.moved = true
     d.lx = e.clientX; d.ly = e.clientY
+    setDragOverDelete(d.mode === 'move' && e.clientY > window.innerHeight - DELETE_ZONE_H)
     const g = pointToGrid(e.clientX, e.clientY); if (!g) return
     const dur = d.e0 - d.s0
     if (d.mode === 'move') {
@@ -358,16 +404,19 @@ export default function AgendaView({
     const d = blockRef.current; blockRef.current = null
     const drag = blockDrag
     setResizeTip(null)
+    setDragOverDelete(false)
     if (!d) return
     if (!d.moved) {
       setBlockDrag(null)
       // Seleccionar en ampliado → pasar a reducido, ir al día y abrir el editor bajo él.
-      if (renderDayEditor) { pendingScroll.current = days[d.day0]; setView('compact'); setSelDay(d.day0); setEditInline({ id: d.id }) }
+      if (renderDayEditor) { pendingScroll.current = days[d.day0]; setView('compact'); openEditor(d.day0, d.id) }
       else onEdit?.(d.id)
       return
     }
     setBlockDrag(null)
     if (!drag) return
+    // Soltar sobre la franja inferior de eliminar → borrar (solo al mover el cuerpo).
+    if (d.mode === 'move' && d.ly > window.innerHeight - DELETE_ZONE_H) { onDeleteBlock?.(d.id); return }
     // Mover el cuerpo a OTRO día → menú Mover/Copiar; mismo día o redimensionar → aplica.
     if (d.mode === 'move' && drag.dayIdx !== d.day0) {
       setDropMenu({ x: d.lx, y: d.ly, id: d.id, date: addDays(rangeStart, drag.dayIdx), startMin: drag.startMin, endMin: drag.endMin })
@@ -399,13 +448,16 @@ export default function AgendaView({
     const d = cRef.current; if (!d) return
     if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6) return
     d.moved = true
+    setDragOverDelete(e.clientY > window.innerHeight - DELETE_ZONE_H)
     setCDrag({ id: d.id, color: d.color, name: d.name, x: e.clientX, y: e.clientY, target: cTargetAt(e.clientX, e.clientY) })
   }
   const cUp = () => {
     const d = cRef.current; cRef.current = null
-    const drag = cDrag; setCDrag(null)
+    const drag = cDrag; setCDrag(null); setDragOverDelete(false)
     if (!d) return
-    if (!d.moved) { if (renderDayEditor) { setSelDay(d.day0); setEditInline({ id: d.id }) } else onEdit?.(d.id); return }
+    if (!d.moved) { if (renderDayEditor) openEditor(d.day0, d.id); else onEdit?.(d.id); return }
+    // Soltar sobre la franja inferior de eliminar → borrar la actividad.
+    if (drag && drag.y > window.innerHeight - DELETE_ZONE_H) { onDeleteBlock?.(d.id); return }
     if (!drag || !drag.target) return
     if (drag.target.dayIdx !== d.day0) setDropMenu({ x: drag.x, y: drag.y, id: d.id, date: addDays(rangeStart, drag.target.dayIdx) })
   }
@@ -439,7 +491,7 @@ export default function AgendaView({
     const prev = dayBlock; setDayBlock(null)
     setResizeTip(null)
     if (!d) return
-    if (!d.moved) { if (renderDayEditor) setEditInline({ id: d.id }); else onEdit?.(d.id); return }
+    if (!d.moved) { if (renderDayEditor && selDay != null) openEditor(selDay, d.id); else onEdit?.(d.id); return }
     const sd = selDay != null ? days[selDay] : null
     if (prev && sd) onBlockChange?.(d.id, { date: sd, startMin: prev.startMin, endMin: prev.endMin, toOneOff: false })
   }
@@ -609,7 +661,7 @@ export default function AgendaView({
             today={today}
             recurring={recurring}
             onPick={(d) => { const i = idxOf(d); pendingScroll.current = d; setView('compact'); if (i >= 0 && i < days.length) setSelDay(i) }}
-            onNewAt={(d) => { const i = idxOf(d); if (renderDayEditor && i >= 0 && i < days.length) { pendingScroll.current = d; setView('compact'); setSelDay(i); setEditInline({ id: null }) } else onNewAt?.(d) }}
+            onNewAt={(d) => { const i = idxOf(d); if (renderDayEditor && i >= 0 && i < days.length) { pendingScroll.current = d; setView('compact'); createAndEdit(i, d) } else onNewAt?.(d) }}
           />
         ) : view === 'compact' ? (
           /* ---- TIRA COMPACTA ---- */
@@ -620,8 +672,8 @@ export default function AgendaView({
               {days.map((d, i) => {
                 const { timed, allDay } = dayData(d)
                 const acts = [
-                  ...allDay.map((r) => ({ id: r.id, color: r.color, name: r.name, t: null as string | null, recurring: !r.onDate })),
-                  ...timed.map((b) => ({ id: b.id, color: b.color, name: b.title, t: fmtMin(b.startMin), recurring: b.recurring })),
+                  ...allDay.map((r) => ({ id: r.id, color: r.color, name: r.name, t: null as string | null, recurring: !r.onDate, responsibles: r.responsibles, preacher: r.preacher, location: r.location })),
+                  ...timed.map((b) => ({ id: b.id, color: b.color, name: b.title, t: fmtMin(b.startMin), recurring: b.recurring, responsibles: b.responsibles, preacher: b.preacher, location: b.location })),
                 ]
                 const isToday = sameDay(d, today)
                 const isSel = selDay === i
@@ -636,40 +688,68 @@ export default function AgendaView({
                 // los vecinos se CORREN a los lados (desplazamiento visual, no toca
                 // la aritmética de scroll/imán que asume ancho de día uniforme).
                 const part = selDay == null || isSel ? 0 : i < selDay ? -16 : 16
+                // AMPLIACIÓN de tarjetas: al seleccionar el día las tarjetas crecen
+                // hasta ocupar ~72% del alto SI antes ocupaban menos, dejando la
+                // parte baja limpia (seleccionar/arrastrar). Según el alto que gana
+                // cada tarjeta se muestran más datos (lugar, encargados, predicador).
+                const n = acts.length
+                // Las tarjetas CRECEN para llenar ~90% del alto disponible SOLO si
+                // no lo llenan ya (deja ~10% abajo para seleccionar/arrastrar). Ese
+                // 10% NO se reserva: si las tarjetas llenan el espacio o hay scroll,
+                // se usa todo (sin tope rígido: solo manda el tamaño de las tarjetas).
+                const availH = cardH - 40 - 24 // alto para tarjetas (sin cabecera ni fila del +)
+                const targetH = Math.round(availH * 0.9)
+                const grow = isSel && !editing && n > 0 && n * 56 < targetH
+                const chipH = grow ? Math.min(Math.floor((targetH - (n - 1) * 6) / n), 170) : 0
                 return (
                   <div key={i} data-day={i} style={{ width: colW, height: cardH, transform: `translateX(${part}px)`, animation: 'agendaShrink .7s cubic-bezier(.22,1,.36,1)' }} className={`relative flex shrink-0 origin-center flex-col overflow-hidden rounded-xl bg-white transition-[height,transform,box-shadow] duration-300 ease-out ${ringC} ${isSel ? 'z-20 shadow-xl' : 'z-0 shadow-sm hover:shadow-md'}`}>
-                    <button type="button" data-sel onClick={() => { setEditInline(null); setSelDay(isSel ? null : i) }} className="shrink-0 bg-charcoal px-2.5 py-2 text-left" title="Seleccionar día">
+                    <div className="shrink-0 bg-charcoal px-2.5 py-2 text-left" title="Clic: seleccionar/deseleccionar · mantén y arrastra para mover la tira">
                       <span className={`text-[0.7rem] font-medium uppercase ${dowText(d)}`}>{WD_SHORT[(d.getDay() + 6) % 7]}</span>{' '}
                       <span className={`text-base font-bold ${dowText(d)}`}>{d.getDate()}</span>
-                    </button>
-                    <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain p-1.5 [scrollbar-width:thin]" onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'empty', date: d }) }}>
-                      {acts.length === 0 && <p className="py-1 text-center text-[0.62rem] text-graysage/40">—</p>}
-                      {acts.map((a) => (
-                        <div
-                          key={a.id}
-                          data-block
-                          onPointerDown={cDown(a, i)}
-                          onPointerMove={cMove}
-                          onPointerUp={cUp}
-                          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'activity', id: a.id }) }}
-                          style={{ backgroundColor: soft(a.color, 0.65), borderLeft: `4px solid ${soft(a.color, 0.2)}` }}
-                          className={`group relative flex min-h-[48px] w-full touch-none flex-col gap-0.5 rounded-md px-2 py-1.5 text-left active:cursor-grabbing ${cDrag?.id === a.id ? 'opacity-40' : 'cursor-grab'}`}
-                        >
-                          <span className="truncate text-[0.72rem] font-medium leading-tight text-charcoal">{a.name}</span>
-                          {/* hora a la izquierda y recurrencia (verde/gris) en la esquina inferior derecha */}
-                          <span className="mt-auto flex items-center gap-1">
-                            {a.t && <span className="text-[0.6rem] leading-none text-graysage">{a.t}</span>}
-                            <button
-                              data-block
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onClick={(e) => { e.stopPropagation(); onToggleRecurring?.(a.id, d, a.recurring) }}
-                              className={`ml-auto flex h-4 w-4 items-center justify-center rounded text-[0.62rem] leading-none transition ${a.recurring ? 'bg-sage-dark text-white' : 'bg-white text-graysage shadow-sm'}`}
-                              title={a.recurring ? 'Recurrente — tocar para hacerla puntual' : 'Puntual — tocar para repetir cada semana'}
-                            >↻</button>
-                          </span>
-                        </div>
-                      ))}
-                      <button data-add type="button" onClick={() => { if (renderDayEditor) { setSelDay(i); setEditInline({ id: null }) } else onNewAt?.(d) }} className="mx-auto flex h-6 w-6 items-center justify-center rounded-full text-graysage hover:bg-cream" title="Nueva actividad">+</button>
+                    </div>
+                    <div className="flex min-h-0 flex-1 flex-col" onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'empty', date: d }) }}>
+                      <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain p-1.5 [scrollbar-width:thin]">
+                        {acts.length === 0 && <p className="py-1 text-center text-[0.62rem] text-graysage/40">—</p>}
+                        {acts.map((a) => {
+                          const h = chipH || 48
+                          const place = parsePlace(a.location)
+                          const locText = place ? place.name : churchAbbrev
+                          return (
+                          <div
+                            key={a.id}
+                            data-block
+                            onPointerDown={cDown(a, i)}
+                            onPointerMove={cMove}
+                            onPointerUp={cUp}
+                            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'activity', id: a.id }) }}
+                            style={{ backgroundColor: soft(a.color, 0.65), borderLeft: `4px solid ${soft(a.color, 0.2)}`, ...(chipH ? { minHeight: chipH } : {}) }}
+                            className={`group relative flex min-h-[48px] w-full touch-none flex-col gap-0.5 rounded-md px-2 py-1.5 text-left active:cursor-grabbing ${cDrag?.id === a.id ? 'opacity-40' : 'cursor-grab'}`}
+                          >
+                            <span className="truncate text-[0.72rem] font-medium leading-tight text-charcoal">{a.name}</span>
+                            {/* info PROGRESIVA según el alto que gana la tarjeta al ampliar */}
+                            {h >= 56 && <span className="flex items-center gap-1 truncate text-[0.56rem] leading-tight text-graysage" title={place ? 'Lugar' : 'En la iglesia'}><Pin className="h-2.5 w-2.5 text-graysage/80" /><span className="truncate">{locText}</span></span>}
+                            {h >= 74 && a.responsibles && <span className="truncate text-[0.56rem] leading-tight text-graysage" title="Encargado del servicio">👤 {a.responsibles}</span>}
+                            {h >= 92 && a.preacher && <span className="truncate text-[0.56rem] leading-tight text-graysage" title="Encargado de la palabra">🎤 {a.preacher}</span>}
+                            {/* hora a la izquierda y recurrencia (verde/gris) abajo */}
+                            <span className="mt-auto flex items-center gap-1 pt-0.5">
+                              {a.t && <span className="text-[0.6rem] leading-none text-graysage">{a.t}</span>}
+                              <button
+                                data-block
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); onToggleRecurring?.(a.id, d, a.recurring) }}
+                                className={`ml-auto flex h-4 w-4 items-center justify-center rounded text-[0.62rem] leading-none transition ${a.recurring ? 'bg-sage-dark text-white' : 'bg-white text-graysage shadow-sm'}`}
+                                title={a.recurring ? 'Recurrente — tocar para hacerla puntual' : 'Puntual — tocar para repetir cada semana'}
+                              >↻</button>
+                            </span>
+                          </div>
+                          )
+                        })}
+                      </div>
+                      {/* fila del botón crear (abajo). El espacio limpio lo deja el
+                          ~10% que queda sobre las tarjetas cuando no llenan el alto. */}
+                      <div className="flex shrink-0 items-center justify-center py-0.5">
+                        <button data-add type="button" onClick={() => createAndEdit(i, d)} className="flex h-6 w-6 items-center justify-center rounded-full text-graysage hover:bg-cream" title="Nueva actividad">+</button>
+                      </div>
                     </div>
                   </div>
                 )
@@ -694,7 +774,7 @@ export default function AgendaView({
               <div className={`mt-3 w-full rounded-2xl border border-sage/30 bg-white shadow-sm transition-all duration-300 ${editInline ? 'p-3' : 'p-4'}`}>
                 <div className="mb-3 flex items-center gap-2">
                   <span className="font-serif text-base font-semibold capitalize text-charcoal">{cap(sd.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }))}</span>
-                  <button type="button" onClick={() => (renderDayEditor ? setEditInline({ id: null }) : onNewAt?.(sd))} className="rounded-lg border border-sage/40 px-2 py-0.5 text-xs text-sage-dark hover:bg-sage/10">+ Actividad</button>
+                  <button type="button" onClick={() => (selDay != null ? createAndEdit(selDay, sd) : onNewAt?.(sd))} className="rounded-lg border border-sage/40 px-2 py-0.5 text-xs text-sage-dark hover:bg-sage/10">+ Actividad</button>
                   <button type="button" onClick={() => setSelDay(null)} className="ml-auto rounded-lg px-2 py-0.5 text-sm text-graysage hover:bg-cream" title="Cerrar">✕</button>
                 </div>
 
@@ -802,7 +882,10 @@ export default function AgendaView({
                             <div className="pointer-events-none px-1.5 py-1">
                               <span className="block truncate text-[0.7rem] font-semibold leading-tight text-charcoal">{b.title}</span>
                               <span className="flex items-center gap-1 truncate text-[0.6rem] leading-tight text-graysage">{b.recurring && <span title="Se repite cada semana">↻</span>}{fmtMin(b.startMin)} – {fmtMin(b.endMin)}</span>
-                              {b.responsibles && hh > 50 && <span className="block truncate text-[0.58rem] leading-tight text-graysage">{b.responsibles}</span>}
+                              {/* info progresiva según el alto (depende de la duración y del zoom) */}
+                              {hh > 58 && <span className="flex items-center gap-1 truncate text-[0.56rem] leading-tight text-graysage" title={b.location ? 'Lugar' : 'En la iglesia'}><Pin className="h-2.5 w-2.5 text-graysage/80" /><span className="truncate">{parsePlace(b.location)?.name || churchAbbrev}</span></span>}
+                              {b.responsibles && hh > 76 && <span className="block truncate text-[0.56rem] leading-tight text-graysage" title="Encargado del servicio">👤 {b.responsibles}</span>}
+                              {b.preacher && hh > 98 && <span className="block truncate text-[0.56rem] leading-tight text-graysage" title="Encargado de la palabra">🎤 {b.preacher}</span>}
                             </div>
                             <div data-block onPointerDown={onBlockDown(b, i, 'bottom')} className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize" />
                             {/* recurrencia (al pasar el cursor); copiar/eliminar por clic derecho */}
@@ -851,6 +934,15 @@ export default function AgendaView({
         </div>
       )}
 
+      {/* franja inferior para ELIMINAR: aparece al arrastrar una tarjeta y se
+          resalta cuando el cursor está encima; al soltar ahí, se borra. */}
+      {(cDrag || blockDrag) && (
+        <div style={{ height: DELETE_ZONE_H }} className={`pointer-events-none fixed inset-x-0 bottom-0 z-[85] flex items-center justify-center gap-2 text-sm font-medium transition-all duration-200 ${dragOverDelete ? 'bg-clay/90 text-cream' : 'bg-charcoal/75 text-cream/85'}`}>
+          <span className={`text-lg transition-transform ${dragOverDelete ? 'scale-125' : ''}`}>🗑</span>
+          <span>{dragOverDelete ? 'Suelta para eliminar' : 'Arrastra aquí para eliminar'}</span>
+        </div>
+      )}
+
       {/* menú al soltar en otro día: Mover / Copiar */}
       {dropMenu && (
         <>
@@ -865,6 +957,20 @@ export default function AgendaView({
       {/* hora exacta al arrastrar bordes de una tarjeta (ampliado / recuadro del día) */}
       {resizeTip && (
         <div style={{ left: resizeTip.x, top: resizeTip.y - 26 }} className="pointer-events-none fixed z-[95] -translate-x-1/2 rounded bg-charcoal px-1.5 py-0.5 font-mono text-[0.62rem] font-medium text-cream shadow-lg">{resizeTip.text}</div>
+      )}
+      {/* Saltar de tarjeta con cambios sin guardar: preguntar antes de cambiar. */}
+      {switchGuard && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-charcoal/30 p-4" onPointerDown={(e) => { if (e.target === e.currentTarget) setSwitchGuard(null) }}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <p className="font-serif text-base font-semibold text-charcoal">Cambios sin guardar</p>
+            <p className="mt-1 text-sm text-graysage">Hiciste cambios en esta actividad. ¿Quieres guardarlos antes de cambiar a otra?</p>
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+              <button type="button" onClick={() => setSwitchGuard(null)} className="rounded-lg px-3 py-1.5 text-sm text-graysage hover:bg-cream">Seguir aquí</button>
+              <button type="button" onClick={() => { const g = switchGuard; setSwitchGuard(null); if (g) { setSelDay(g.dayIdx); setEditInline({ id: g.id }) } }} className="rounded-lg border border-clay/40 px-3 py-1.5 text-sm font-medium text-clay hover:bg-clay/10">Descartar y cambiar</button>
+              <button type="button" onClick={async () => { const g = switchGuard; setSwitchGuard(null); await saveEditor?.(); if (g) { setSelDay(g.dayIdx); setEditInline({ id: g.id }) } }} className="rounded-lg bg-sage-dark px-3 py-1.5 text-sm font-medium text-white hover:brightness-95">Guardar y cambiar</button>
+            </div>
+          </div>
+        </div>
       )}
       {/* aviso breve (copiado/pegado/movido) */}
       {toast && (

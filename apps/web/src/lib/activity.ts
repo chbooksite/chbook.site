@@ -34,6 +34,31 @@ export function audienceIsEmpty(a: Audience): boolean {
   return !a.roleIds.length && !a.teamIds.length && !a.ageKeys.length && !a.filters.length
 }
 
+// LUGAR de una actividad. Se guarda en la columna de texto `location`:
+//  - null  → lugar por defecto: la iglesia.
+//  - JSON {name, lat?, lng?} → otro lugar (nombre y, si se fijó en el mapa, coords).
+//  - texto plano (legado) → se interpreta como el nombre del lugar.
+export interface PlaceLocation { name: string; lat?: number; lng?: number }
+export function parsePlace(raw: string | null | undefined): PlaceLocation | null {
+  if (!raw) return null
+  try {
+    const o = JSON.parse(raw) as Record<string, unknown>
+    if (o && typeof o === 'object' && typeof o.name === 'string') {
+      return { name: o.name, lat: typeof o.lat === 'number' ? o.lat : undefined, lng: typeof o.lng === 'number' ? o.lng : undefined }
+    }
+  } catch { /* texto plano */ }
+  return { name: raw }
+}
+export function serializePlace(p: PlaceLocation | null): string | null {
+  if (!p || !p.name.trim()) return null
+  return JSON.stringify({ name: p.name.trim(), ...(p.lat != null && p.lng != null ? { lat: p.lat, lng: p.lng } : {}) })
+}
+// URL a mapas: por coordenadas si existen, si no por el nombre/dirección.
+export function placeMapUrl(p: PlaceLocation): string {
+  const q = p.lat != null && p.lng != null ? `${p.lat},${p.lng}` : p.name
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`
+}
+
 export interface ActivityType {
   id: string
   key: string

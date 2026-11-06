@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -37,7 +38,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [membership, setMembership] = useState<Membership | null>(null)
   const [membershipLoading, setMembershipLoading] = useState(true)
 
+  // Último usuario para el que ya resolvimos la membresía. Sirve para NO volver a
+  // mostrar la pantalla de carga en eventos de auth del MISMO usuario (p. ej.
+  // TOKEN_REFRESHED periódico o SIGNED_IN al reenfocar la pestaña), que si no
+  // parpadeaban "Cargando…" y reiniciaban la vista del calendario.
+  const loadedUid = useRef<string | undefined>(undefined)
+
   const loadMembership = useCallback(async (uid: string | undefined) => {
+    loadedUid.current = uid
     if (!uid) {
       setMembership(null)
       setMembershipLoading(false)
@@ -66,7 +74,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
       setSession(next)
-      loadMembership(next?.user?.id)
+      // Solo recargar la membresía (con pantalla de carga) si CAMBIA el usuario
+      // (login/logout). En refrescos de token o reenfoque con el MISMO usuario no
+      // hacemos nada: se conserva la membresía y la app no parpadea ni reinicia.
+      const uid = next?.user?.id
+      if (uid !== loadedUid.current) loadMembership(uid)
     })
 
     return () => sub.subscription.unsubscribe()

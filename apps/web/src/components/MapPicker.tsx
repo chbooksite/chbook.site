@@ -21,6 +21,10 @@ export interface Coords {
 interface Props {
   value: Coords | null
   onChange: (c: Coords) => void
+  // Centro inicial cuando aún no hay pin (p. ej. país/estado de la iglesia).
+  fallbackCenter?: Coords | null
+  // Texto inicial del buscador (p. ej. el nombre del lugar que se escribió).
+  defaultQuery?: string
 }
 
 // Vista amplia de Latinoamérica como punto de partida si no hay ubicación.
@@ -47,8 +51,8 @@ function ClickToPlace({ onChange }: { onChange: (c: Coords) => void }) {
   return null
 }
 
-export default function MapPicker({ value, onChange }: Props) {
-  const [query, setQuery] = useState('')
+export default function MapPicker({ value, onChange, fallbackCenter = null, defaultQuery = '' }: Props) {
+  const [query, setQuery] = useState(defaultQuery)
   const [searching, setSearching] = useState(false)
   const [flyTarget, setFlyTarget] = useState<Coords | null>(null)
   const [gps, setGps] = useState<'idle' | 'loading' | 'error'>('idle')
@@ -117,8 +121,8 @@ export default function MapPicker({ value, onChange }: Props) {
 
       <div className="overflow-hidden rounded-lg border border-graysage/20">
         <MapContainer
-          center={value ? [value.lat, value.lng] : DEFAULT_CENTER}
-          zoom={value ? 17 : DEFAULT_ZOOM}
+          center={value ? [value.lat, value.lng] : fallbackCenter ? [fallbackCenter.lat, fallbackCenter.lng] : DEFAULT_CENTER}
+          zoom={value ? 17 : fallbackCenter ? 12 : DEFAULT_ZOOM}
           style={{ height: '260px', width: '100%' }}
         >
           <TileLayer

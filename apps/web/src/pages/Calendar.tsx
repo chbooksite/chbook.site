@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
-import ActivityForm from '../components/ActivityForm'
+import ActivityForm, { type ActivityFormHandle } from '../components/ActivityForm'
+import { type Coords } from '../components/MapPicker'
+import { parseWkbPoint } from '../lib/geo'
 import AgendaView, { type NewActivityAttrs } from '../components/AgendaView'
 import { DEFAULT_AGE_RANGES, readAgeRanges, type AgeRangeDef } from '../lib/member'
 import {
@@ -13,6 +15,7 @@ import {
   readAssignees,
   readAudience,
   recurrenceLabel,
+  serviceMinutes,
   type ActivityType,
   type Audience,
   type Freq,
@@ -36,6 +39,9 @@ const TYPE_PALETTE = ['#2f6f4f', '#8a5a44', '#b08900', '#3b6ea5', '#7a4ea3', '#a
 export default function Calendar() {
   const { membership, membershipLoading } = useAuth()
   const churchId = membership?.churchId
+  // Handle del editor embebido: permite al calendario saber si hay cambios sin
+  // guardar y guardarlos al saltar entre tarjetas.
+  const formRef = useRef<ActivityFormHandle | null>(null)
 
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [types, setTypes] = useState<ActivityType[]>([])
@@ -44,6 +50,8 @@ export default function Calendar() {
   const [tags, setTags] = useState<Tag[]>([])
   const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
   const [templates, setTemplates] = useState<ActivityTemplate[]>([])
+  const [churchName, setChurchName] = useState('')
+  const [churchCoords, setChurchCoords] = useState<Coords | null>(null)
   const [members, setMembers] = useState<Opt[]>([])
   const [membersByTeam, setMembersByTeam] = useState<Map<string, Opt[]>>(new Map())
   const [membersByRole, setMembersByRole] = useState<Map<string, Opt[]>>(new Map())
@@ -64,7 +72,7 @@ export default function Calendar() {
       supabase.from('teams').select('id, name, key').order('name'),
       supabase.from('roles').select('id, name').order('name'),
       supabase.from('activity_tags').select('id, name, color, default_duration_min').order('name'),
-      supabase.from('churches').select('settings').eq('id', churchId).maybeSingle(),
+      supabase.from('churches').select('name, location, settings').eq('id', churchId).maybeSingle(),
       supabase.from('members').select('id, full_name').neq('status', 'archived').order('full_name'),
       supabase.from('member_teams').select('member_id, team_id'),
       supabase.from('member_roles').select('member_id, role_id'),
@@ -98,6 +106,8 @@ export default function Calendar() {
     setTags((tagRes.data ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color, defaultDurationMin: t.default_duration_min })))
     setAgeRanges(readAgeRanges(churchRes.data?.settings))
     setTemplates(readActivityTemplates(churchRes.data?.settings))
+    setChurchName((churchRes.data as { name?: string } | null)?.name ?? '')
+    setChurchCoords(parseWkbPoint((churchRes.data as { location?: string } | null)?.location ?? null))
 
     // miembros por equipo / rol
     setMembers((memRes.data ?? []).map((m) => ({ id: m.id, name: m.full_name })))
@@ -200,8 +210,8 @@ export default function Calendar() {
   }
   // Crear al SOLTAR (sin abrir el formulario): actividad de una sola fecha,
   // recurrencia apagada, bloque de 1 h alineado a la hora. Se edita luego.
-  const createQuick = async (d: Date, start?: string, attrs?: NewActivityAttrs) => {
-    if (!churchId) return
+  const createQuick = async (d: Date, start?: string, attrs?: NewActivityAttrs): Promise<string | null> => {
+    if (!churchId) return null
     const s = start ?? '08:00'
     const end = `${String(Math.min(23, Number(s.slice(0, 2)) + 1)).padStart(2, '0')}:${s.slice(3, 5)}`
     const onDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -219,6 +229,7 @@ export default function Calendar() {
       )
     }
     await load()
+    return data?.id ?? null
   }
   // Crear un TIPO de servicio. El color no se repite: si no se pasa uno, el sistema
   // toma el primer tono de la paleta que no esté en uso (o uno aleatorio si se agota).
@@ -245,14 +256,32 @@ export default function Calendar() {
     const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
     const start = hhmm(patch.startMin), end = hhmm(patch.endMin)
     const onDate = patch.toOneOff ? `${patch.date.getFullYear()}-${String(patch.date.getMonth() + 1).padStart(2, '0')}-${String(patch.date.getDate()).padStart(2, '0')}` : null
-    // Optimista: muevo el bloque en el estado local YA, para que no haya parpadeo
-    // (se quedaba en el sitio viejo hasta que respondía la BD).
+    // Al cambiar la DURACIÓN total de la actividad, la línea de tiempo del servicio
+    // se reescala PROPORCIONALMENTE: cada segmento cambia su duración (y desfase)
+    // por el factor nuevoTotal/viejoTotal. Así "las actividades existentes cambian
+    // porcentualmente su duración". Se persiste junto con el horario.
+    const prevSch = schedules.find((s) => s.id === id)
+    const oldTotal = prevSch ? serviceMinutes(prevSch.startTime, prevSch.endTime) : null
+    const newTotal = patch.endMin - patch.startMin
+    const segs = segmentsBySchedule.get(id) ?? []
+    const factor = oldTotal && oldTotal > 0 && newTotal > 0 ? newTotal / oldTotal : 1
+    const rescale = factor !== 1 && segs.length > 0
+    const scaled = rescale
+      ? segs.map((s) => ({ ...s, durationMin: s.durationMin != null ? Math.max(1, Math.round(s.durationMin * factor)) : s.durationMin, startOffset: Math.round(s.startOffset * factor) }))
+      : segs
+    // Optimista: muevo el bloque (y reescalo los segmentos) en el estado local YA.
     setSchedules((prev) => prev.map((s) => (s.id === id
       ? { ...s, startTime: start, endTime: end, ...(patch.toOneOff ? { onDate, weekday: patch.date.getDay() } : {}) }
       : s)))
+    if (rescale) setSegmentsBySchedule((prev) => new Map(prev).set(id, scaled))
     const upd: Record<string, unknown> = { start_time: start, end_time: end }
     if (patch.toOneOff) { upd.on_date = onDate; upd.weekday = patch.date.getDay() }
     const { error } = await supabase.from('activity_schedules').update(upd as never).eq('id', id)
+    if (!error && rescale) {
+      await Promise.all(
+        scaled.filter((s) => s.id).map((s) => supabase.from('schedule_segments').update({ duration_min: s.durationMin, start_offset: s.startOffset } as never).eq('id', s.id!)),
+      )
+    }
     if (error) await load() // si falló, recargo para volver al estado real
   }
   // Interruptor de recurrencia por tarjeta. Recurrente ↔ puntual (one-off) de la
@@ -272,7 +301,7 @@ export default function Calendar() {
     const onDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
     const { data } = await supabase.from('activity_schedules').insert({
       church_id: churchId, name: s.name, type_id: s.typeId, freq: s.freq, weekday: date.getDay(), nth: s.nth,
-      start_time: s.startTime, end_time: s.endTime, on_date: onDate,
+      start_time: s.startTime, end_time: s.endTime, on_date: onDate, location: s.location,
       audience: s.audience as never, assignees: s.assignees as never, enabled: true,
     }).select('id').single()
     const newId = data?.id
@@ -340,18 +369,26 @@ export default function Calendar() {
             onEdit={(id) => { const s = schedules.find((x) => x.id === id); if (s) openEdit(s) }}
             onNewAt={openNewAt}
             onDropNew={createQuick}
+            onCreateInDay={(d) => createQuick(d)}
+            isEditorDirty={() => formRef.current?.isDirty() ?? false}
+            saveEditor={async () => { const ok = (await formRef.current?.saveNow()) ?? false; if (ok) await load(); return ok }}
             onBlockChange={moveBlock}
             onToggleRecurring={toggleRecurring}
             onDuplicate={duplicateBlock}
             onDeleteBlock={deleteBlock}
             onMoveToDay={moveToDay}
+            churchName={churchName}
             renderDayEditor={({ date, activityId, onClose, leftSlot, liveTime }) => {
               const ed = activityId ? schedules.find((s) => s.id === activityId) ?? null : null
               return (
                 <ActivityForm
+                  key={activityId ?? 'new'}
+                  ref={formRef}
                   embedded
                   leftSlot={leftSlot}
                   liveTime={liveTime}
+                  churchName={churchName}
+                  churchCoords={churchCoords}
                   defaultName={defaultActivityName}
                   churchId={churchId!}
                   editing={ed}
@@ -414,6 +451,8 @@ export default function Calendar() {
         <ActivityForm
           churchId={churchId!}
           editing={editing}
+          churchName={churchName}
+          churchCoords={churchCoords}
           defaultName={defaultActivityName}
           defaultWeekday={newWeekday ?? undefined}
           defaultStart={newStart ?? undefined}
