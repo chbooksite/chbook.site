@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import { occursOn, SCHEDULE_SUMMARY_COLUMNS, summaryRules, type ScheduleSummaryRow } from '../lib/activity'
@@ -203,7 +203,10 @@ export default function Service() {
         </section>
 
         <section className="subir mt-8" style={{ animationDelay: '60ms' }}>
-          <h2 className="mb-3 font-serif text-2xl text-charcoal">Últimos cultos</h2>
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <h2 className="font-serif text-2xl text-charcoal">Últimos cultos</h2>
+            <Link to="/culto/historial" className="text-sm font-semibold text-sage-dark hover:underline">Ver historial →</Link>
+          </div>
           {history.length === 0 ? (
             <p className="tarjeta px-4 py-8 text-center text-sm text-graysage">Aún no hay cultos registrados. El primero aparecerá aquí al terminarlo.</p>
           ) : (
@@ -211,7 +214,8 @@ export default function Service() {
               {history.map((s) => {
                 const n = snap.counts.get(s.id) ?? 0
                 return (
-                  <li key={s.id} className="flex items-center gap-3 px-4 py-3">
+                  <li key={s.id}>
+                    <Link to={`/culto/historial/${s.id}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-white/60">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-charcoal">{s.name}</p>
                       <p className="text-xs capitalize text-graysage">{s.starts_at ? `${DATE.format(new Date(s.starts_at))} · ${TIME.format(new Date(s.starts_at))}` : '—'}</p>
@@ -220,6 +224,7 @@ export default function Service() {
                       <span className="text-2xl font-bold tracking-tight tabular-nums text-sage-dark">{n}</span>
                       <span className="block text-xs text-graysage">{snap.capacity ? `${Math.round((n * 100) / snap.capacity)}% ocupación` : 'asistentes'}</span>
                     </p>
+                    </Link>
                   </li>
                 )
               })}

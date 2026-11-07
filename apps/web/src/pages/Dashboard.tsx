@@ -182,8 +182,11 @@ export default function Dashboard() {
       if (data?.name) remember({ church: data.name }) // para saludar en el próximo login
     })
     // Miembros, equipos, asistencias recientes y los últimos 10 cultos.
+    // Antes, aplicar la regla de inactividad (REQ-13) para que los números ya
+    // la reflejen; si la función aún no existe en la base, se sigue igual.
     const since = new Date(Date.now() - ATTENDANCE_WINDOW_DAYS * 86400000).toISOString()
-    Promise.all([
+    const inactivity = Promise.resolve(supabase.rpc('apply_inactivity')).catch(() => null)
+    inactivity.then(() => Promise.all([
       supabase.from('members').select('id, full_name, birth_date, status, created_at, is_baptized').eq('church_id', id),
       supabase.from('attendance').select('member_id, checked_at').eq('church_id', id).gte('checked_at', since),
       supabase.from('services').select('id, name, starts_at').eq('church_id', id).neq('status', 'active').order('starts_at', { ascending: false }).limit(10),
@@ -199,7 +202,7 @@ export default function Dashboard() {
         teams: teamRes.data ?? [],
         services: svcs.map((s) => ({ ...s, attendance: (att ?? []).filter((a) => a.service_id === s.id) })),
       })
-    })
+    }))
     // Próximas actividades (7 días) a partir de las reglas recurrentes.
     Promise.all([
       supabase.from('activity_schedules').select(SCHEDULE_SUMMARY_COLUMNS).eq('church_id', id),
@@ -404,7 +407,7 @@ export default function Dashboard() {
           icon={I.people}
           title="Personas"
           text="Miembros, equipos y edades: entra a cada grupo."
-          stat={ins ? `${NUM.format(ins.members)} miembros · ${ins.serving.pct}% sirve` : null}
+          stat={ins && raw ? `${NUM.format(ins.members)} miembros · ${ins.members ? Math.round((raw.members.filter((m) => !m.status || m.status === 'active').length * 100) / ins.members) : 0}% activos` : null}
         />
         <EnvCard
           to="/calendario"

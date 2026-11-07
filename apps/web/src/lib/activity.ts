@@ -45,6 +45,7 @@ export interface Schedule {
   onDate: string | null // 'YYYY-MM-DD' → actividad de una sola fecha (recurrencia apagada); null = recurrente
   sortOrder: number
   enabled: boolean
+  isPublic?: boolean // REQ-26: visible en el perfil público (false = interna)
 }
 
 // Catálogo editable de actividades internas (reusa activity_tags).

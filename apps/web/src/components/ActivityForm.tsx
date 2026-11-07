@@ -213,6 +213,7 @@ export default function ActivityForm({
 
   const [name, setName] = useState(editing?.name ?? '')
   const [typeId, setTypeId] = useState(editing?.typeId ?? '')
+  const [isPublic, setIsPublic] = useState(editing?.isPublic ?? false)
   const [weekday, setWeekday] = useState(editing?.weekday ?? defaultWeekday ?? 0)
   const [freq, setFreq] = useState<Freq>(editing?.freq ?? 'weekly')
   const [nth, setNth] = useState(editing?.nth && editing.nth !== 0 ? editing.nth : 1)
@@ -486,14 +487,21 @@ export default function ActivityForm({
       audience: audience as never,
       assignees: actAssignees as never,
       enabled: editing?.enabled ?? true,
+      is_public: isPublic,
     }
 
     let scheduleId = editing?.id ?? null
+    // Si la base aún no tiene is_public (migración requirements_f1), se guarda sin él.
+    const noPublic = (e: { message: string } | null) => !!e && /is_public|schema cache/i.test(e.message)
+    const { is_public: _pub, ...legacy } = payload
+    void _pub
     if (scheduleId) {
-      const { error: err } = await supabase.from('activity_schedules').update(payload).eq('id', scheduleId)
+      let { error: err } = await supabase.from('activity_schedules').update(payload).eq('id', scheduleId)
+      if (noPublic(err)) ({ error: err } = await supabase.from('activity_schedules').update(legacy).eq('id', scheduleId))
       if (err) return fail(err.message)
     } else {
-      const { data, error: err } = await supabase.from('activity_schedules').insert(payload).select('id').single()
+      let { data, error: err } = await supabase.from('activity_schedules').insert(payload).select('id').single()
+      if (noPublic(err)) ({ data, error: err } = await supabase.from('activity_schedules').insert(legacy).select('id').single())
       if (err || !data) return fail(err?.message ?? 'No se pudo crear')
       scheduleId = data.id
     }
@@ -628,6 +636,29 @@ export default function ActivityForm({
             <div>
               <label className="mb-1 block text-sm font-medium text-graysage">Hora de fin <span className="text-graysage/50">(opcional)</span></label>
               <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className={inputCls} />
+            </div>
+          </div>
+
+          {/* REQ-26: pública (aparece en el perfil de la iglesia) o interna */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-graysage">Visibilidad</label>
+            <div role="radiogroup" aria-label="Visibilidad" className="grid gap-2 sm:grid-cols-2">
+              {([
+                [false, 'Interna', 'Solo la ven los miembros de la iglesia.'],
+                [true, 'Pública', 'También la ve cualquiera en el perfil de la iglesia.'],
+              ] as const).map(([val, label, help]) => (
+                <button
+                  key={label}
+                  type="button"
+                  role="radio"
+                  aria-checked={isPublic === val}
+                  onClick={() => setIsPublic(val)}
+                  className={`rounded-xl border px-3 py-2.5 text-left transition ${isPublic === val ? 'border-sage-dark bg-sage-light/60' : 'border-clay-light bg-white hover:bg-cream'}`}
+                >
+                  <span className="block text-sm font-semibold text-charcoal">{label}</span>
+                  <span className="block text-xs text-graysage">{help}</span>
+                </button>
+              ))}
             </div>
           </div>
 

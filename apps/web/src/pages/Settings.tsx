@@ -6,6 +6,7 @@ import InviteQR from '../components/InviteQR'
 import PalettePicker from '../components/PalettePicker'
 import PageShell, { PageLoading } from '../components/PageShell'
 import { applyLargeText, readLargeText } from '../lib/preferences'
+import { readInactivityDays } from '../lib/member'
 import MapPicker, { type Coords } from '../components/MapPicker'
 import AgeRangesEditor from '../components/AgeRangesEditor'
 import { parseWkbPoint, toWktPoint } from '../lib/geo'
@@ -262,9 +263,14 @@ export default function Settings() {
   const [settingsRaw, setSettingsRaw] = useState<Record<string, unknown>>({})
   const [church, setChurch] = useState({
     name: '',
+    pastor: '',
+    denomination: '',
     country: 'Venezuela',
+    city: '',
     address: '',
     capacity: '',
+    founded: '',
+    inactivity: '60',
     code: '',
     plan: '',
   })
@@ -287,7 +293,7 @@ export default function Settings() {
       supabase.from('teams').select('id, key, name, is_system, requires').order('is_system', { ascending: false }).order('name'),
       supabase
         .from('churches')
-        .select('name, country, address, capacity, code, plan, location, settings')
+        .select('*') // '*' para no fallar si aún faltan columnas nuevas en la base
         .eq('id', churchId)
         .maybeSingle(),
     ])
@@ -297,9 +303,14 @@ export default function Settings() {
     if (c) {
       setChurch({
         name: c.name ?? '',
+        pastor: c.pastor_name ?? '',
+        denomination: c.denomination ?? '',
         country: c.country ?? '',
+        city: c.city ?? '',
         address: c.address ?? '',
         capacity: c.capacity != null ? String(c.capacity) : '',
+        founded: c.founded_year != null ? String(c.founded_year) : '',
+        inactivity: String(readInactivityDays(c.settings)),
         code: c.code ?? '',
         plan: c.plan ?? '',
       })
@@ -335,20 +346,35 @@ export default function Settings() {
   }
 
   const saveChurch = async () => {
+    if (!church.name.trim()) {
+      setChurchMsg('La iglesia necesita un nombre.')
+      return
+    }
     setSavingChurch(true)
     setChurchMsg(null)
-    const { error } = await supabase
-      .from('churches')
-      .update({
-        name: church.name.trim(),
-        country: church.country || null,
-        address: church.address.trim() || null,
-        capacity: church.capacity ? Number(church.capacity) : null,
-        ...(cCoords ? { location: toWktPoint(cCoords.lat, cCoords.lng) } : {}),
-      })
-      .eq('id', churchId!)
+    const days = Math.max(0, Math.round(Number(church.inactivity) || 0))
+    const nextSettings = { ...settingsRaw, inactivity_days: days }
+    setSettingsRaw(nextSettings)
+    const base = {
+      name: church.name.trim(),
+      pastor_name: church.pastor.trim() || null,
+      country: church.country || null,
+      address: church.address.trim() || null,
+      capacity: church.capacity ? Number(church.capacity) : null,
+      settings: nextSettings as never,
+      ...(cCoords ? { location: toWktPoint(cCoords.lat, cCoords.lng) } : {}),
+    }
+    const extra = {
+      denomination: church.denomination.trim() || null,
+      city: church.city.trim() || null,
+      founded_year: church.founded ? Number(church.founded) : null,
+    }
+    let { error } = await supabase.from('churches').update({ ...base, ...extra }).eq('id', churchId!)
+    // Base sin la migración 20261107120000: guardar lo demás y avisar.
+    const missingColumns = !!error && /column|schema cache/i.test(error.message)
+    if (missingColumns) ({ error } = await supabase.from('churches').update(base).eq('id', churchId!))
     setSavingChurch(false)
-    setChurchMsg(error ? error.message : 'Guardado ✓')
+    setChurchMsg(error ? error.message : missingColumns ? 'Guardado, salvo denominación, ciudad y año: falta aplicar la migración requirements_f1 en Supabase.' : 'Guardado ✓')
   }
 
   if (membershipLoading || loading) {
@@ -455,6 +481,18 @@ export default function Settings() {
                 <input value={church.name} onChange={(e) => setC('name', e.target.value)} className={inputCls} />
               </div>
               <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">Pastor</label>
+                <input value={church.pastor} onChange={(e) => setC('pastor', e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">Denominación</label>
+                <input value={church.denomination} onChange={(e) => setC('denomination', e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">Año de fundación</label>
+                <input type="number" min={1800} max={new Date().getFullYear()} value={church.founded} onChange={(e) => setC('founded', e.target.value)} className={inputCls} placeholder="Ej. 1998" />
+              </div>
+              <div>
                 <label className="mb-1 block text-sm font-medium text-graysage">País</label>
                 <select value={church.country} onChange={(e) => setC('country', e.target.value)} className={inputCls}>
                   {COUNTRIES.map((c) => (
@@ -465,11 +503,15 @@ export default function Settings() {
                 </select>
               </div>
               <div>
+                <label className="mb-1 block text-sm font-medium text-graysage">Ciudad</label>
+                <input value={church.city} onChange={(e) => setC('city', e.target.value)} className={inputCls} />
+              </div>
+              <div>
                 <label className="mb-1 block text-sm font-medium text-graysage">Dirección</label>
                 <input value={church.address} onChange={(e) => setC('address', e.target.value)} className={inputCls} />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-graysage">Nº de miembros (estimado)</label>
+                <label className="mb-1 block text-sm font-medium text-graysage">Capacidad del templo (sillas)</label>
                 <input
                   type="number"
                   min={0}
@@ -477,6 +519,14 @@ export default function Settings() {
                   onChange={(e) => setC('capacity', e.target.value)}
                   className={inputCls}
                 />
+              </div>
+            </div>
+            <div className="mt-4 rounded-xl bg-cream/70 p-4">
+              <label className="block text-sm font-medium text-charcoal" htmlFor="inactivity">Pasar a Inactivo tras</label>
+              <p className="mb-2 text-xs text-graysage">Un miembro activo que no asiste a ningún culto en ese tiempo pasa a Inactivo; vuelve a Activo cuando asiste. Faltar a un culto no basta. Escribe 0 para no usarlo.</p>
+              <div className="flex items-center gap-2">
+                <div className="w-28 shrink-0"><input id="inactivity" type="number" min={0} max={365} value={church.inactivity} onChange={(e) => setC('inactivity', e.target.value)} className={inputCls} /></div>
+                <span className="text-sm text-graysage">días sin asistir</span>
               </div>
             </div>
             <div className="mt-4">

@@ -57,6 +57,7 @@ export type Database = {
           responsible_team_id: string | null
           sort_order: number | null
           start_time: string | null
+          is_public: boolean
           type_id: string | null
           weekday: number
         }
@@ -77,6 +78,7 @@ export type Database = {
           responsible_team_id?: string | null
           sort_order?: number | null
           start_time?: string | null
+          is_public?: boolean
           type_id?: string | null
           weekday: number
         }
@@ -97,6 +99,7 @@ export type Database = {
           responsible_team_id?: string | null
           sort_order?: number | null
           start_time?: string | null
+          is_public?: boolean
           type_id?: string | null
           weekday?: number
         }
@@ -308,6 +311,9 @@ export type Database = {
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
           theme_color: string | null
+          city: string | null
+          denomination: string | null
+          founded_year: number | null
         }
         Insert: {
           address?: string | null
@@ -325,6 +331,9 @@ export type Database = {
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           theme_color?: string | null
+          city?: string | null
+          denomination?: string | null
+          founded_year?: number | null
         }
         Update: {
           address?: string | null
@@ -342,6 +351,9 @@ export type Database = {
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           theme_color?: string | null
+          city?: string | null
+          denomination?: string | null
+          founded_year?: number | null
         }
         Relationships: []
       }
@@ -1206,6 +1218,7 @@ export type Database = {
       }
     }
     Functions: {
+      apply_inactivity: { Args: never; Returns: number }
       _postgis_deprecate: {
         Args: { newname: string; oldname: string; version: string }
         Returns: undefined

@@ -127,3 +127,12 @@ export const IDENTITY_TONE_CLASS: Record<IdentityTone, string> = {
   inactive: 'bg-graysage/15 text-graysage',
   archived: 'bg-graysage/10 text-graysage/70',
 }
+
+// Días sin asistir para pasar a Inactivo (churches.settings.inactivity_days).
+// Por defecto 60; 0 = no se usa. Lo aplica apply_inactivity() en la base de datos.
+export const DEFAULT_INACTIVITY_DAYS = 60
+export function readInactivityDays(settings: unknown): number {
+  const v = (settings ?? {}) as { inactivity_days?: unknown }
+  const n = Number(v.inactivity_days)
+  return Number.isFinite(n) && v.inactivity_days != null ? Math.max(0, Math.round(n)) : DEFAULT_INACTIVITY_DAYS
+}

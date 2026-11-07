@@ -24,6 +24,9 @@ export default function Onboarding() {
   const [pastorName, setPastorName] = useState('')
   const [country, setCountry] = useState(COUNTRIES[0])
   const [address, setAddress] = useState('')
+  const [city, setCity] = useState('')
+  const [denomination, setDenomination] = useState('')
+  const [capacity, setCapacity] = useState('')
   const [members, setMembers] = useState('')
   const [coords, setCoords] = useState<Coords | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -41,6 +44,11 @@ export default function Onboarding() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    // REQ-05: la iglesia no se registra sin la ubicación del templo.
+    if (!coords) {
+      setError('Marca en el mapa dónde queda el templo: se usa para el Check-in de los miembros.')
+      return
+    }
     setSubmitting(true)
     setError(null)
 
@@ -49,7 +57,7 @@ export default function Onboarding() {
       p_pastor_name: pastorName.trim(),
       p_country: country,
       p_address: address.trim() || undefined,
-      p_capacity: membersNum || undefined,
+      p_capacity: Number(capacity) || undefined,
       p_lat: coords?.lat,
       p_lng: coords?.lng,
     })
@@ -66,6 +74,10 @@ export default function Onboarding() {
           'llevaremos al panel; si no, intenta de nuevo en un momento.',
       )
       return
+    }
+    // Datos que la función de alta no recibe (REQ-04).
+    if (data?.id && (city.trim() || denomination.trim())) {
+      await supabase.from('churches').update({ city: city.trim() || null, denomination: denomination.trim() || null }).eq('id', data.id)
     }
     // Último paso (flujo #6): mostrar el código y el QR antes de entrar.
     if (data?.code) setCreated({ name: data.name, code: data.code })
@@ -133,6 +145,13 @@ export default function Onboarding() {
             <input id="pastor" required value={pastorName} onChange={(e) => setPastorName(e.target.value)} className={inputCls} />
           </div>
 
+          <div>
+            <label className="mb-1 block text-sm font-medium text-graysage" htmlFor="denomination">
+              Denominación <span className="text-graysage/60">(opcional)</span>
+            </label>
+            <input id="denomination" value={denomination} onChange={(e) => setDenomination(e.target.value)} className={inputCls} placeholder="Ej. Bautista, Pentecostal, independiente" />
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-graysage" htmlFor="country">
@@ -145,6 +164,18 @@ export default function Onboarding() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-graysage" htmlFor="city">
+                Ciudad
+              </label>
+              <input id="city" value={city} onChange={(e) => setCity(e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-graysage" htmlFor="capacity">
+                Capacidad del templo
+              </label>
+              <input id="capacity" type="number" min={0} value={capacity} onChange={(e) => setCapacity(e.target.value)} className={inputCls} placeholder="Sillas, ej. 120" />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-graysage" htmlFor="members">

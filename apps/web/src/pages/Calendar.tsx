@@ -118,6 +118,7 @@ export default function Calendar() {
         onDate: r.on_date,
         sortOrder: r.sort_order ?? 0,
         enabled: r.enabled ?? true,
+        isPublic: !!r.is_public,
       })),
     )
     setTypes((typeRes.data ?? []).map((t) => ({ id: t.id, key: t.key, name: t.name, color: t.color, isSystem: !!t.is_system })))

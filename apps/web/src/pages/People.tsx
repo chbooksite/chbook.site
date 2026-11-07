@@ -88,7 +88,8 @@ export default function People() {
   useEffect(() => {
     if (!membership) return
     const id = membership.churchId
-    Promise.all([
+    // Regla de inactividad primero (REQ-13), igual que en Inicio.
+    Promise.resolve(supabase.rpc('apply_inactivity')).catch(() => null).then(() => Promise.all([
       supabase.from('members').select('id, full_name, status, is_baptized, created_at, birth_date, age_group').eq('church_id', id),
       supabase.from('teams').select('id, name').order('name'),
       supabase.from('member_teams').select('member_id, team_id, is_leader'),
@@ -106,7 +107,7 @@ export default function People() {
         services: svcs.map((s) => ({ ...s, attendance: (att ?? []).filter((a) => a.service_id === s.id) })),
         ranges: readAgeRanges(ch.data?.settings) ?? DEFAULT_AGE_RANGES,
       })
-    })
+    }))
   }, [membership])
 
   const view = useMemo(() => {
@@ -134,7 +135,9 @@ export default function People() {
       { key: 'unbaptized', label: 'Sin bautizar', hint: 'próxima clase', count: visible.filter((p) => isMember(p) && !p.is_baptized).length },
       { key: 'inactive', label: 'Inactivos', hint: 'para reconectar', count: visible.filter((p) => p.status === 'inactive' || p.status === 'cambio_membresia').length },
     ]
-    return { ins, teams, ages, noAge, quick, total: visible.length }
+    const active = visible.filter(isMember).length
+    const inactive = visible.filter((p) => p.status === 'inactive').length
+    return { ins, teams, ages, noAge, quick, total: visible.length, active, inactive }
   }, [data])
 
   if (membershipLoading) return <PageLoading />
@@ -162,7 +165,7 @@ export default function People() {
           value={ins ? <CountUp to={ins.members} /> : '—'}
           icon={I.people}
           chip={ins?.newThisMonth ? <Delta value={ins.newThisMonth} suffix=" este mes" /> : undefined}
-          foot="Crecimiento, últimos 6 meses"
+          foot={view && ins ? `${view.active} activos (${ins.members ? Math.round((view.active * 100) / ins.members) : 0}%) · ${view.inactive} ${view.inactive === 1 ? 'inactivo' : 'inactivos'}` : 'Crecimiento, últimos 6 meses'}
           viz={ins ? <Sparkline values={ins.growth.map((g) => g.value)} /> : undefined}
         />
         <Stat

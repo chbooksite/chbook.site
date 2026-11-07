@@ -125,3 +125,23 @@ El color principal (familia sage) son variables CSS en `index.css` (`--sage-*`).
 - **Ajustes → Apariencia** y el menú de cuenta permiten probar otras paletas: Eucalipto, Bosque, Oliva, Petróleo y Pizarra.
 - Cambian solo esas variables; los marrones, la crema, el dorado y los textos no cambian.
 - La elección se guarda en el navegador. Si se elige una paleta definitiva, se copia a `:root`.
+
+## Requerimientos V1 (Fase 1, web)
+
+Cobertura de los requerimientos web de la Fase 1 que no dependen de servicios externos. La migración es `supabase/migrations/20261107120000_requirements_f1.sql`.
+
+- **REQ-04 / REQ-08 (datos de la iglesia):**
+  - Registro: denominación, ciudad y capacidad del templo; la ubicación es obligatoria.
+  - Ajustes: pastor, denominación, año de fundación, ciudad y capacidad.
+  - Antes, «Nº de miembros» se guardaba como capacidad. Ahora el estimado de miembros solo sugiere el plan.
+- **REQ-12 / REQ-13 (inactividad):**
+  - `settings.inactivity_days`, 60 días por defecto; 0 lo desactiva.
+  - `apply_inactivity()` se ejecuta al abrir Inicio o Personas, y cada día con pg_cron si está disponible.
+  - Solo actúa si la iglesia registró algún culto en ese periodo.
+  - Quien vuelve a asistir pasa a Activo (trigger en `attendance`).
+- **REQ-23 / REQ-24 (historial):** `/culto/historial` con el promedio del mes, la comparación con la semana pasada y la ocupación. `/culto/historial/:id` muestra cada asistente con su tipo y hora.
+- **REQ-25 (Dashboard):** Personas muestra los miembros activos con su % y los inactivos.
+- **REQ-26 (eventos):** cada actividad es pública o interna (`activity_schedules.is_public`).
+- **Sin la migración:**
+  - Ajustes guarda todo menos los campos nuevos y avisa.
+  - Las actividades se guardan sin el campo `is_public`.

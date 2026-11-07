@@ -12,6 +12,7 @@ import MemberProfile from './pages/MemberProfile'
 import Calendar from './pages/Calendar'
 import Settings from './pages/Settings'
 import Service from './pages/Service'
+import ServiceHistory from './pages/ServiceHistory'
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
             <Route path="/miembros" element={<Members />} />
             <Route path="/miembros/:id" element={<MemberProfile />} />
             <Route path="/culto" element={<Service />} />
+            <Route path="/culto/historial/:id?" element={<ServiceHistory />} />
             <Route path="/calendario" element={<Calendar />} />
             <Route path="/ajustes" element={<Settings />} />
           </Route>
