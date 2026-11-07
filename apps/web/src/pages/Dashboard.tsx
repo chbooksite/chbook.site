@@ -3,6 +3,7 @@ import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
+import MembersOverview from '../components/MembersOverview'
 
 interface Church {
   name: string
@@ -16,17 +17,6 @@ interface Metrics {
   active_members: number | null
   active_pct: number | null
   avg_attendance: number | null
-}
-
-// Tarjeta de métrica (KPI) con tinte verde suave sobre la lámina blanca.
-function Stat({ label, value, tone = 'plain' }: { label: string; value: string | number; tone?: 'plain' | 'sand' | 'beige' }) {
-  const bg = tone === 'sand' ? 'bg-sand' : tone === 'beige' ? 'bg-beige' : 'bg-white'
-  return (
-    <div className={`rounded-2xl border border-black/5 p-5 shadow-sm ${bg}`}>
-      <p className="font-serif text-3xl font-semibold text-sage-dark">{value}</p>
-      <p className="mt-1 text-sm text-graysage">{label}</p>
-    </div>
-  )
 }
 
 // Acceso rápido. `tone`: 'beige' (cálido puntual), 'sage' (tinte verde) o 'plain'.
@@ -166,16 +156,16 @@ export default function Dashboard() {
       {/* DASHBOARD (resumen) — abajo; SUBE al hacer scroll hacia abajo */}
       <section
         style={{ transform: `translateY(${dashY}%)`, pointerEvents: dashY >= 99 ? 'none' : 'auto' }}
-        className="fixed inset-0 z-10 flex items-center overflow-hidden rounded-t-[2.5rem] bg-white shadow-[0_-14px_40px_-14px_rgba(0,0,0,0.4)] will-change-transform"
+        className="fixed inset-0 z-10 flex items-start overflow-y-auto overscroll-contain rounded-t-[2.5rem] bg-cream shadow-[0_-14px_40px_-14px_rgba(0,0,0,0.4)] will-change-transform [scrollbar-width:thin]"
       >
-        <div className="mx-auto w-full max-w-6xl px-6 py-10">
-          <h2 className="mb-5 font-serif text-xl font-semibold text-charcoal">Resumen</h2>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Stat label="Miembros" value={metrics?.total_members ?? 0} />
-            <Stat label="Activos" value={metrics?.active_members ?? 0} />
-            <Stat label="% Activos" value={`${metrics?.active_pct ?? 0}%`} tone="sand" />
-            <Stat label="Asistencia prom." value={metrics?.avg_attendance ?? 0} />
+        <div className="mx-auto w-full max-w-6xl px-6 py-9">
+          <div className="mb-5 flex items-end justify-between gap-3">
+            <div>
+              <h2 className="font-serif text-xl font-semibold text-charcoal">Resumen · Personas</h2>
+              <p className="text-sm text-graysage">La congregación de un vistazo.</p>
+            </div>
           </div>
+          {membership && <MembersOverview churchId={membership.churchId} avgAttendance={metrics?.avg_attendance ?? 0} />}
           <div className="mt-5 grid gap-4 sm:grid-cols-3">
             <QuickLink to="/miembros" tone="beige" title="Miembros" desc="Agrega personas, asigna roles y equipos, y aprueba prospectos." />
             <QuickLink to="/calendario" tone="sage" title="Calendario" desc="El ritmo de la iglesia: actividades, encargados y ciclos." />
