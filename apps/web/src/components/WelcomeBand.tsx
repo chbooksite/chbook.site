@@ -60,9 +60,12 @@ export default function WelcomeBand({ churchName, meta, today, live, logoUrl, co
   return (
       <section ref={bandRef} className="subir relative mb-6 overflow-hidden rounded-[1.75rem] border border-white/20 text-paper shadow-[0_18px_50px_-24px_rgba(30,42,36,0.6)]" aria-label="Bienvenida">
         {/* Foto de marca: desenfocada, solo ambiente */}
-        <div ref={photoRef} className="absolute inset-0 bg-cover bg-center will-change-transform" style={{ backgroundImage: `url(${coverUrl ?? '/hero-band.webp'})`, filter: coverUrl ? 'blur(2px) saturate(0.9)' : 'blur(5px) saturate(0.85)', transform: 'scale(1.15)' }} aria-hidden />
-        <div className="absolute inset-0 bg-sage-dark/70" aria-hidden />
-        <div className="absolute inset-0 bg-[linear-gradient(100deg,rgba(30,42,36,0.55),transparent_70%)]" aria-hidden />
+        {/* Con la foto propia del templo, el velo baja para que se reconozca; el
+            texto se protege oscureciendo solo el lado izquierdo y la base. */}
+        <div ref={photoRef} className="absolute inset-0 bg-cover bg-center will-change-transform" style={{ backgroundImage: `url(${coverUrl ?? '/hero-band.webp'})`, filter: coverUrl ? 'blur(0.5px) saturate(1)' : 'blur(5px) saturate(0.85)', transform: 'scale(1.15)' }} aria-hidden />
+        <div className={`absolute inset-0 ${coverUrl ? 'bg-sage-dark/35' : 'bg-sage-dark/70'}`} aria-hidden />
+        <div className={`absolute inset-0 ${coverUrl ? 'bg-[linear-gradient(100deg,rgba(20,30,26,0.78)_0%,rgba(20,30,26,0.45)_45%,transparent_80%)]' : 'bg-[linear-gradient(100deg,rgba(30,42,36,0.55),transparent_70%)]'}`} aria-hidden />
+        {coverUrl && <div className="absolute inset-x-0 bottom-0 h-2/3 bg-[linear-gradient(to_top,rgba(20,30,26,0.55),transparent)]" aria-hidden />}
 
         <div className="relative flex min-h-[13rem] flex-col justify-end gap-5 p-6 sm:flex-row sm:items-end sm:justify-between sm:p-8">
           <div className="min-w-0">
