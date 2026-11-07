@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { LogoMark } from '../components/Logo'
 import AuthShell from '../components/AuthShell'
 import ChurchLogo from '../components/ChurchLogo'
+import Avatar from '../components/Avatar'
 import { greeting } from '../lib/ui'
 
 type Mode = 'signin' | 'signup'
@@ -148,8 +149,22 @@ export default function Login() {
     mode === 'signup'
       ? 'Organiza tu iglesia en minutos.'
       : welcomeBack && known?.church
-        ? <>a {known.logo && <span className="mx-0.5 inline-flex align-middle"><ChurchLogo src={known.logo} style={known.logoStyle ?? 'transparent'} size={24} className="ring-1 ring-clay-light" /></span>} <span className="font-semibold text-charcoal">{known.church}</span></>
+        ? 'Entra al Dashboard de tu iglesia.'
         : 'Entra a tu Dashboard.'
+  // Al volver, la iglesia encabeza la tarjeta (su logo y su nombre), no ChBook.
+  const churchBadge = welcomeBack && known?.church ? (
+    <div className="flex min-w-0 items-center gap-3">
+      {known.logo ? (
+        <ChurchLogo src={known.logo} style={known.logoStyle ?? 'transparent'} size={48} className="shadow-sm ring-1 ring-clay-light" />
+      ) : (
+        <Avatar name={known.church} size={48} />
+      )}
+      <span className="min-w-0">
+        <span className="block text-[0.68rem] font-semibold uppercase tracking-wider text-graysage">Tu iglesia</span>
+        <span className="block truncate font-semibold text-charcoal">{known.church}</span>
+      </span>
+    </div>
+  ) : null
 
   return (
     <AuthShell>
@@ -158,9 +173,9 @@ export default function Login() {
           style={{ opacity: leaving ? 0 : 1, transitionDuration: `${LEAVE_MS}ms` }}
         >
           <div ref={cardRef} className="subir vidrio p-6 sm:p-9">
-            <div className="mb-10 flex items-center justify-between">
-              <span className="lg:hidden"><LogoMark size={44} draw /></span>
-              <p className="ml-auto text-right text-xs leading-snug text-graysage">
+            <div className="mb-10 flex items-center justify-between gap-4">
+              {churchBadge ?? <span className="lg:hidden"><LogoMark size={44} draw /></span>}
+              <p className="ml-auto shrink-0 text-right text-xs leading-snug text-graysage">
                 <span>{dateLine}</span>
                 {isSunday && <span className="block font-semibold text-clay">Día de culto</span>}
               </p>
