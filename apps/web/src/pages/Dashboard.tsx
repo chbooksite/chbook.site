@@ -268,6 +268,8 @@ export default function Dashboard() {
         today={todayLabel}
         logoUrl={brand.logoUrl}
         coverUrl={brand.coverUrl}
+        logoStyle={brand.logoStyle}
+        coverFocus={brand.coverFocus}
         meta={
           church && (
             <>

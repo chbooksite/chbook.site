@@ -5,6 +5,7 @@ import { forget, readRemembered, remember } from '../lib/remember'
 import { supabase } from '../lib/supabase'
 import { LogoMark } from '../components/Logo'
 import AuthShell from '../components/AuthShell'
+import ChurchLogo from '../components/ChurchLogo'
 import { greeting } from '../lib/ui'
 
 type Mode = 'signin' | 'signup'
@@ -147,7 +148,7 @@ export default function Login() {
     mode === 'signup'
       ? 'Organiza tu iglesia en minutos.'
       : welcomeBack && known?.church
-        ? <>a {known.logo && <img src={known.logo} alt="" className="mx-0.5 inline h-6 w-6 rounded-md border border-clay-light bg-white object-contain p-0.5 align-middle" />} <span className="font-semibold text-charcoal">{known.church}</span></>
+        ? <>a {known.logo && <span className="mx-0.5 inline-flex align-middle"><ChurchLogo src={known.logo} style={known.logoStyle ?? 'transparent'} size={24} className="ring-1 ring-clay-light" /></span>} <span className="font-semibold text-charcoal">{known.church}</span></>
         : 'Entra a tu Dashboard.'
 
   return (

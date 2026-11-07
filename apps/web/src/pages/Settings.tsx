@@ -347,12 +347,18 @@ export default function Settings() {
       .eq('id', churchId!)
   }
 
-  // Color de la iglesia (REQ-09): se guarda en settings.palette y lo ven todos.
-  const savePalette = async (palette: PaletteKey) => {
-    setBrand({ palette })
-    const nextSettings = { ...settingsRaw, palette }
+  // Cambios en churches.settings desde Identidad (estilo del logo, encuadre de
+  // la foto, color): pasan por aquí para no pisar las reglas ni los rangos.
+  const patchSettings = async (patch: Record<string, unknown>) => {
+    const nextSettings = { ...settingsRaw, ...patch }
     setSettingsRaw(nextSettings)
     await supabase.from('churches').update({ settings: nextSettings as never }).eq('id', churchId!)
+  }
+
+  // Color de la iglesia (REQ-09): se guarda en settings.palette y lo ven todos.
+  const savePalette = (palette: PaletteKey) => {
+    setBrand({ palette })
+    patchSettings({ palette })
   }
 
   const saveChurch = async () => {
@@ -474,7 +480,7 @@ export default function Settings() {
             <p className="tarjeta p-6 text-sm text-graysage">Tu iglesia aún no tiene código de invitación.</p>
           ))}
 
-          {tab === 'apariencia' && <AppearanceSection churchId={churchId!} onPalette={savePalette} />}
+          {tab === 'apariencia' && <AppearanceSection churchId={churchId!} onPalette={savePalette} onSettings={patchSettings} />}
 
           {tab === 'iglesia' && (<>
           <section className="tarjeta p-5 sm:p-6">
@@ -655,7 +661,7 @@ function SettingsTabs({ tab, onChange }: { tab: SettingsTab; onChange: (t: Setti
 }
 
 // Identidad (logo, foto y color: para toda la iglesia) y letra grande (este dispositivo).
-function AppearanceSection({ churchId, onPalette }: { churchId: string; onPalette: (k: PaletteKey) => void }) {
+function AppearanceSection({ churchId, onPalette, onSettings }: { churchId: string; onPalette: (k: PaletteKey) => void; onSettings: (patch: Record<string, unknown>) => void }) {
   const brand = useBrand(churchId)
   const [large, setLarge] = useState(readLargeText)
   const toggle = () => {
@@ -664,7 +670,7 @@ function AppearanceSection({ churchId, onPalette }: { churchId: string; onPalett
   }
   return (
     <div className="space-y-4">
-    <BrandEditor churchId={churchId} brand={brand} />
+    <BrandEditor churchId={churchId} brand={brand} onSettings={onSettings} onPalette={onPalette} />
     <section className="tarjeta p-5 sm:p-6">
       <h2 className="font-serif text-lg font-bold text-charcoal">Color de la iglesia</h2>
       <p className="mt-0.5 mb-4 text-sm text-graysage">Toda la app cambia al instante, para ti y para tu equipo.</p>

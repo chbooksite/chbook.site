@@ -8,13 +8,14 @@ export interface Remembered {
   email: string
   church: string | null
   logo?: string | null // logo de la iglesia, para el saludo del login
+  logoStyle?: 'full' | 'transparent'
 }
 
 export function readRemembered(): Remembered | null {
   try {
     const raw = localStorage.getItem(KEY)
     const v = raw ? (JSON.parse(raw) as Partial<Remembered>) : null
-    return v?.email ? { email: v.email, church: v.church ?? null, logo: v.logo ?? null } : null
+    return v?.email ? { email: v.email, church: v.church ?? null, logo: v.logo ?? null, logoStyle: v.logoStyle } : null
   } catch {
     return null
   }

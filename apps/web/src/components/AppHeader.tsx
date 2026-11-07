@@ -4,7 +4,8 @@ import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import { LogoMark } from './Logo'
 import Avatar from './Avatar'
-import { useBrand } from '../lib/brand'
+import { useBrand, type LogoStyle } from '../lib/brand'
+import ChurchLogo from './ChurchLogo'
 
 // Tres entornos, como una web y no un sistema de menús: Inicio (el centro: el
 // culto y la semana), Personas (la gente, por grupos) y Calendario (la
@@ -79,7 +80,7 @@ function LiveDot({ className = '' }: { className?: string }) {
 }
 
 // Menú de cuenta: avatar con iniciales → iglesia, correo, atajos y cerrar sesión.
-function AccountMenu({ church, logo }: { church: string | null; logo: string | null }) {
+function AccountMenu({ church, logo, logoStyle }: { church: string | null; logo: string | null; logoStyle: LogoStyle }) {
   const { user, signOut } = useAuth()
   const { pathname, search } = useLocation()
   const [open, setOpen] = useState(false)
@@ -117,7 +118,7 @@ function AccountMenu({ church, logo }: { church: string | null; logo: string | n
         aria-label="Menú de cuenta"
         className="flex items-center gap-2 rounded-full p-1 pr-2 transition hover:bg-paper/10"
       >
-        <span className="rounded-full ring-2 ring-paper/25">{logo ? <img src={logo} alt="" className="h-8 w-8 rounded-full bg-white object-contain p-0.5" /> : <Avatar name={name} size={32} />}</span>
+        <span className="rounded-full ring-2 ring-paper/25">{logo ? <ChurchLogo src={logo} style={logoStyle} size={32} round /> : <Avatar name={name} size={32} />}</span>
         {!logo && <span className="hidden max-w-[10rem] truncate text-sm font-medium text-paper lg:inline">{church ?? 'Mi cuenta'}</span>}
         <Icon className={`h-4 w-4 text-paper/70 transition ${open ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6" /></Icon>
       </button>
@@ -125,7 +126,7 @@ function AccountMenu({ church, logo }: { church: string | null; logo: string | n
       {open && (
         <div role="menu" className="subir absolute right-0 top-[calc(100%+0.6rem)] z-50 w-72 overflow-hidden rounded-2xl border border-clay-light bg-paper p-1.5 shadow-[0_20px_50px_-20px_rgba(30,42,36,0.45)]">
           <div className="flex items-center gap-3 px-3 py-3">
-            {logo ? <img src={logo} alt="" className="h-10 w-10 rounded-xl border border-clay-light bg-white object-contain p-1" /> : <Avatar name={name} size={40} />}
+            {logo ? <ChurchLogo src={logo} style={logoStyle} size={40} className="ring-1 ring-clay-light" /> : <Avatar name={name} size={40} />}
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-charcoal">{church ?? 'Mi iglesia'}</p>
               <p className="truncate text-xs text-graysage">{user?.email}</p>
@@ -204,7 +205,7 @@ export default function AppHeader() {
           {/* Firma: el logo y el nombre de la iglesia si subió su logo; si no, ChBook. Lleva a Inicio */}
           {brand.logoUrl ? (
             <Link to="/" className="group flex min-w-0 max-w-[16rem] items-center gap-2.5" aria-label={`${brand.name ?? 'Inicio'}, ir a Inicio`}>
-              <img src={brand.logoUrl} alt="" className="h-9 w-9 shrink-0 rounded-xl bg-white object-contain p-1 shadow-sm transition-transform duration-300 group-hover:scale-105" />
+              <ChurchLogo src={brand.logoUrl} style={brand.logoStyle} size={36} className="shadow-sm ring-1 ring-white/25 transition-transform duration-300 group-hover:scale-105" />
               <span className="truncate text-[1.02rem] font-semibold leading-tight tracking-tight text-paper">{brand.name}</span>
             </Link>
           ) : (
@@ -243,7 +244,7 @@ export default function AppHeader() {
                 <LiveDot />Culto en vivo
               </Link>
             )}
-            <AccountMenu church={status.church} logo={brand.logoUrl} />
+            <AccountMenu church={status.church} logo={brand.logoUrl} logoStyle={brand.logoStyle} />
           </div>
         </div>
       </header>

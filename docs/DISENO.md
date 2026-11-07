@@ -132,7 +132,13 @@ Cada iglesia puede vestir el panel con su marca desde **Ajustes → Identidad**.
   - Son las variables `--sage-*` de `index.css`.
   - Lo ve todo el equipo de la iglesia.
   - El navegador guarda una copia para pintar sin parpadeo antes de cargar.
-- Todo vive en `src/lib/brand.ts` (`useBrand`).
+- **Cómo se muestra el logo** (`settings.logo_style`): al subirlo se analizan sus bordes.
+  - Si es opaco (`full`), el logo trae su propio fondo y se recorta con esquinas redondeadas, sin marco.
+  - Si es transparente (`transparent`), va sobre una placa blanca.
+  - En Ajustes se puede cambiar a mano. El componente es `ChurchLogo`.
+- **Encuadre de la foto** (`settings.cover_focus`, `{x, y}` en %): se elige arrastrando la vista previa.
+- **Paleta sugerida:** al subir el logo se guarda su color principal (`settings.logo_color`) y se propone la paleta del tono más cercano, hasta 35° de diferencia. Si el logo no tiene un color claro, se propone Pizarra.
+- Todo vive en `src/lib/brand.ts` (`useBrand`). Los cambios a `settings` desde Identidad pasan por `patchSettings` de Ajustes, para no pisar las reglas ni los rangos.
 
 ## Requerimientos V1 (Fase 1, web)
 

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { greeting } from '../lib/ui'
+import { CENTER, type Focus, type LogoStyle } from '../lib/brand'
+import ChurchLogo from './ChurchLogo'
 
 const DATE_FMT = new Intl.DateTimeFormat('es', { weekday: 'long', day: 'numeric', month: 'long' })
 const upperFirst = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
@@ -12,12 +14,14 @@ interface Props {
   live: { name: string; count: number } | null
   logoUrl?: string | null // logo de la iglesia (Ajustes → Identidad)
   coverUrl?: string | null // foto del templo; si no hay, la foto de ChBook
+  logoStyle?: LogoStyle
+  coverFocus?: Focus // qué parte de la foto se ve (Ajustes → Identidad)
 }
 
 // Banda de bienvenida del Dashboard: la foto del templo (o la de la marca) desenfocada bajo un
 // velo sage, saludo, nombre de la iglesia y una sola acción (iniciar o ver el
 // culto). Al bajar, la foto se desplaza más lento (parallax).
-export default function WelcomeBand({ churchName, meta, today, live, logoUrl, coverUrl }: Props) {
+export default function WelcomeBand({ churchName, meta, today, live, logoUrl, coverUrl, logoStyle = 'transparent', coverFocus = CENTER }: Props) {
   const bandRef = useRef<HTMLElement>(null)
   const photoRef = useRef<HTMLDivElement>(null)
   const [now] = useState(() => new Date())
@@ -62,7 +66,7 @@ export default function WelcomeBand({ churchName, meta, today, live, logoUrl, co
         {/* Foto de marca: desenfocada, solo ambiente */}
         {/* Con la foto propia del templo, el velo baja para que se reconozca; el
             texto se protege oscureciendo solo el lado izquierdo y la base. */}
-        <div ref={photoRef} className="absolute inset-0 bg-cover bg-center will-change-transform" style={{ backgroundImage: `url(${coverUrl ?? '/hero-band.webp'})`, filter: coverUrl ? 'blur(0.5px) saturate(1)' : 'blur(5px) saturate(0.85)', transform: 'scale(1.15)' }} aria-hidden />
+        <div ref={photoRef} className="absolute inset-0 bg-cover bg-center will-change-transform" style={{ backgroundImage: `url(${coverUrl ?? '/hero-band.webp'})`, backgroundPosition: coverUrl ? `${coverFocus.x}% ${coverFocus.y}%` : undefined, filter: coverUrl ? 'blur(0.5px) saturate(1)' : 'blur(5px) saturate(0.85)', transform: 'scale(1.15)' }} aria-hidden />
         <div className={`absolute inset-0 ${coverUrl ? 'bg-sage-dark/35' : 'bg-sage-dark/70'}`} aria-hidden />
         <div className={`absolute inset-0 ${coverUrl ? 'bg-[linear-gradient(100deg,rgba(20,30,26,0.78)_0%,rgba(20,30,26,0.45)_45%,transparent_80%)]' : 'bg-[linear-gradient(100deg,rgba(30,42,36,0.55),transparent_70%)]'}`} aria-hidden />
         {coverUrl && <div className="absolute inset-x-0 bottom-0 h-2/3 bg-[linear-gradient(to_top,rgba(20,30,26,0.55),transparent)]" aria-hidden />}
@@ -73,7 +77,12 @@ export default function WelcomeBand({ churchName, meta, today, live, logoUrl, co
               {greeting(now)} · {upperFirst(DATE_FMT.format(now))}
             </p>
             <div className="mt-1 flex min-w-0 items-center gap-3 sm:gap-4">
-              {logoUrl && <img src={logoUrl} alt="" className="h-12 w-12 shrink-0 rounded-2xl bg-white object-contain p-1.5 shadow-lg sm:h-16 sm:w-16" />}
+              {logoUrl && (
+                <>
+                  <ChurchLogo src={logoUrl} style={logoStyle} size={48} className="shadow-lg ring-2 ring-white/40 sm:hidden" />
+                  <ChurchLogo src={logoUrl} style={logoStyle} size={64} className="hidden shadow-lg ring-2 ring-white/40 sm:flex" />
+                </>
+              )}
               <h1 className="line-clamp-2 min-w-0 font-serif text-[2rem] leading-[1.05] text-paper sm:text-5xl">{churchName ?? 'Dashboard'}</h1>
             </div>
             <p className="mt-2 text-sm text-paper/70">{meta}</p>
