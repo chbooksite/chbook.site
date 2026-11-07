@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { displayAgeRange, readAgeRanges, DEFAULT_AGE_RANGES, type AgeRangeDef } from '../lib/member'
 
 // Base de SEGMENTACIÓN de personas (Pilar A) para el panel: totales + desglose por
-// estado, bautismo, género, edad, roles y equipos. Las personas son el "activo"
-// central, así que el dashboard las mide y agrupa en lugar de ingresos/egresos.
+// estado, bautismo, género, edad, roles y equipos. Vista por defecto en BARRAS
+// (simple de leer); al seleccionar una tarjeta se AMPLÍA y muestra un donut que
+// compara cada sección con el TOTAL de la iglesia (p. ej. qué % está en Danza).
 
 interface Cat { id: string; name: string }
 interface M {
@@ -25,19 +26,25 @@ interface RawMember {
   member_roles: { role_id: string }[] | null
   member_teams: { team_id: string }[] | null
 }
+interface Item { label: string; value: number; cls?: string }
 
 // En las métricas no cuentan archivados ni los que están en cambio de membresía.
 const counted = (s: string) => s !== 'archived' && s !== 'cambio_membresia'
 
-// Una barra apilada (partes de un todo) + leyenda con conteo y %.
-function SegBar({ title, parts }: { title: string; parts: { label: string; value: number; cls: string }[] }) {
-  const total = parts.reduce((a, p) => a + p.value, 0) || 1
+// Orden categórico fijo (paleta de marca), hex directo para el SVG y la leyenda.
+const PIE = ['#5CA27B', '#B5897A', '#9DA99B', '#E0CCBE', '#88C0A4', '#7E807B']
+const OTHER_COLOR = '#C4DFD2'
+
+// --- Vistas de contenido (sin tarjeta propia; la tarjeta la pone <Card>) ---
+
+// Barra apilada (partes de un todo) + leyenda con conteo y %.
+function Stacked({ parts, total }: { parts: Item[]; total: number }) {
+  const sum = total || parts.reduce((a, p) => a + p.value, 0) || 1
   return (
-    <div className="rounded-2xl border border-black/5 bg-white p-4 shadow-sm">
-      <p className="mb-2.5 text-sm font-medium text-charcoal">{title}</p>
+    <>
       <div className="flex h-3 w-full gap-0.5 overflow-hidden rounded-full bg-cream">
         {parts.filter((p) => p.value > 0).map((p, i) => (
-          <div key={i} className={p.cls} style={{ width: `${(p.value / total) * 100}%` }} title={`${p.label}: ${p.value}`} />
+          <div key={i} className={p.cls} style={{ width: `${(p.value / sum) * 100}%` }} title={`${p.label}: ${p.value}`} />
         ))}
       </div>
       <div className="mt-3 space-y-1.5">
@@ -46,24 +53,35 @@ function SegBar({ title, parts }: { title: string; parts: { label: string; value
             <span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${p.cls}`} />
             <span className="truncate text-graysage">{p.label}</span>
             <span className="ml-auto font-medium tabular-nums text-charcoal">{p.value}</span>
-            <span className="w-9 text-right tabular-nums text-graysage">{Math.round((p.value / total) * 100)}%</span>
+            <span className="w-9 text-right tabular-nums text-graysage">{Math.round((p.value / sum) * 100)}%</span>
           </div>
         ))}
       </div>
+    </>
+  )
+}
+
+// Lista de categorías con barra de magnitud (un solo tono: es magnitud, no identidad).
+function Bars({ items, empty = 'Sin datos' }: { items: Item[]; empty?: string }) {
+  const max = Math.max(1, ...items.map((i) => i.value))
+  if (items.length === 0) return <p className="py-2 text-xs text-graysage/60">{empty}</p>
+  return (
+    <div className="space-y-1.5">
+      {items.map((it, i) => (
+        <div key={i} className="flex items-center gap-2 text-xs">
+          <span className="w-28 shrink-0 truncate text-graysage" title={it.label}>{it.label}</span>
+          <span className="relative h-3 flex-1 overflow-hidden rounded-full bg-cream">
+            <span className="absolute inset-y-0 left-0 rounded-full bg-sage-dark" style={{ width: `${(it.value / max) * 100}%` }} />
+          </span>
+          <span className="w-7 text-right font-medium tabular-nums text-charcoal">{it.value}</span>
+        </div>
+      ))}
     </div>
   )
 }
 
-// Orden categórico fijo (paleta de marca). Hex directo para el SVG y la leyenda,
-// así no dependemos de que Tailwind genere clases stroke-*. Se asignan en orden,
-// nunca se ciclan: una 7.ª categoría cae en "Otros".
-const PIE = ['#5CA27B', '#B5897A', '#9DA99B', '#E0CCBE', '#88C0A4', '#7E807B']
-const OTHER_COLOR = '#C4DFD2'
-
-// Gráfico de TORTA (donut): proporción de cada categoría respecto a la iglesia.
-// El ángulo va por el tamaño relativo entre categorías; la leyenda muestra el
-// conteo y el % de la iglesia. `caption` añade la cobertura (p. ej. en equipos).
-function Donut({ title, items, total, caption, empty = 'Sin datos' }: { title: string; items: { label: string; value: number }[]; total: number; caption?: string; empty?: string }) {
+// Donut: cada porción comparada con el TOTAL de la iglesia (leyenda = % de la iglesia).
+function DonutView({ items, total }: { items: Item[]; total: number }) {
   let data = [...items].filter((d) => d.value > 0).sort((a, b) => b.value - a.value)
   let otherColor = false
   if (data.length > 6) { const top = data.slice(0, 5); const rest = data.slice(5); top.push({ label: 'Otros', value: rest.reduce((a, x) => a + x.value, 0) }); data = top; otherColor = true }
@@ -71,35 +89,45 @@ function Donut({ title, items, total, caption, empty = 'Sin datos' }: { title: s
   const R = 42, SW = 15, C = 2 * Math.PI * R
   const colorAt = (i: number) => (otherColor && i === data.length - 1 ? OTHER_COLOR : PIE[i % PIE.length])
   let acc = 0
+  if (data.length === 0) return <p className="py-2 text-xs text-graysage/60">Sin datos</p>
   return (
-    <div className="rounded-2xl border border-black/5 bg-white p-4 shadow-sm">
-      <p className="mb-2.5 text-sm font-medium text-charcoal">{title}</p>
-      {data.length === 0 ? (
-        <p className="py-4 text-xs text-graysage/60">{empty}</p>
-      ) : (
-        <div className="flex items-center gap-4">
-          <svg viewBox="0 0 100 100" className="h-24 w-24 shrink-0 -rotate-90">
-            <circle cx="50" cy="50" r={R} fill="none" stroke="#EFEFEE" strokeWidth={SW} />
-            {data.map((d, i) => {
-              const frac = d.value / sum
-              const dash = Math.max(0, frac * C - 2) // 2px de separación entre porciones
-              const el = <circle key={i} cx="50" cy="50" r={R} fill="none" stroke={colorAt(i)} strokeWidth={SW} strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={-acc * C} strokeLinecap="butt" />
-              acc += frac
-              return el
-            })}
-          </svg>
-          <div className="min-w-0 flex-1 space-y-1">
-            {data.map((d, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: colorAt(i) }} />
-                <span className="truncate text-graysage" title={d.label}>{d.label}</span>
-                <span className="ml-auto font-medium tabular-nums text-charcoal">{d.value}</span>
-                <span className="w-9 text-right tabular-nums text-graysage">{Math.round((d.value / total) * 100)}%</span>
-              </div>
-            ))}
+    <div className="flex items-center gap-4">
+      <svg viewBox="0 0 100 100" className="h-24 w-24 shrink-0 -rotate-90">
+        <circle cx="50" cy="50" r={R} fill="none" stroke="#EFEFEE" strokeWidth={SW} />
+        {data.map((d, i) => {
+          const frac = d.value / sum
+          const dash = Math.max(0, frac * C - 2)
+          const el = <circle key={i} cx="50" cy="50" r={R} fill="none" stroke={colorAt(i)} strokeWidth={SW} strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={-acc * C} />
+          acc += frac
+          return el
+        })}
+      </svg>
+      <div className="min-w-0 flex-1 space-y-1">
+        {data.map((d, i) => (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: colorAt(i) }} />
+            <span className="truncate text-graysage" title={d.label}>{d.label}</span>
+            <span className="ml-auto font-medium tabular-nums text-charcoal">{d.value}</span>
+            <span className="w-9 text-right tabular-nums text-graysage">{Math.round((d.value / total) * 100)}%</span>
           </div>
-        </div>
-      )}
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Tarjeta de desglose: barras por defecto; al tocarla se amplía y muestra el donut
+// (% de cada sección respecto a la iglesia).
+function Card({ title, items, total, caption, children }: { title: string; items: Item[]; total: number; caption?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-2xl border border-black/5 bg-white p-4 shadow-sm transition">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between gap-2 text-left">
+        <span className="text-sm font-medium text-charcoal">{title}</span>
+        <span className="shrink-0 text-xs text-sage-dark">{open ? 'Ocultar' : '% iglesia'} <span className={`inline-block transition-transform ${open ? 'rotate-180' : ''}`}>▾</span></span>
+      </button>
+      <div className="mt-2.5">{children}</div>
+      {open && <div className="mt-3 border-t border-black/5 pt-3"><DonutView items={items} total={total} /></div>}
       {caption && <p className="mt-2.5 text-xs text-graysage/80">{caption}</p>}
     </div>
   )
@@ -159,33 +187,26 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
     const active = list.filter((m) => m.status === 'active').length
     const baptized = list.filter((m) => m.isBaptized).length
 
-    const byStatus = ['active', 'inactive', 'prospect'].map((s) => ({ label: STATUS_LABEL[s], value: list.filter((m) => m.status === s).length, cls: STATUS_CLS[s] }))
-    const baptism = [
+    const byStatus: Item[] = ['active', 'inactive', 'prospect'].map((s) => ({ label: STATUS_LABEL[s], value: list.filter((m) => m.status === s).length, cls: STATUS_CLS[s] }))
+    const baptism: Item[] = [
       { label: 'Bautizados', value: baptized, cls: 'bg-sage-dark' },
       { label: 'No bautizados', value: total - baptized, cls: 'bg-sand' },
     ]
     const sexNorm = (s: string | null) => (s ? (SEX_LABEL[s] ?? SEX_LABEL[s.toLowerCase()] ?? null) : null)
     const men = list.filter((m) => sexNorm(m.sex) === 'Hombres').length
     const women = list.filter((m) => sexNorm(m.sex) === 'Mujeres').length
-    const sex = [
+    const sex: Item[] = [
       { label: 'Hombres', value: men, cls: 'bg-sage-dark' },
       { label: 'Mujeres', value: women, cls: 'bg-clay' },
       { label: 'Sin dato', value: total - men - women, cls: 'bg-graysage/40' },
     ]
 
-    // Por edad: en el orden de los rangos configurados + "Sin dato".
     const ageCount = new Map<string, number>()
     for (const m of list) { const r = displayAgeRange(m.birthDate, m.ageGroup, ageRanges) ?? 'Sin dato'; ageCount.set(r, (ageCount.get(r) ?? 0) + 1) }
-    const byAge = [...ageRanges.map((r) => ({ label: r.name, value: ageCount.get(r.name) ?? 0 })), { label: 'Sin dato', value: ageCount.get('Sin dato') ?? 0 }].filter((x) => x.value > 0)
+    const byAge: Item[] = [...ageRanges.map((r) => ({ label: r.name, value: ageCount.get(r.name) ?? 0 })), { label: 'Sin dato', value: ageCount.get('Sin dato') ?? 0 }].filter((x) => x.value > 0)
 
-    const byRole = roles
-      .map((r) => ({ label: r.name, value: list.filter((m) => m.roleIds.includes(r.id)).length }))
-      .filter((x) => x.value > 0)
-      .sort((a, b) => b.value - a.value)
-    const byTeam = teams
-      .map((t) => ({ label: t.name, value: list.filter((m) => m.teamIds.includes(t.id)).length }))
-      .filter((x) => x.value > 0)
-      .sort((a, b) => b.value - a.value)
+    const byRole: Item[] = roles.map((r) => ({ label: r.name, value: list.filter((m) => m.roleIds.includes(r.id)).length })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value)
+    const byTeam: Item[] = teams.map((t) => ({ label: t.name, value: list.filter((m) => m.teamIds.includes(t.id)).length })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value)
 
     const inAnyTeam = list.filter((m) => m.teamIds.length > 0).length
     const inAnyRole = list.filter((m) => m.roleIds.length > 0).length
@@ -201,7 +222,6 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
 
   return (
     <div className="space-y-4">
-      {/* KPIs principales */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Miembros" value={seg.total} />
         <Kpi label="Activos" value={seg.active} sub={`${pct(seg.active)}% del total`} />
@@ -209,14 +229,13 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
         <Kpi label="Asistencia prom." value={avgAttendance} sub="últimos 4 cultos" />
       </div>
 
-      {/* Desglose */}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <SegBar title="Por estado" parts={seg.byStatus} />
-        <SegBar title="Bautismo" parts={seg.baptism} />
-        <SegBar title="Por género" parts={seg.sex} />
-        <Donut title="Por edad" items={seg.byAge} total={seg.total} empty="Sin fechas de nacimiento" />
-        <Donut title="Por equipo" items={seg.byTeam} total={seg.total} caption={`${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`} empty="Nadie en equipos" />
-        <Donut title="Por rol" items={seg.byRole} total={seg.total} caption={`${seg.inAnyRole} de ${seg.total} con algún rol (${pct(seg.inAnyRole)}%)`} empty="Nadie con rol asignado" />
+        <Card title="Por estado" items={seg.byStatus} total={seg.total}><Stacked parts={seg.byStatus} total={seg.total} /></Card>
+        <Card title="Bautismo" items={seg.baptism} total={seg.total}><Stacked parts={seg.baptism} total={seg.total} /></Card>
+        <Card title="Por género" items={seg.sex} total={seg.total}><Stacked parts={seg.sex} total={seg.total} /></Card>
+        <Card title="Por edad" items={seg.byAge} total={seg.total}><Bars items={seg.byAge} empty="Sin fechas de nacimiento" /></Card>
+        <Card title="Por equipo" items={seg.byTeam} total={seg.total} caption={`${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`}><Bars items={seg.byTeam} empty="Nadie en equipos" /></Card>
+        <Card title="Por rol" items={seg.byRole} total={seg.total} caption={`${seg.inAnyRole} de ${seg.total} con algún rol (${pct(seg.inAnyRole)}%)`}><Bars items={seg.byRole} empty="Nadie con rol asignado" /></Card>
       </div>
     </div>
   )
