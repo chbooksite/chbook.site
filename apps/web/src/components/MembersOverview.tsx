@@ -116,17 +116,25 @@ function DonutView({ items, total }: { items: Item[]; total: number }) {
   )
 }
 
-// Tarjeta de desglose: barras por defecto; al tocarla se amplía y muestra el donut
-// (% de cada sección respecto a la iglesia).
-function Card({ title, items, total, caption, children }: { title: string; items: Item[]; total: number; caption?: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false)
+// Tarjeta de desglose: barras por defecto. Al pasar el cursor se AMPLÍA y muestra el
+// donut (% de cada sección respecto a la iglesia); al hacer clic en cualquier parte
+// queda SELECCIONADA (fijada) hasta tocar fuera.
+function Card({ id, title, items, total, caption, selected, onSelect, children }: { id: string; title: string; items: Item[]; total: number; caption?: string; selected: boolean; onSelect: (id: string) => void; children: ReactNode }) {
+  const [hover, setHover] = useState(false)
+  const open = hover || selected
   return (
-    <div className="rounded-2xl border border-black/5 bg-white p-4 shadow-sm transition">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between gap-2 text-left">
+    <div
+      data-seg-card
+      onClick={() => onSelect(id)}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className={`cursor-pointer rounded-2xl border bg-white p-4 shadow-sm transition ${selected ? 'border-sage/50 ring-1 ring-sage/30' : 'border-black/5 hover:shadow-md'}`}
+    >
+      <div className="mb-2.5 flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-charcoal">{title}</span>
-        <span className="shrink-0 text-xs text-sage-dark">{open ? 'Ocultar' : '% iglesia'} <span className={`inline-block transition-transform ${open ? 'rotate-180' : ''}`}>▾</span></span>
-      </button>
-      <div className="mt-2.5">{children}</div>
+        {open && <span className="shrink-0 text-xs text-sage-dark">% de la iglesia</span>}
+      </div>
+      {children}
       {open && <div className="mt-3 border-t border-black/5 pt-3"><DonutView items={items} total={total} /></div>}
       {caption && <p className="mt-2.5 text-xs text-graysage/80">{caption}</p>}
     </div>
@@ -152,6 +160,13 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
   const [roles, setRoles] = useState<Cat[]>([])
   const [teams, setTeams] = useState<Cat[]>([])
   const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
+  // Tarjeta fijada (seleccionada con clic). Un clic fuera de cualquier tarjeta la suelta.
+  const [selected, setSelected] = useState<string | null>(null)
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('[data-seg-card]')) setSelected(null) }
+    document.addEventListener('click', onDoc)
+    return () => document.removeEventListener('click', onDoc)
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -230,12 +245,16 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <Card title="Por estado" items={seg.byStatus} total={seg.total}><Stacked parts={seg.byStatus} total={seg.total} /></Card>
-        <Card title="Bautismo" items={seg.baptism} total={seg.total}><Stacked parts={seg.baptism} total={seg.total} /></Card>
-        <Card title="Por género" items={seg.sex} total={seg.total}><Stacked parts={seg.sex} total={seg.total} /></Card>
-        <Card title="Por edad" items={seg.byAge} total={seg.total}><Bars items={seg.byAge} empty="Sin fechas de nacimiento" /></Card>
-        <Card title="Por equipo" items={seg.byTeam} total={seg.total} caption={`${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`}><Bars items={seg.byTeam} empty="Nadie en equipos" /></Card>
-        <Card title="Por rol" items={seg.byRole} total={seg.total} caption={`${seg.inAnyRole} de ${seg.total} con algún rol (${pct(seg.inAnyRole)}%)`}><Bars items={seg.byRole} empty="Nadie con rol asignado" /></Card>
+        {([
+          { id: 'estado', title: 'Por estado', items: seg.byStatus, body: <Stacked parts={seg.byStatus} total={seg.total} /> },
+          { id: 'bautismo', title: 'Bautismo', items: seg.baptism, body: <Stacked parts={seg.baptism} total={seg.total} /> },
+          { id: 'genero', title: 'Por género', items: seg.sex, body: <Stacked parts={seg.sex} total={seg.total} /> },
+          { id: 'edad', title: 'Por edad', items: seg.byAge, body: <Bars items={seg.byAge} empty="Sin fechas de nacimiento" /> },
+          { id: 'equipo', title: 'Por equipo', items: seg.byTeam, caption: `${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`, body: <Bars items={seg.byTeam} empty="Nadie en equipos" /> },
+          { id: 'rol', title: 'Por rol', items: seg.byRole, caption: `${seg.inAnyRole} de ${seg.total} con algún rol (${pct(seg.inAnyRole)}%)`, body: <Bars items={seg.byRole} empty="Nadie con rol asignado" /> },
+        ] as { id: string; title: string; items: Item[]; caption?: string; body: ReactNode }[]).map((c) => (
+          <Card key={c.id} id={c.id} title={c.title} items={c.items} total={seg.total} caption={c.caption} selected={selected === c.id} onSelect={setSelected}>{c.body}</Card>
+        ))}
       </div>
     </div>
   )
