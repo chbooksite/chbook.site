@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import { LogoMark } from './Logo'
 import Avatar from './Avatar'
-import PalettePicker from './PalettePicker'
+import { useBrand } from '../lib/brand'
 
 // Tres entornos, como una web y no un sistema de menús: Inicio (el centro: el
 // culto y la semana), Personas (la gente, por grupos) y Calendario (la
@@ -79,7 +79,7 @@ function LiveDot({ className = '' }: { className?: string }) {
 }
 
 // Menú de cuenta: avatar con iniciales → iglesia, correo, atajos y cerrar sesión.
-function AccountMenu({ church }: { church: string | null }) {
+function AccountMenu({ church, logo }: { church: string | null; logo: string | null }) {
   const { user, signOut } = useAuth()
   const { pathname, search } = useLocation()
   const [open, setOpen] = useState(false)
@@ -117,15 +117,15 @@ function AccountMenu({ church }: { church: string | null }) {
         aria-label="Menú de cuenta"
         className="flex items-center gap-2 rounded-full p-1 pr-2 transition hover:bg-paper/10"
       >
-        <span className="rounded-full ring-2 ring-paper/25"><Avatar name={name} size={32} /></span>
-        <span className="hidden max-w-[10rem] truncate text-sm font-medium text-paper lg:inline">{church ?? 'Mi cuenta'}</span>
+        <span className="rounded-full ring-2 ring-paper/25">{logo ? <img src={logo} alt="" className="h-8 w-8 rounded-full bg-white object-contain p-0.5" /> : <Avatar name={name} size={32} />}</span>
+        {!logo && <span className="hidden max-w-[10rem] truncate text-sm font-medium text-paper lg:inline">{church ?? 'Mi cuenta'}</span>}
         <Icon className={`h-4 w-4 text-paper/70 transition ${open ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6" /></Icon>
       </button>
 
       {open && (
         <div role="menu" className="subir absolute right-0 top-[calc(100%+0.6rem)] z-50 w-72 overflow-hidden rounded-2xl border border-clay-light bg-paper p-1.5 shadow-[0_20px_50px_-20px_rgba(30,42,36,0.45)]">
           <div className="flex items-center gap-3 px-3 py-3">
-            <Avatar name={name} size={40} />
+            {logo ? <img src={logo} alt="" className="h-10 w-10 rounded-xl border border-clay-light bg-white object-contain p-1" /> : <Avatar name={name} size={40} />}
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-charcoal">{church ?? 'Mi iglesia'}</p>
               <p className="truncate text-xs text-graysage">{user?.email}</p>
@@ -139,17 +139,15 @@ function AccountMenu({ church }: { church: string | null }) {
             <Icon className="h-[18px] w-[18px] text-graysage"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><path d="M14 14h3v3h-3zM17 20h3v-3" /></Icon>Invitar miembros
           </Link>
           <Link role="menuitem" to="/ajustes?tab=apariencia" className={item}>
-            <Icon className="h-[18px] w-[18px] text-graysage"><path d="M4 7V5h16v2M9 19h6M12 5v14" /></Icon>Apariencia y letra
+            <Icon className="h-[18px] w-[18px] text-graysage"><path d="M12 3a9 9 0 1 0 0 18c1 0 1.5-.8 1.5-1.6 0-.9-.6-1.3-.6-2.1 0-.9.7-1.6 1.6-1.6H17a4 4 0 0 0 4-4C21 7 17 3 12 3Z" /><circle cx="7.5" cy="11" r="1" /><circle cx="10" cy="7.5" r="1" /><circle cx="14.5" cy="7.5" r="1" /></Icon>Logo, foto y color
           </Link>
-          <div className="my-1 h-px bg-clay-light/70" />
-          <div className="px-3 pb-2 pt-1.5">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-graysage">Color principal</p>
-            <PalettePicker compact />
-          </div>
           <div className="my-1 h-px bg-clay-light/70" />
           <button role="menuitem" type="button" onClick={signOut} className={`${item} w-full text-danger hover:bg-danger/5`}>
             <Icon className="h-[18px] w-[18px]"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" /><path d="M10 17l5-5-5-5M15 12H4" /></Icon>Cerrar sesión
           </button>
+          <p className="flex items-center justify-center gap-1.5 pb-1 pt-2 text-[11px] text-faint">
+            <LogoMark size={12} badge={false} className="text-faint" />Funciona con ChBook
+          </p>
         </div>
       )}
     </div>
@@ -196,16 +194,25 @@ function BottomNav({ status }: { status: NavStatus }) {
 export default function AppHeader() {
   const status = useNavStatus()
   const isOn = useIsOn()
+  const { membership } = useAuth()
+  const brand = useBrand(membership?.churchId)
 
   return (
     <>
       <header className="sticky top-0 z-30 px-3 pt-3 sm:px-4">
         <div className="mx-auto grid grid-cols-[1fr_auto] items-center gap-3 rounded-[1.25rem] border border-white/10 bg-sage-dark/90 py-2 pl-4 pr-2 shadow-[0_12px_32px_-16px_rgba(30,42,36,0.6)] backdrop-blur-xl md:grid-cols-[1fr_auto_1fr]">
-          {/* Firma: monograma dorado sin insignia + nombre; lleva a Inicio */}
-          <Link to="/" className="group flex w-fit shrink-0 items-center gap-2.5" aria-label="ChBook, ir a Inicio">
-            <LogoMark size={28} badge={false} className="logo-brillo text-gold transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105" />
-            <span className="text-[1.1rem] font-semibold tracking-tight text-paper">ChBook</span>
-          </Link>
+          {/* Firma: el logo y el nombre de la iglesia si subió su logo; si no, ChBook. Lleva a Inicio */}
+          {brand.logoUrl ? (
+            <Link to="/" className="group flex min-w-0 max-w-[16rem] items-center gap-2.5" aria-label={`${brand.name ?? 'Inicio'}, ir a Inicio`}>
+              <img src={brand.logoUrl} alt="" className="h-9 w-9 shrink-0 rounded-xl bg-white object-contain p-1 shadow-sm transition-transform duration-300 group-hover:scale-105" />
+              <span className="truncate text-[1.02rem] font-semibold leading-tight tracking-tight text-paper">{brand.name}</span>
+            </Link>
+          ) : (
+            <Link to="/" className="group flex w-fit shrink-0 items-center gap-2.5" aria-label="ChBook, ir a Inicio">
+              <LogoMark size={28} badge={false} className="logo-brillo text-gold transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105" />
+              <span className="text-[1.1rem] font-semibold tracking-tight text-paper">ChBook</span>
+            </Link>
+          )}
 
           <nav className="hidden items-center gap-1 rounded-full bg-black/10 p-1 md:flex" aria-label="Secciones">
             {NAV_ORDER.map((i) => {
@@ -236,7 +243,7 @@ export default function AppHeader() {
                 <LiveDot />Culto en vivo
               </Link>
             )}
-            <AccountMenu church={status.church} />
+            <AccountMenu church={status.church} logo={brand.logoUrl} />
           </div>
         </div>
       </header>

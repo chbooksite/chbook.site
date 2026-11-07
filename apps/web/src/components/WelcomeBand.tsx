@@ -10,12 +10,14 @@ interface Props {
   meta: ReactNode // código · plan · país
   today: string | null // "Culto dominical · 10:00" si hay actividad hoy
   live: { name: string; count: number } | null
+  logoUrl?: string | null // logo de la iglesia (Ajustes → Identidad)
+  coverUrl?: string | null // foto del templo; si no hay, la foto de ChBook
 }
 
-// Banda de bienvenida del Dashboard: la foto de la marca desenfocada bajo un
+// Banda de bienvenida del Dashboard: la foto del templo (o la de la marca) desenfocada bajo un
 // velo sage, saludo, nombre de la iglesia y una sola acción (iniciar o ver el
 // culto). Al bajar, la foto se desplaza más lento (parallax).
-export default function WelcomeBand({ churchName, meta, today, live }: Props) {
+export default function WelcomeBand({ churchName, meta, today, live, logoUrl, coverUrl }: Props) {
   const bandRef = useRef<HTMLElement>(null)
   const photoRef = useRef<HTMLDivElement>(null)
   const [now] = useState(() => new Date())
@@ -58,7 +60,7 @@ export default function WelcomeBand({ churchName, meta, today, live }: Props) {
   return (
       <section ref={bandRef} className="subir relative mb-6 overflow-hidden rounded-[1.75rem] border border-white/20 text-paper shadow-[0_18px_50px_-24px_rgba(30,42,36,0.6)]" aria-label="Bienvenida">
         {/* Foto de marca: desenfocada, solo ambiente */}
-        <div ref={photoRef} className="absolute inset-0 bg-cover bg-center will-change-transform" style={{ backgroundImage: 'url(/hero-band.webp)', filter: 'blur(5px) saturate(0.85)', transform: 'scale(1.15)' }} aria-hidden />
+        <div ref={photoRef} className="absolute inset-0 bg-cover bg-center will-change-transform" style={{ backgroundImage: `url(${coverUrl ?? '/hero-band.webp'})`, filter: coverUrl ? 'blur(2px) saturate(0.9)' : 'blur(5px) saturate(0.85)', transform: 'scale(1.15)' }} aria-hidden />
         <div className="absolute inset-0 bg-sage-dark/70" aria-hidden />
         <div className="absolute inset-0 bg-[linear-gradient(100deg,rgba(30,42,36,0.55),transparent_70%)]" aria-hidden />
 
@@ -67,7 +69,10 @@ export default function WelcomeBand({ churchName, meta, today, live }: Props) {
             <p className="text-sm text-paper/75">
               {greeting(now)} · {upperFirst(DATE_FMT.format(now))}
             </p>
-            <h1 className="mt-1 truncate font-serif text-4xl text-paper sm:text-5xl">{churchName ?? 'Dashboard'}</h1>
+            <div className="mt-1 flex min-w-0 items-center gap-3 sm:gap-4">
+              {logoUrl && <img src={logoUrl} alt="" className="h-12 w-12 shrink-0 rounded-2xl bg-white object-contain p-1.5 shadow-lg sm:h-16 sm:w-16" />}
+              <h1 className="line-clamp-2 min-w-0 font-serif text-[2rem] leading-[1.05] text-paper sm:text-5xl">{churchName ?? 'Dashboard'}</h1>
+            </div>
             <p className="mt-2 text-sm text-paper/70">{meta}</p>
             {today && (
               <p className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold text-paper backdrop-blur-md">

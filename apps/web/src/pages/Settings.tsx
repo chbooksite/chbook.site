@@ -4,8 +4,10 @@ import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import InviteQR from '../components/InviteQR'
 import PalettePicker from '../components/PalettePicker'
+import BrandEditor from '../components/BrandEditor'
+import { setBrand, useBrand } from '../lib/brand'
 import PageShell, { PageLoading } from '../components/PageShell'
-import { applyLargeText, readLargeText } from '../lib/preferences'
+import { applyLargeText, readLargeText, type PaletteKey } from '../lib/preferences'
 import { readInactivityDays } from '../lib/member'
 import MapPicker, { type Coords } from '../components/MapPicker'
 import AgeRangesEditor from '../components/AgeRangesEditor'
@@ -345,6 +347,14 @@ export default function Settings() {
       .eq('id', churchId!)
   }
 
+  // Color de la iglesia (REQ-09): se guarda en settings.palette y lo ven todos.
+  const savePalette = async (palette: PaletteKey) => {
+    setBrand({ palette })
+    const nextSettings = { ...settingsRaw, palette }
+    setSettingsRaw(nextSettings)
+    await supabase.from('churches').update({ settings: nextSettings as never }).eq('id', churchId!)
+  }
+
   const saveChurch = async () => {
     if (!church.name.trim()) {
       setChurchMsg('La iglesia necesita un nombre.')
@@ -464,7 +474,7 @@ export default function Settings() {
             <p className="tarjeta p-6 text-sm text-graysage">Tu iglesia aún no tiene código de invitación.</p>
           ))}
 
-          {tab === 'apariencia' && <AppearanceSection />}
+          {tab === 'apariencia' && <AppearanceSection churchId={churchId!} onPalette={savePalette} />}
 
           {tab === 'iglesia' && (<>
           <section className="tarjeta p-5 sm:p-6">
@@ -618,7 +628,7 @@ const TABS = [
   { key: 'iglesia', label: 'Iglesia', short: 'Iglesia', icon: <><path d="M3 21h18" /><path d="M5 21V10l7-5 7 5v11" /><path d="M10 21v-5h4v5" /></> },
   { key: 'equipos', label: 'Equipos y roles', short: 'Equipos', icon: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a5.5 5.5 0 0 1 3.5 6" /></> },
   { key: 'invitar', label: 'Invitar', short: 'Invitar', icon: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><path d="M14 14h3v3h-3zM17 20h3v-3" /></> },
-  { key: 'apariencia', label: 'Apariencia', short: 'Estilo', icon: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></> },
+  { key: 'apariencia', label: 'Identidad', short: 'Marca', icon: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></> },
 ] as const
 type SettingsTab = (typeof TABS)[number]['key']
 
@@ -644,8 +654,9 @@ function SettingsTabs({ tab, onChange }: { tab: SettingsTab; onChange: (t: Setti
   )
 }
 
-// Apariencia (solo en este dispositivo): color principal y letra grande.
-function AppearanceSection() {
+// Identidad (logo, foto y color: para toda la iglesia) y letra grande (este dispositivo).
+function AppearanceSection({ churchId, onPalette }: { churchId: string; onPalette: (k: PaletteKey) => void }) {
+  const brand = useBrand(churchId)
   const [large, setLarge] = useState(readLargeText)
   const toggle = () => {
     applyLargeText(!large)
@@ -653,10 +664,11 @@ function AppearanceSection() {
   }
   return (
     <div className="space-y-4">
+    <BrandEditor churchId={churchId} brand={brand} />
     <section className="tarjeta p-5 sm:p-6">
-      <h2 className="font-serif text-lg font-bold text-charcoal">Color principal</h2>
-      <p className="mt-0.5 mb-4 text-sm text-graysage">Prueba otros tonos: toda la app cambia al instante. Se guarda en este dispositivo.</p>
-      <PalettePicker />
+      <h2 className="font-serif text-lg font-bold text-charcoal">Color de la iglesia</h2>
+      <p className="mt-0.5 mb-4 text-sm text-graysage">Toda la app cambia al instante, para ti y para tu equipo.</p>
+      <PalettePicker value={brand.palette ?? 'salvia'} onChange={onPalette} />
     </section>
     <section className="tarjeta flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6">
       <div>

@@ -3,12 +3,12 @@ import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import { formatTime, occursOn, SCHEDULE_SUMMARY_COLUMNS, summaryRules, type ScheduleSummaryRow } from '../lib/activity'
-import { remember } from '../lib/remember'
 import { ATTENDANCE_WINDOW_DAYS, pastoralWeek, type PastoralWeek, type WeekItem } from '../lib/pastoral'
 import { churchInsights, type InsightMember, type InsightService } from '../lib/insights'
 import PageShell, { PageLoading } from '../components/PageShell'
 import Avatar from '../components/Avatar'
 import WelcomeBand from '../components/WelcomeBand'
+import { useBrand } from '../lib/brand'
 import { AttendanceColumns, Legend, type ServicePoint } from '../components/charts'
 import { CountUp, Delta, Icon, Panel } from '../components/DashKit'
 import { SERIES } from '../lib/ui'
@@ -173,13 +173,13 @@ export default function Dashboard() {
   const [live, setLive] = useState<{ name: string; count: number } | null>(null)
   const [decideError, setDecideError] = useState<string | null>(null)
   const [approving, setApproving] = useState(false)
+  const brand = useBrand(membership?.churchId)
 
   useEffect(() => {
     if (!membership) return
     const id = membership.churchId
     supabase.from('churches').select('name, code, plan, country, capacity').eq('id', id).maybeSingle().then(({ data }) => {
       setChurch(data)
-      if (data?.name) remember({ church: data.name }) // para saludar en el próximo login
     })
     // Miembros, equipos, asistencias recientes y los últimos 10 cultos.
     // Antes, aplicar la regla de inactividad (REQ-13) para que los números ya
@@ -266,6 +266,8 @@ export default function Dashboard() {
         churchName={church?.name ?? null}
         live={live}
         today={todayLabel}
+        logoUrl={brand.logoUrl}
+        coverUrl={brand.coverUrl}
         meta={
           church && (
             <>

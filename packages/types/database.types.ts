@@ -314,6 +314,8 @@ export type Database = {
           city: string | null
           denomination: string | null
           founded_year: number | null
+          logo_url: string | null
+          cover_url: string | null
         }
         Insert: {
           address?: string | null
@@ -334,6 +336,8 @@ export type Database = {
           city?: string | null
           denomination?: string | null
           founded_year?: number | null
+          logo_url?: string | null
+          cover_url?: string | null
         }
         Update: {
           address?: string | null
@@ -354,6 +358,8 @@ export type Database = {
           city?: string | null
           denomination?: string | null
           founded_year?: number | null
+          logo_url?: string | null
+          cover_url?: string | null
         }
         Relationships: []
       }

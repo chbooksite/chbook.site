@@ -119,12 +119,20 @@ La app se ve como una web, no como un sistema con menú lateral. Solo hay tres e
 
 Ajustes, la invitación y la apariencia viven en el menú de cuenta.
 
-## Paletas de prueba
+## Identidad de cada iglesia
 
-El color principal (familia sage) son variables CSS en `index.css` (`--sage-*`).
-- **Ajustes → Apariencia** y el menú de cuenta permiten probar otras paletas: Eucalipto, Bosque, Oliva, Petróleo y Pizarra.
-- Cambian solo esas variables; los marrones, la crema, el dorado y los textos no cambian.
-- La elección se guarda en el navegador. Si se elige una paleta definitiva, se copia a `:root`.
+Cada iglesia puede vestir el panel con su marca desde **Ajustes → Identidad**. La migración es `20261107140000_church_branding.sql`.
+
+- **Logo** (`churches.logo_url`): reemplaza a ChBook en el encabezado, el menú de cuenta, la banda de Inicio, el ícono de la pestaña y el saludo del login. En el menú queda «Funciona con ChBook».
+- **Foto del templo** (`churches.cover_url`): es el fondo de la banda de Inicio.
+- **Archivos:** se guardan en el bucket público `church-assets/<church_id>/`.
+  - Solo el administrador de esa iglesia puede escribir ahí.
+  - Se achican en el navegador antes de subir: el logo a 512 px y la foto a 1600 px, en WebP. Los SVG se suben tal cual.
+- **Color** (`settings.palette`): Salvia, Eucalipto, Bosque, Oliva, Petróleo o Pizarra.
+  - Son las variables `--sage-*` de `index.css`.
+  - Lo ve todo el equipo de la iglesia.
+  - El navegador guarda una copia para pintar sin parpadeo antes de cargar.
+- Todo vive en `src/lib/brand.ts` (`useBrand`).
 
 ## Requerimientos V1 (Fase 1, web)
 

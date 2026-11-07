@@ -147,7 +147,7 @@ export default function Login() {
     mode === 'signup'
       ? 'Organiza tu iglesia en minutos.'
       : welcomeBack && known?.church
-        ? <>a <span className="font-semibold text-charcoal">{known.church}</span></>
+        ? <>a {known.logo && <img src={known.logo} alt="" className="mx-0.5 inline h-6 w-6 rounded-md border border-clay-light bg-white object-contain p-0.5 align-middle" />} <span className="font-semibold text-charcoal">{known.church}</span></>
         : 'Entra a tu Dashboard.'
 
   return (
