@@ -15,6 +15,9 @@ export default {
         charcoal: "#383835",   // gris oscuro (texto / oscuros)
         graysage: "#7E807B",   // gris medio (texto secundario)
         gold:     "#9DA99B",
+        // Pasteles que ENRIQUECEN la base (verde + gris) sin salirse de la marca:
+        mist:  { DEFAULT: "#C4D7D3", dark: "#6E9B93" }, // azul-verdoso polvoriento
+        mauve: { DEFAULT: "#DAC8CF", dark: "#9E7E8B" }, // rosa polvoriento
       },
       fontFamily: {
         serif: ["Poppins", "ui-sans-serif", "sans-serif"], // marca / títulos (redondeada)

@@ -42,7 +42,7 @@ function Stacked({ parts, total }: { parts: Item[]; total: number }) {
   const sum = total || parts.reduce((a, p) => a + p.value, 0) || 1
   return (
     <>
-      <div className="flex h-3 w-full gap-0.5 overflow-hidden rounded-full bg-cream">
+      <div className="flex h-3 w-full gap-0.5 overflow-hidden rounded-full bg-white/55">
         {parts.filter((p) => p.value > 0).map((p, i) => (
           <div key={i} className={p.cls} style={{ width: `${(p.value / sum) * 100}%` }} title={`${p.label}: ${p.value}`} />
         ))}
@@ -61,8 +61,9 @@ function Stacked({ parts, total }: { parts: Item[]; total: number }) {
   )
 }
 
-// Lista de categorías con barra de magnitud (un solo tono: es magnitud, no identidad).
-function Bars({ items, empty = 'Sin datos' }: { items: Item[]; empty?: string }) {
+// Lista de categorías con barra de magnitud. El `accent` lo decide la tarjeta (cada
+// desglose tiene su propio color), así no todo es verde.
+function Bars({ items, accent = '#5CA27B', empty = 'Sin datos' }: { items: Item[]; accent?: string; empty?: string }) {
   const max = Math.max(1, ...items.map((i) => i.value))
   if (items.length === 0) return <p className="py-2 text-xs text-graysage/60">{empty}</p>
   return (
@@ -70,8 +71,8 @@ function Bars({ items, empty = 'Sin datos' }: { items: Item[]; empty?: string })
       {items.map((it, i) => (
         <div key={i} className="flex items-center gap-2 text-xs">
           <span className="w-28 shrink-0 truncate text-graysage" title={it.label}>{it.label}</span>
-          <span className="relative h-3 flex-1 overflow-hidden rounded-full bg-cream">
-            <span className="absolute inset-y-0 left-0 rounded-full bg-sage-dark" style={{ width: `${(it.value / max) * 100}%` }} />
+          <span className="relative h-3 flex-1 overflow-hidden rounded-full bg-white/55">
+            <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${(it.value / max) * 100}%`, backgroundColor: accent }} />
           </span>
           <span className="w-7 text-right font-medium tabular-nums text-charcoal">{it.value}</span>
         </div>
@@ -121,14 +122,14 @@ function DonutView({ items, total }: { items: Item[]; total: number }) {
 // al hacer clic queda SELECCIONADA (fijada) hasta tocar fuera. Mientras una está
 // activa, las DEMÁS se reducen para dar foco. El alto del donut se anima con el
 // truco de grid-rows 0fr↔1fr (suave tanto al ampliar como al reducir).
-function Card({ id, title, items, total, caption, open, reduced, onSelect, onHover, children }: { id: string; title: string; items: Item[]; total: number; caption?: string; open: boolean; reduced: boolean; onSelect: (id: string) => void; onHover: (id: string | null) => void; children: ReactNode }) {
+function Card({ id, title, items, total, caption, open, reduced, tint = 'bg-white', spanCls = '', onSelect, onHover, children }: { id: string; title: string; items: Item[]; total: number; caption?: string; open: boolean; reduced: boolean; tint?: string; spanCls?: string; onSelect: (id: string) => void; onHover: (id: string | null) => void; children: ReactNode }) {
   return (
     <div
       data-seg-card
       onClick={() => onSelect(id)}
       onMouseEnter={() => onHover(id)}
       onMouseLeave={() => onHover(null)}
-      className={`cursor-pointer rounded-2xl border bg-white p-4 shadow-sm transition-all duration-300 ease-out ${open ? 'border-sage/50 shadow-md ring-1 ring-sage/25' : 'border-black/5'} ${reduced ? 'scale-[0.97] opacity-55' : 'scale-100 opacity-100'}`}
+      className={`${spanCls} cursor-pointer rounded-2xl p-4 shadow-[0_10px_26px_-16px_rgba(0,0,0,0.3)] ring-1 transition-all duration-300 ease-out ${tint} ${open ? 'shadow-xl ring-charcoal/15' : 'ring-black/5'} ${reduced ? 'scale-[0.97] opacity-55' : 'scale-100 opacity-100'}`}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-charcoal">{title}</span>
@@ -145,20 +146,25 @@ function Card({ id, title, items, total, caption, open, reduced, onSelect, onHov
   )
 }
 
-// Tarjeta KPI "flotante" (sombra suave). `highlight` la rellena de verde (acento).
-function Kpi({ label, value, sub, highlight }: { label: string; value: string | number; sub?: string; highlight?: boolean }) {
-  if (highlight) {
+// Tarjeta KPI. `strong` = relleno verde fuerte con acabado brillante (reflejo);
+// `tint` = fondo pastel suave. Así las métricas no son todas iguales.
+function Kpi({ label, value, sub, strong, tint }: { label: string; value: string | number; sub?: string; strong?: boolean; tint?: string }) {
+  if (strong) {
     return (
-      <div className="rounded-2xl bg-gradient-to-br from-sage-dark to-sage p-5 shadow-[0_12px_30px_-12px_rgba(92,162,123,0.65)]">
-        <p className="font-serif text-4xl font-semibold text-white tabular-nums">{value}</p>
-        <p className="mt-0.5 text-sm font-medium text-white/90">{label}</p>
-        {sub && <p className="text-xs text-white/70">{sub}</p>}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-sage-dark to-sage p-5 shadow-[0_16px_34px_-14px_rgba(92,162,123,0.75)] ring-1 ring-white/20">
+        <span className="pointer-events-none absolute -right-6 -top-10 h-28 w-28 rounded-full bg-white/25 blur-xl" aria-hidden />
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/40" aria-hidden />
+        <div className="relative">
+          <p className="font-serif text-4xl font-semibold text-white tabular-nums">{value}</p>
+          <p className="mt-0.5 text-sm font-medium text-white/90">{label}</p>
+          {sub && <p className="text-xs text-white/70">{sub}</p>}
+        </div>
       </div>
     )
   }
   return (
-    <div className="rounded-2xl border border-black/5 bg-white p-5 shadow-[0_8px_24px_-14px_rgba(0,0,0,0.18)]">
-      <p className="font-serif text-4xl font-semibold text-sage-dark tabular-nums">{value}</p>
+    <div className={`rounded-2xl p-5 shadow-[0_8px_24px_-16px_rgba(0,0,0,0.22)] ring-1 ring-black/5 ${tint ?? 'bg-white'}`}>
+      <p className="font-serif text-4xl font-semibold text-charcoal tabular-nums">{value}</p>
       <p className="mt-0.5 text-sm text-graysage">{label}</p>
       {sub && <p className="text-xs text-graysage/70">{sub}</p>}
     </div>
@@ -254,10 +260,10 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Miembros" value={seg.total} highlight />
-        <Kpi label="Activos" value={seg.active} sub={`${pct(seg.active)}% del total`} />
-        <Kpi label="Bautizados" value={seg.baptized} sub={`${pct(seg.baptized)}% del total`} />
-        <Kpi label="Asistencia prom." value={avgAttendance} sub="últimos 4 cultos" />
+        <Kpi label="Miembros" value={seg.total} strong />
+        <Kpi label="Activos" value={seg.active} sub={`${pct(seg.active)}% del total`} tint="bg-sage-water/55" />
+        <Kpi label="Bautizados" value={seg.baptized} sub={`${pct(seg.baptized)}% del total`} tint="bg-sand/45" />
+        <Kpi label="Asistencia prom." value={avgAttendance} sub="últimos 4 cultos" tint="bg-mist/55" />
       </div>
 
       <div className="pt-1">
@@ -265,18 +271,20 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
         <p className="text-sm text-graysage">Pasa el cursor por una tarjeta para ver su proporción respecto a la iglesia.</p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {/* Bento: tamaños variados (tercios · mitades · ancho completo) y un tinte
+          pastel distinto por tarjeta, para dar personalidad sin perder la base. */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
         {([
-          { id: 'estado', title: 'Por estado', items: seg.byStatus, body: <Stacked parts={seg.byStatus} total={seg.total} /> },
-          { id: 'bautismo', title: 'Bautismo', items: seg.baptism, body: <Stacked parts={seg.baptism} total={seg.total} /> },
-          { id: 'genero', title: 'Por género', items: seg.sex, body: <Stacked parts={seg.sex} total={seg.total} /> },
-          { id: 'edad', title: 'Por edad', items: seg.byAge, body: <Bars items={seg.byAge} empty="Sin fechas de nacimiento" /> },
-          { id: 'equipo', title: 'Por equipo', items: seg.byTeam, caption: `${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`, body: <Bars items={seg.byTeam} empty="Nadie en equipos" /> },
-          { id: 'rol', title: 'Por rol', items: seg.byRole, caption: `${seg.inAnyRole} de ${seg.total} con algún rol (${pct(seg.inAnyRole)}%)`, body: <Bars items={seg.byRole} empty="Nadie con rol asignado" /> },
-        ] as { id: string; title: string; items: Item[]; caption?: string; body: ReactNode }[]).map((c) => {
+          { id: 'estado', title: 'Por estado', items: seg.byStatus, tint: 'bg-sage-water/45', span: 'md:col-span-2', body: <Stacked parts={seg.byStatus} total={seg.total} /> },
+          { id: 'bautismo', title: 'Bautismo', items: seg.baptism, tint: 'bg-sand/40', span: 'md:col-span-2', body: <Stacked parts={seg.baptism} total={seg.total} /> },
+          { id: 'genero', title: 'Por género', items: seg.sex, tint: 'bg-mauve/40', span: 'md:col-span-2', body: <Stacked parts={seg.sex} total={seg.total} /> },
+          { id: 'edad', title: 'Por edad', items: seg.byAge, tint: 'bg-beige/60', span: 'md:col-span-3', body: <Bars items={seg.byAge} accent="#9DA99B" empty="Sin fechas de nacimiento" /> },
+          { id: 'rol', title: 'Por rol', items: seg.byRole, tint: 'bg-clay-light/45', span: 'md:col-span-3', caption: `${seg.inAnyRole} de ${seg.total} con algún rol (${pct(seg.inAnyRole)}%)`, body: <Bars items={seg.byRole} accent="#7E807B" empty="Nadie con rol asignado" /> },
+          { id: 'equipo', title: 'Por equipo', items: seg.byTeam, tint: 'bg-mist/50', span: 'md:col-span-6', caption: `${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`, body: <Bars items={seg.byTeam} accent="#6E9B93" empty="Nadie en equipos" /> },
+        ] as { id: string; title: string; items: Item[]; tint: string; span: string; caption?: string; body: ReactNode }[]).map((c) => {
           const focused = hoverId === c.id || selected === c.id
           const reduced = (hoverId !== null || selected !== null) && !focused
-          return <Card key={c.id} id={c.id} title={c.title} items={c.items} total={seg.total} caption={c.caption} open={focused} reduced={reduced} onSelect={setSelected} onHover={setHoverId}>{c.body}</Card>
+          return <Card key={c.id} id={c.id} title={c.title} items={c.items} total={seg.total} caption={c.caption} tint={c.tint} spanCls={c.span} open={focused} reduced={reduced} onSelect={setSelected} onHover={setHoverId}>{c.body}</Card>
         })}
       </div>
     </div>
