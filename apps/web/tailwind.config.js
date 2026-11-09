@@ -15,9 +15,12 @@ export default {
         charcoal: "#383835",   // gris oscuro (texto / oscuros)
         graysage: "#7E807B",   // gris medio (texto secundario)
         gold:     "#9DA99B",
-        // Pasteles que ENRIQUECEN la base (verde + gris) sin salirse de la marca:
-        mist:  { DEFAULT: "#C4D7D3", dark: "#6E9B93" }, // azul-verdoso polvoriento
-        mauve: { DEFAULT: "#DAC8CF", dark: "#9E7E8B" }, // rosa polvoriento
+        // Acentos que ENRIQUECEN la base (verde + gris). El verde se reserva para el
+        // encabezado y lo importante; estos dan variedad y personalidad a las tarjetas.
+        blush: { DEFAULT: "#EDB9C6", dark: "#C97E92" }, // rosa
+        lilac: { DEFAULT: "#C7B6E2", dark: "#8E78B8" }, // lila
+        sun:   { DEFAULT: "#ECC96E", dark: "#BF9633" }, // amarillo
+        sky:   { DEFAULT: "#ABCAE3", dark: "#5E8DB8" }, // azul claro
       },
       fontFamily: {
         serif: ["Poppins", "ui-sans-serif", "sans-serif"], // marca / títulos (redondeada)

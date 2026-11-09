@@ -31,9 +31,10 @@ interface Item { label: string; value: number; cls?: string }
 // En las métricas no cuentan archivados ni los que están en cambio de membresía.
 const counted = (s: string) => s !== 'archived' && s !== 'cambio_membresia'
 
-// Orden categórico fijo (paleta de marca), hex directo para el SVG y la leyenda.
-const PIE = ['#5CA27B', '#B5897A', '#9DA99B', '#E0CCBE', '#88C0A4', '#7E807B']
-const OTHER_COLOR = '#C4DFD2'
+// Orden categórico fijo: verde + azul + rosa + lila + amarillo + gris (variado y
+// distinguible, sin marrón apagado). Hex directo para el SVG y la leyenda.
+const PIE = ['#5CA27B', '#5E8DB8', '#C97E92', '#8E78B8', '#BF9633', '#7E807B']
+const OTHER_COLOR = '#D8D8D8'
 
 // --- Vistas de contenido (sin tarjeta propia; la tarjeta la pone <Card>) ---
 
@@ -133,7 +134,7 @@ function Card({ id, title, items, total, caption, open, reduced, tint = 'bg-whit
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-charcoal">{title}</span>
-        <span className={`shrink-0 text-xs text-sage-dark transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`}>% de la iglesia</span>
+        <span className={`shrink-0 text-xs text-charcoal/55 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`}>% de la iglesia</span>
       </div>
       <div className="mt-2.5">{children}</div>
       <div className={`grid transition-all duration-300 ease-out ${open ? 'mt-3 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
@@ -172,7 +173,7 @@ function Kpi({ label, value, sub, strong, tint }: { label: string; value: string
 }
 
 const STATUS_LABEL: Record<string, string> = { active: 'Activos', inactive: 'Inactivos', prospect: 'Prospectos' }
-const STATUS_CLS: Record<string, string> = { active: 'bg-sage-dark', inactive: 'bg-graysage/60', prospect: 'bg-gold' }
+const STATUS_CLS: Record<string, string> = { active: 'bg-sky-dark', inactive: 'bg-graysage/60', prospect: 'bg-sun-dark' }
 const SEX_LABEL: Record<string, string> = { M: 'Hombres', masculino: 'Hombres', F: 'Mujeres', femenino: 'Mujeres' }
 
 export default function MembersOverview({ churchId, avgAttendance = 0 }: { churchId: string; avgAttendance?: number }) {
@@ -226,15 +227,15 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
 
     const byStatus: Item[] = ['active', 'inactive', 'prospect'].map((s) => ({ label: STATUS_LABEL[s], value: list.filter((m) => m.status === s).length, cls: STATUS_CLS[s] }))
     const baptism: Item[] = [
-      { label: 'Bautizados', value: baptized, cls: 'bg-sage-dark' },
-      { label: 'No bautizados', value: total - baptized, cls: 'bg-sand' },
+      { label: 'Bautizados', value: baptized, cls: 'bg-blush-dark' },
+      { label: 'No bautizados', value: total - baptized, cls: 'bg-clay-light' },
     ]
     const sexNorm = (s: string | null) => (s ? (SEX_LABEL[s] ?? SEX_LABEL[s.toLowerCase()] ?? null) : null)
     const men = list.filter((m) => sexNorm(m.sex) === 'Hombres').length
     const women = list.filter((m) => sexNorm(m.sex) === 'Mujeres').length
     const sex: Item[] = [
-      { label: 'Hombres', value: men, cls: 'bg-sage-dark' },
-      { label: 'Mujeres', value: women, cls: 'bg-clay' },
+      { label: 'Hombres', value: men, cls: 'bg-sky-dark' },
+      { label: 'Mujeres', value: women, cls: 'bg-blush-dark' },
       { label: 'Sin dato', value: total - men - women, cls: 'bg-graysage/40' },
     ]
 
@@ -261,9 +262,9 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Miembros" value={seg.total} strong />
-        <Kpi label="Activos" value={seg.active} sub={`${pct(seg.active)}% del total`} tint="bg-sage-water/55" />
-        <Kpi label="Bautizados" value={seg.baptized} sub={`${pct(seg.baptized)}% del total`} tint="bg-sand/45" />
-        <Kpi label="Asistencia prom." value={avgAttendance} sub="últimos 4 cultos" tint="bg-mist/55" />
+        <Kpi label="Activos" value={seg.active} sub={`${pct(seg.active)}% del total`} tint="bg-sky/45" />
+        <Kpi label="Bautizados" value={seg.baptized} sub={`${pct(seg.baptized)}% del total`} tint="bg-blush/40" />
+        <Kpi label="Asistencia prom." value={avgAttendance} sub="últimos 4 cultos" tint="bg-sun/40" />
       </div>
 
       <div className="pt-1">
@@ -275,12 +276,12 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
           pastel distinto por tarjeta, para dar personalidad sin perder la base. */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
         {([
-          { id: 'estado', title: 'Por estado', items: seg.byStatus, tint: 'bg-sage-water/45', span: 'md:col-span-2', body: <Stacked parts={seg.byStatus} total={seg.total} /> },
-          { id: 'bautismo', title: 'Bautismo', items: seg.baptism, tint: 'bg-sand/40', span: 'md:col-span-2', body: <Stacked parts={seg.baptism} total={seg.total} /> },
-          { id: 'genero', title: 'Por género', items: seg.sex, tint: 'bg-mauve/40', span: 'md:col-span-2', body: <Stacked parts={seg.sex} total={seg.total} /> },
-          { id: 'edad', title: 'Por edad', items: seg.byAge, tint: 'bg-beige/60', span: 'md:col-span-3', body: <Bars items={seg.byAge} accent="#9DA99B" empty="Sin fechas de nacimiento" /> },
+          { id: 'estado', title: 'Por estado', items: seg.byStatus, tint: 'bg-sky/40', span: 'md:col-span-2', body: <Stacked parts={seg.byStatus} total={seg.total} /> },
+          { id: 'bautismo', title: 'Bautismo', items: seg.baptism, tint: 'bg-blush/40', span: 'md:col-span-2', body: <Stacked parts={seg.baptism} total={seg.total} /> },
+          { id: 'genero', title: 'Por género', items: seg.sex, tint: 'bg-lilac/40', span: 'md:col-span-2', body: <Stacked parts={seg.sex} total={seg.total} /> },
+          { id: 'edad', title: 'Por edad', items: seg.byAge, tint: 'bg-sun/35', span: 'md:col-span-3', body: <Bars items={seg.byAge} accent="#BF9633" empty="Sin fechas de nacimiento" /> },
           { id: 'rol', title: 'Por rol', items: seg.byRole, tint: 'bg-clay-light/45', span: 'md:col-span-3', caption: `${seg.inAnyRole} de ${seg.total} con algún rol (${pct(seg.inAnyRole)}%)`, body: <Bars items={seg.byRole} accent="#7E807B" empty="Nadie con rol asignado" /> },
-          { id: 'equipo', title: 'Por equipo', items: seg.byTeam, tint: 'bg-mist/50', span: 'md:col-span-6', caption: `${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`, body: <Bars items={seg.byTeam} accent="#6E9B93" empty="Nadie en equipos" /> },
+          { id: 'equipo', title: 'Por equipo', items: seg.byTeam, tint: 'bg-sage-water/55', span: 'md:col-span-6', caption: `${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`, body: <Bars items={seg.byTeam} accent="#5CA27B" empty="Nadie en equipos" /> },
         ] as { id: string; title: string; items: Item[]; tint: string; span: string; caption?: string; body: ReactNode }[]).map((c) => {
           const focused = hoverId === c.id || selected === c.id
           const reduced = (hoverId !== null || selected !== null) && !focused
