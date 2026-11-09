@@ -145,10 +145,20 @@ function Card({ id, title, items, total, caption, open, reduced, onSelect, onHov
   )
 }
 
-function Kpi({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+// Tarjeta KPI "flotante" (sombra suave). `highlight` la rellena de verde (acento).
+function Kpi({ label, value, sub, highlight }: { label: string; value: string | number; sub?: string; highlight?: boolean }) {
+  if (highlight) {
+    return (
+      <div className="rounded-2xl bg-gradient-to-br from-sage-dark to-sage p-5 shadow-[0_12px_30px_-12px_rgba(92,162,123,0.65)]">
+        <p className="font-serif text-4xl font-semibold text-white tabular-nums">{value}</p>
+        <p className="mt-0.5 text-sm font-medium text-white/90">{label}</p>
+        {sub && <p className="text-xs text-white/70">{sub}</p>}
+      </div>
+    )
+  }
   return (
-    <div className="rounded-2xl border border-black/5 bg-white p-4 shadow-sm">
-      <p className="font-serif text-3xl font-semibold text-sage-dark tabular-nums">{value}</p>
+    <div className="rounded-2xl border border-black/5 bg-white p-5 shadow-[0_8px_24px_-14px_rgba(0,0,0,0.18)]">
+      <p className="font-serif text-4xl font-semibold text-sage-dark tabular-nums">{value}</p>
       <p className="mt-0.5 text-sm text-graysage">{label}</p>
       {sub && <p className="text-xs text-graysage/70">{sub}</p>}
     </div>
@@ -244,10 +254,15 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Miembros" value={seg.total} />
+        <Kpi label="Miembros" value={seg.total} highlight />
         <Kpi label="Activos" value={seg.active} sub={`${pct(seg.active)}% del total`} />
         <Kpi label="Bautizados" value={seg.baptized} sub={`${pct(seg.baptized)}% del total`} />
         <Kpi label="Asistencia prom." value={avgAttendance} sub="últimos 4 cultos" />
+      </div>
+
+      <div className="pt-1">
+        <h3 className="font-serif text-lg font-semibold text-charcoal">Desglose de la congregación</h3>
+        <p className="text-sm text-graysage">Pasa el cursor por una tarjeta para ver su proporción respecto a la iglesia.</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

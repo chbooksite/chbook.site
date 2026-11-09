@@ -159,10 +159,15 @@ export default function Dashboard() {
         className="fixed inset-0 z-10 flex items-start overflow-y-auto overscroll-contain rounded-t-[2.5rem] bg-cream shadow-[0_-14px_40px_-14px_rgba(0,0,0,0.4)] will-change-transform [scrollbar-width:thin]"
       >
         <div className="mx-auto w-full max-w-6xl px-6 py-9">
-          <div className="mb-5 flex items-end justify-between gap-3">
-            <div>
-              <h2 className="font-serif text-xl font-semibold text-charcoal">Resumen · Personas</h2>
-              <p className="text-sm text-graysage">La congregación de un vistazo.</p>
+          {/* Cabecera estilo hero: pastilla + titular + degradado verde suave con
+              halos difuminados (lenguaje aireado y moderno). */}
+          <div className="relative mb-7 overflow-hidden rounded-3xl bg-gradient-to-br from-sage-light/60 via-white to-beige/40 p-7 ring-1 ring-black/5 sm:p-9">
+            <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-sage/20 blur-3xl" aria-hidden />
+            <div className="pointer-events-none absolute -bottom-24 left-8 h-56 w-56 rounded-full bg-sage-dark/10 blur-3xl" aria-hidden />
+            <div className="relative">
+              <span className="inline-block rounded-full bg-sage-dark px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-wider text-white">Resumen · Personas</span>
+              <h2 className="mt-4 max-w-2xl font-serif text-3xl font-semibold leading-tight text-charcoal sm:text-4xl">Tu congregación, con claridad</h2>
+              <p className="mt-2.5 max-w-lg text-graysage">Totales y segmentación de las personas de la iglesia: estado, bautismo, género, edad, equipos y roles.</p>
             </div>
           </div>
           {membership && <MembersOverview churchId={membership.churchId} avgAttendance={metrics?.avg_attendance ?? 0} />}
