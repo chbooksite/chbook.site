@@ -289,9 +289,9 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
           { id: 'estado', title: 'Por estado', items: seg.byStatus, tint: 'bg-white', span: 'md:col-span-2', body: <Stacked parts={seg.byStatus} total={seg.total} /> },
           { id: 'bautismo', title: 'Bautismo', items: seg.baptism, tint: 'bg-white', span: 'md:col-span-2', body: <Stacked parts={seg.baptism} total={seg.total} /> },
           { id: 'genero', title: 'Por género', items: seg.sex, tint: 'bg-white', span: 'md:col-span-2', body: <Stacked parts={seg.sex} total={seg.total} /> },
-          { id: 'edad', title: 'Por edad', items: seg.byAge, tint: 'bg-white', span: 'md:col-span-3', body: <Bars items={seg.byAge} accent={C.gray} empty="Sin fechas de nacimiento" /> },
-          { id: 'rol', title: 'Por rol', items: seg.byRole, tint: 'bg-white', span: 'md:col-span-3', caption: `${seg.inAnyRole} de ${seg.total} con algún rol (${pct(seg.inAnyRole)}%)`, body: <Bars items={seg.byRole} accent={C.gray} empty="Nadie con rol asignado" /> },
-          { id: 'equipo', title: 'Por equipo', items: seg.byTeam, tint: 'bg-sage-light/40', span: 'md:col-span-6', caption: `${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`, body: <Bars items={seg.byTeam} accent={C.green} empty="Nadie en equipos" /> },
+          { id: 'edad', title: 'Por edad', items: seg.byAge, tint: 'bg-sage-light/45', span: 'md:col-span-3', body: <Bars items={seg.byAge} accent={C.green} empty="Sin fechas de nacimiento" /> },
+          { id: 'rol', title: 'Por rol', items: seg.byRole, tint: 'bg-sage-light/45', span: 'md:col-span-3', caption: `${seg.inAnyRole} de ${seg.total} con algún rol (${pct(seg.inAnyRole)}%)`, body: <Bars items={seg.byRole} accent={C.green} empty="Nadie con rol asignado" /> },
+          { id: 'equipo', title: 'Por equipo', items: seg.byTeam, tint: 'bg-sage-light/55', span: 'md:col-span-6', caption: `${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`, body: <Bars items={seg.byTeam} accent={C.green} empty="Nadie en equipos" /> },
         ] as { id: string; title: string; items: Item[]; tint: string; span: string; caption?: string; body: ReactNode }[]).map((c) => {
           const focused = hoverId === c.id || selected === c.id
           const reduced = (hoverId !== null || selected !== null) && !focused
