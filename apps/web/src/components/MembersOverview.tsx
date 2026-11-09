@@ -116,26 +116,30 @@ function DonutView({ items, total }: { items: Item[]; total: number }) {
   )
 }
 
-// Tarjeta de desglose: barras por defecto. Al pasar el cursor se AMPLÍA y muestra el
-// donut (% de cada sección respecto a la iglesia); al hacer clic en cualquier parte
-// queda SELECCIONADA (fijada) hasta tocar fuera.
-function Card({ id, title, items, total, caption, selected, onSelect, children }: { id: string; title: string; items: Item[]; total: number; caption?: string; selected: boolean; onSelect: (id: string) => void; children: ReactNode }) {
-  const [hover, setHover] = useState(false)
-  const open = hover || selected
+// Tarjeta de desglose: barras por defecto. Al pasar el cursor se AMPLÍA (con
+// movimiento suave) y muestra el donut (% de cada sección respecto a la iglesia);
+// al hacer clic queda SELECCIONADA (fijada) hasta tocar fuera. Mientras una está
+// activa, las DEMÁS se reducen para dar foco. El alto del donut se anima con el
+// truco de grid-rows 0fr↔1fr (suave tanto al ampliar como al reducir).
+function Card({ id, title, items, total, caption, open, reduced, onSelect, onHover, children }: { id: string; title: string; items: Item[]; total: number; caption?: string; open: boolean; reduced: boolean; onSelect: (id: string) => void; onHover: (id: string | null) => void; children: ReactNode }) {
   return (
     <div
       data-seg-card
       onClick={() => onSelect(id)}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      className={`cursor-pointer rounded-2xl border bg-white p-4 shadow-sm transition ${selected ? 'border-sage/50 ring-1 ring-sage/30' : 'border-black/5 hover:shadow-md'}`}
+      onMouseEnter={() => onHover(id)}
+      onMouseLeave={() => onHover(null)}
+      className={`cursor-pointer rounded-2xl border bg-white p-4 shadow-sm transition-all duration-300 ease-out ${open ? 'border-sage/50 shadow-md ring-1 ring-sage/25' : 'border-black/5'} ${reduced ? 'scale-[0.97] opacity-55' : 'scale-100 opacity-100'}`}
     >
-      <div className="mb-2.5 flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-charcoal">{title}</span>
-        {open && <span className="shrink-0 text-xs text-sage-dark">% de la iglesia</span>}
+        <span className={`shrink-0 text-xs text-sage-dark transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`}>% de la iglesia</span>
       </div>
-      {children}
-      {open && <div className="mt-3 border-t border-black/5 pt-3"><DonutView items={items} total={total} /></div>}
+      <div className="mt-2.5">{children}</div>
+      <div className={`grid transition-all duration-300 ease-out ${open ? 'mt-3 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+        <div className="overflow-hidden">
+          <div className="border-t border-black/5 pt-3"><DonutView items={items} total={total} /></div>
+        </div>
+      </div>
       {caption && <p className="mt-2.5 text-xs text-graysage/80">{caption}</p>}
     </div>
   )
@@ -160,8 +164,10 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
   const [roles, setRoles] = useState<Cat[]>([])
   const [teams, setTeams] = useState<Cat[]>([])
   const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
-  // Tarjeta fijada (seleccionada con clic). Un clic fuera de cualquier tarjeta la suelta.
+  // Tarjeta fijada (clic) + tarjeta bajo el cursor. La activa se amplía; las demás
+  // se reducen. Un clic fuera de cualquier tarjeta suelta la fijada.
   const [selected, setSelected] = useState<string | null>(null)
+  const [hoverId, setHoverId] = useState<string | null>(null)
   useEffect(() => {
     const onDoc = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('[data-seg-card]')) setSelected(null) }
     document.addEventListener('click', onDoc)
@@ -252,9 +258,11 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
           { id: 'edad', title: 'Por edad', items: seg.byAge, body: <Bars items={seg.byAge} empty="Sin fechas de nacimiento" /> },
           { id: 'equipo', title: 'Por equipo', items: seg.byTeam, caption: `${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`, body: <Bars items={seg.byTeam} empty="Nadie en equipos" /> },
           { id: 'rol', title: 'Por rol', items: seg.byRole, caption: `${seg.inAnyRole} de ${seg.total} con algún rol (${pct(seg.inAnyRole)}%)`, body: <Bars items={seg.byRole} empty="Nadie con rol asignado" /> },
-        ] as { id: string; title: string; items: Item[]; caption?: string; body: ReactNode }[]).map((c) => (
-          <Card key={c.id} id={c.id} title={c.title} items={c.items} total={seg.total} caption={c.caption} selected={selected === c.id} onSelect={setSelected}>{c.body}</Card>
-        ))}
+        ] as { id: string; title: string; items: Item[]; caption?: string; body: ReactNode }[]).map((c) => {
+          const focused = hoverId === c.id || selected === c.id
+          const reduced = (hoverId !== null || selected !== null) && !focused
+          return <Card key={c.id} id={c.id} title={c.title} items={c.items} total={seg.total} caption={c.caption} open={focused} reduced={reduced} onSelect={setSelected} onHover={setHoverId}>{c.body}</Card>
+        })}
       </div>
     </div>
   )
