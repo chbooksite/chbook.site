@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.15"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       activity_schedules: {
@@ -49,6 +24,7 @@ export type Database = {
           end_time: string | null
           freq: string
           id: string
+          is_public: boolean
           location: string | null
           name: string
           nth: number | null
@@ -69,6 +45,7 @@ export type Database = {
           end_time?: string | null
           freq?: string
           id?: string
+          is_public?: boolean
           location?: string | null
           name: string
           nth?: number | null
@@ -89,6 +66,7 @@ export type Database = {
           end_time?: string | null
           freq?: string
           id?: string
+          is_public?: boolean
           location?: string | null
           name?: string
           nth?: number | null
@@ -105,6 +83,20 @@ export type Database = {
             foreignKeyName: "activity_schedules_church_id_fkey"
             columns: ["church_id"]
             isOneToOne: false
+            referencedRelation: "church_dashboard"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "activity_schedules_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_metrics"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "activity_schedules_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
             referencedRelation: "churches"
             referencedColumns: ["id"]
           },
@@ -116,55 +108,17 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "activity_schedules_type_id_fkey"
-            columns: ["type_id"]
-            isOneToOne: false
-            referencedRelation: "activity_types"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "activity_schedules_responsible_team_id_fkey"
             columns: ["responsible_team_id"]
             isOneToOne: false
             referencedRelation: "teams"
             referencedColumns: ["id"]
           },
-        ]
-      }
-      activity_types: {
-        Row: {
-          church_id: string
-          color: string
-          created_at: string | null
-          id: string
-          is_system: boolean | null
-          key: string
-          name: string
-        }
-        Insert: {
-          church_id: string
-          color?: string
-          created_at?: string | null
-          id?: string
-          is_system?: boolean | null
-          key: string
-          name: string
-        }
-        Update: {
-          church_id?: string
-          color?: string
-          created_at?: string | null
-          id?: string
-          is_system?: boolean | null
-          key?: string
-          name?: string
-        }
-        Relationships: [
           {
-            foreignKeyName: "activity_types_church_id_fkey"
-            columns: ["church_id"]
+            foreignKeyName: "activity_schedules_type_id_fkey"
+            columns: ["type_id"]
             isOneToOne: false
-            referencedRelation: "churches"
+            referencedRelation: "activity_types"
             referencedColumns: ["id"]
           },
         ]
@@ -211,6 +165,58 @@ export type Database = {
           },
           {
             foreignKeyName: "activity_tags_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      activity_types: {
+        Row: {
+          church_id: string
+          color: string
+          created_at: string | null
+          id: string
+          is_system: boolean | null
+          key: string
+          name: string
+        }
+        Insert: {
+          church_id: string
+          color?: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key: string
+          name: string
+        }
+        Update: {
+          church_id?: string
+          color?: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_types_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_dashboard"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "activity_types_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_metrics"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "activity_types_church_id_fkey"
             columns: ["church_id"]
             isOneToOne: false
             referencedRelation: "churches"
@@ -272,6 +278,13 @@ export type Database = {
             foreignKeyName: "attendance_member_id_fkey"
             columns: ["member_id"]
             isOneToOne: false
+            referencedRelation: "member_attendance"
+            referencedColumns: ["member_id"]
+          },
+          {
+            foreignKeyName: "attendance_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
             referencedRelation: "member_details"
             referencedColumns: ["id"]
           },
@@ -286,6 +299,13 @@ export type Database = {
             foreignKeyName: "attendance_service_id_fkey"
             columns: ["service_id"]
             isOneToOne: false
+            referencedRelation: "service_attendance"
+            referencedColumns: ["service_id"]
+          },
+          {
+            foreignKeyName: "attendance_service_id_fkey"
+            columns: ["service_id"]
+            isOneToOne: false
             referencedRelation: "services"
             referencedColumns: ["id"]
           },
@@ -295,11 +315,16 @@ export type Database = {
         Row: {
           address: string | null
           capacity: number | null
+          city: string | null
           code: string
           country: string | null
+          cover_url: string | null
           created_at: string | null
+          denomination: string | null
+          founded_year: number | null
           id: string
           location: unknown
+          logo_url: string | null
           name: string
           pastor_name: string | null
           plan: string | null
@@ -312,11 +337,16 @@ export type Database = {
         Insert: {
           address?: string | null
           capacity?: number | null
+          city?: string | null
           code: string
           country?: string | null
+          cover_url?: string | null
           created_at?: string | null
+          denomination?: string | null
+          founded_year?: number | null
           id?: string
           location?: unknown
+          logo_url?: string | null
           name: string
           pastor_name?: string | null
           plan?: string | null
@@ -329,11 +359,16 @@ export type Database = {
         Update: {
           address?: string | null
           capacity?: number | null
+          city?: string | null
           code?: string
           country?: string | null
+          cover_url?: string | null
           created_at?: string | null
+          denomination?: string | null
+          founded_year?: number | null
           id?: string
           location?: unknown
+          logo_url?: string | null
           name?: string
           pastor_name?: string | null
           plan?: string | null
@@ -389,6 +424,20 @@ export type Database = {
           starts_on?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "cycles_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_dashboard"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "cycles_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_metrics"
+            referencedColumns: ["church_id"]
+          },
           {
             foreignKeyName: "cycles_church_id_fkey"
             columns: ["church_id"]
@@ -470,6 +519,13 @@ export type Database = {
             referencedRelation: "churches"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "events_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
         ]
       }
       member_roles: {
@@ -486,6 +542,20 @@ export type Database = {
           role_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "member_roles_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "member_attendance"
+            referencedColumns: ["member_id"]
+          },
+          {
+            foreignKeyName: "member_roles_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "member_details"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "member_roles_member_id_fkey"
             columns: ["member_id"]
@@ -523,6 +593,20 @@ export type Database = {
             foreignKeyName: "member_teams_member_id_fkey"
             columns: ["member_id"]
             isOneToOne: false
+            referencedRelation: "member_attendance"
+            referencedColumns: ["member_id"]
+          },
+          {
+            foreignKeyName: "member_teams_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "member_details"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "member_teams_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
             referencedRelation: "members"
             referencedColumns: ["id"]
           },
@@ -531,82 +615,6 @@ export type Database = {
             columns: ["team_id"]
             isOneToOne: false
             referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      roles: {
-        Row: {
-          church_id: string
-          created_at: string | null
-          id: string
-          is_system: boolean | null
-          key: string
-          name: string
-          requires: Json
-        }
-        Insert: {
-          church_id: string
-          created_at?: string | null
-          id?: string
-          is_system?: boolean | null
-          key: string
-          name: string
-          requires?: Json
-        }
-        Update: {
-          church_id?: string
-          created_at?: string | null
-          id?: string
-          is_system?: boolean | null
-          key?: string
-          name?: string
-          requires?: Json
-        }
-        Relationships: [
-          {
-            foreignKeyName: "roles_church_id_fkey"
-            columns: ["church_id"]
-            isOneToOne: false
-            referencedRelation: "churches"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      teams: {
-        Row: {
-          church_id: string
-          created_at: string | null
-          id: string
-          is_system: boolean | null
-          key: string
-          name: string
-          requires: Json
-        }
-        Insert: {
-          church_id: string
-          created_at?: string | null
-          id?: string
-          is_system?: boolean | null
-          key: string
-          name: string
-          requires?: Json
-        }
-        Update: {
-          church_id?: string
-          created_at?: string | null
-          id?: string
-          is_system?: boolean | null
-          key?: string
-          name?: string
-          requires?: Json
-        }
-        Relationships: [
-          {
-            foreignKeyName: "teams_church_id_fkey"
-            columns: ["church_id"]
-            isOneToOne: false
-            referencedRelation: "churches"
             referencedColumns: ["id"]
           },
         ]
@@ -671,13 +679,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "members_guardian_id_fkey"
-            columns: ["guardian_id"]
-            isOneToOne: false
-            referencedRelation: "members"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "members_church_id_fkey"
             columns: ["church_id"]
             isOneToOne: false
@@ -696,6 +697,27 @@ export type Database = {
             columns: ["church_id"]
             isOneToOne: false
             referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "members_guardian_id_fkey"
+            columns: ["guardian_id"]
+            isOneToOne: false
+            referencedRelation: "member_attendance"
+            referencedColumns: ["member_id"]
+          },
+          {
+            foreignKeyName: "members_guardian_id_fkey"
+            columns: ["guardian_id"]
+            isOneToOne: false
+            referencedRelation: "member_details"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "members_guardian_id_fkey"
+            columns: ["guardian_id"]
+            isOneToOne: false
+            referencedRelation: "members"
             referencedColumns: ["id"]
           },
         ]
@@ -757,6 +779,13 @@ export type Database = {
             foreignKeyName: "notifications_target_member_id_fkey"
             columns: ["target_member_id"]
             isOneToOne: false
+            referencedRelation: "member_attendance"
+            referencedColumns: ["member_id"]
+          },
+          {
+            foreignKeyName: "notifications_target_member_id_fkey"
+            columns: ["target_member_id"]
+            isOneToOne: false
             referencedRelation: "member_details"
             referencedColumns: ["id"]
           },
@@ -765,6 +794,58 @@ export type Database = {
             columns: ["target_member_id"]
             isOneToOne: false
             referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roles: {
+        Row: {
+          church_id: string
+          created_at: string | null
+          id: string
+          is_system: boolean | null
+          key: string
+          name: string
+          requires: Json
+        }
+        Insert: {
+          church_id: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key: string
+          name: string
+          requires?: Json
+        }
+        Update: {
+          church_id?: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key?: string
+          name?: string
+          requires?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roles_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_dashboard"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "roles_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_metrics"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "roles_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
             referencedColumns: ["id"]
           },
         ]
@@ -826,6 +907,34 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "schedule_segments_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_dashboard"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "schedule_segments_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_metrics"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "schedule_segments_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_segments_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "schedule_segments_schedule_id_fkey"
             columns: ["schedule_id"]
             isOneToOne: false
@@ -837,6 +946,13 @@ export type Database = {
             columns: ["tag_id"]
             isOneToOne: false
             referencedRelation: "activity_tags"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_segments_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
             referencedColumns: ["id"]
           },
         ]
@@ -870,6 +986,27 @@ export type Database = {
           team_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "schedule_teams_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_dashboard"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "schedule_teams_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_metrics"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "schedule_teams_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "schedule_teams_schedule_id_fkey"
             columns: ["schedule_id"]
@@ -931,6 +1068,13 @@ export type Database = {
             foreignKeyName: "service_activities_assignee_member_id_fkey"
             columns: ["assignee_member_id"]
             isOneToOne: false
+            referencedRelation: "member_attendance"
+            referencedColumns: ["member_id"]
+          },
+          {
+            foreignKeyName: "service_activities_assignee_member_id_fkey"
+            columns: ["assignee_member_id"]
+            isOneToOne: false
             referencedRelation: "member_details"
             referencedColumns: ["id"]
           },
@@ -940,6 +1084,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "members"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_activities_service_id_fkey"
+            columns: ["service_id"]
+            isOneToOne: false
+            referencedRelation: "service_attendance"
+            referencedColumns: ["service_id"]
           },
           {
             foreignKeyName: "service_activities_service_id_fkey"
@@ -961,30 +1112,36 @@ export type Database = {
         Row: {
           church_id: string | null
           created_at: string | null
+          ended_at: string | null
           gps_radius_m: number | null
           id: string
           name: string
           online_code: string | null
+          schedule_id: string | null
           starts_at: string | null
           status: string | null
         }
         Insert: {
           church_id?: string | null
           created_at?: string | null
+          ended_at?: string | null
           gps_radius_m?: number | null
           id?: string
           name: string
           online_code?: string | null
+          schedule_id?: string | null
           starts_at?: string | null
           status?: string | null
         }
         Update: {
           church_id?: string | null
           created_at?: string | null
+          ended_at?: string | null
           gps_radius_m?: number | null
           id?: string
           name?: string
           online_code?: string | null
+          schedule_id?: string | null
           starts_at?: string | null
           status?: string | null
         }
@@ -1008,6 +1165,13 @@ export type Database = {
             columns: ["church_id"]
             isOneToOne: false
             referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "services_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "activity_schedules"
             referencedColumns: ["id"]
           },
         ]
@@ -1035,6 +1199,58 @@ export type Database = {
           srtext?: string | null
         }
         Relationships: []
+      }
+      teams: {
+        Row: {
+          church_id: string
+          created_at: string | null
+          id: string
+          is_system: boolean | null
+          key: string
+          name: string
+          requires: Json
+        }
+        Insert: {
+          church_id: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key: string
+          name: string
+          requires?: Json
+        }
+        Update: {
+          church_id?: string
+          created_at?: string | null
+          id?: string
+          is_system?: boolean | null
+          key?: string
+          name?: string
+          requires?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "teams_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_dashboard"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "teams_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_metrics"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "teams_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -1128,11 +1344,41 @@ export type Database = {
         }
         Relationships: []
       }
+      member_attendance: {
+        Row: {
+          attended_count: number | null
+          church_id: string | null
+          last_attended: string | null
+          member_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "members_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_dashboard"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "members_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_metrics"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "members_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       member_details: {
         Row: {
           age_group: string | null
           birth_date: string | null
-          cedula: string | null
           church_id: string | null
           created_at: string | null
           email: string | null
@@ -1141,14 +1387,12 @@ export type Database = {
           phone: string | null
           push_token: string | null
           role: string | null
-          sex: string | null
           status: string | null
           user_id: string | null
         }
         Insert: {
           age_group?: never
           birth_date?: string | null
-          cedula?: string | null
           church_id?: string | null
           created_at?: string | null
           email?: string | null
@@ -1157,14 +1401,12 @@ export type Database = {
           phone?: string | null
           push_token?: string | null
           role?: string | null
-          sex?: string | null
           status?: string | null
           user_id?: string | null
         }
         Update: {
           age_group?: never
           birth_date?: string | null
-          cedula?: string | null
           church_id?: string | null
           created_at?: string | null
           email?: string | null
@@ -1173,7 +1415,6 @@ export type Database = {
           phone?: string | null
           push_token?: string | null
           role?: string | null
-          sex?: string | null
           status?: string | null
           user_id?: string | null
         }
@@ -1197,6 +1438,59 @@ export type Database = {
             columns: ["church_id"]
             isOneToOne: false
             referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_attendance: {
+        Row: {
+          activity_name: string | null
+          church_id: string | null
+          gps: number | null
+          online: number | null
+          presencial: number | null
+          schedule_id: string | null
+          service_id: string | null
+          service_name: string | null
+          starts_at: string | null
+          status: string | null
+          total: number | null
+          type_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_schedules_type_id_fkey"
+            columns: ["type_id"]
+            isOneToOne: false
+            referencedRelation: "activity_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "services_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_dashboard"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "services_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_metrics"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "services_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "services_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "activity_schedules"
             referencedColumns: ["id"]
           },
         ]
@@ -1330,6 +1624,8 @@ export type Database = {
             }
             Returns: string
           }
+      apply_inactivity: { Args: never; Returns: number }
+      apply_inactivity_for: { Args: { p_church: string }; Returns: number }
       check_attendance_radius: {
         Args: { p_church_id: string; p_lat: number; p_lng: number }
         Returns: boolean
@@ -1348,11 +1644,16 @@ export type Database = {
         Returns: {
           address: string | null
           capacity: number | null
+          city: string | null
           code: string
           country: string | null
+          cover_url: string | null
           created_at: string | null
+          denomination: string | null
+          founded_year: number | null
           id: string
           location: unknown
+          logo_url: string | null
           name: string
           pastor_name: string | null
           plan: string | null
@@ -1362,9 +1663,14 @@ export type Database = {
           stripe_subscription_id: string | null
           theme_color: string | null
         }
+        SetofOptions: {
+          from: "*"
+          to: "churches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       current_church_id: { Args: never; Returns: string }
-      seed_church_catalogs: { Args: { p_church_id: string }; Returns: undefined }
       disablelongtransactions: { Args: never; Returns: string }
       dropgeometrycolumn:
         | {
@@ -1497,6 +1803,7 @@ export type Database = {
       }
       geomfromewkt: { Args: { "": string }; Returns: unknown }
       gettransactionid: { Args: never; Returns: unknown }
+      is_church_admin: { Args: never; Returns: boolean }
       longtransactionsenabled: { Args: never; Returns: boolean }
       populate_geometry_columns:
         | { Args: { tbl_oid: unknown; use_typmod?: boolean }; Returns: number }
@@ -1538,6 +1845,10 @@ export type Database = {
       }
       postgis_version: { Args: never; Returns: string }
       postgis_wagyu_version: { Args: never; Returns: string }
+      seed_church_catalogs: {
+        Args: { p_church_id: string }
+        Returns: undefined
+      }
       st_3dclosestpoint: {
         Args: { geom1: unknown; geom2: unknown }
         Returns: unknown
@@ -2156,12 +2467,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2185,11 +2496,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2210,11 +2521,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2235,11 +2546,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2252,11 +2563,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2266,9 +2577,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },

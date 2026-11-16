@@ -1,183 +1,119 @@
-import { useEffect, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth-context'
 import { supabase } from '../lib/supabase'
 import AppHeader from '../components/AppHeader'
+import ChurchHealth from '../components/ChurchHealth'
 import MembersOverview from '../components/MembersOverview'
+import ActivityMetrics from '../components/ActivityMetrics'
+import TeamRoleMetrics from '../components/TeamRoleMetrics'
+import BestNumbers from '../components/BestNumbers'
 
-interface Church {
-  name: string
-  code: string
-  plan: string | null
-  country: string | null
-}
+const Ico = ({ children }: { children: ReactNode }) => (
+  <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
+)
+const SECTIONS: { id: string; label: string; icon: ReactNode }[] = [
+  { id: 'iglesia', label: 'Salud', icon: <Ico><path d="M3 12h4l2-6 4 12 2-6h6" /></Ico> },
+  { id: 'miembros', label: 'Miembros', icon: <Ico><circle cx="9" cy="8" r="3" /><path d="M15 11a3 3 0 1 0-1-5.8" /><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5" /><path d="M17 15c2.4 0 4 1.7 4 5" /></Ico> },
+  { id: 'actividades', label: 'Actividades', icon: <Ico><rect x="3" y="4.5" width="18" height="16" rx="2" /><path d="M3 9h18M8 3v3M16 3v3" /></Ico> },
+  { id: 'equipos', label: 'Equipos y roles', icon: <Ico><circle cx="7" cy="9" r="2.5" /><circle cx="17" cy="9" r="2.5" /><path d="M2 19c0-2.5 2-4 5-4s5 1.5 5 4M12 19c0-2.5 2-4 5-4s5 1.5 5 4" /></Ico> },
+  { id: 'mejores', label: 'Mejores números', icon: <Ico><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></Ico> },
+]
 
-interface Metrics {
-  total_members: number | null
-  active_members: number | null
-  active_pct: number | null
-  avg_attendance: number | null
-}
-
-// Acceso rápido. `tone`: 'beige' (cálido puntual), 'sage' (tinte verde) o 'plain'.
-function QuickLink({ to, title, desc, tone = 'plain' }: { to: string; title: string; desc: string; tone?: 'beige' | 'sage' | 'plain' }) {
-  const bg =
-    tone === 'beige' ? 'border-transparent bg-beige hover:brightness-[0.98]'
-    : tone === 'sage' ? 'border-sage/15 bg-sage-light/60 hover:brightness-[0.98]'
-    : 'border-black/5 bg-white hover:border-sage/40 hover:shadow-sm'
-  return (
-    <Link to={to} className={`group flex flex-col rounded-2xl border p-6 transition ${bg}`}>
-      <p className="font-serif text-lg font-semibold text-charcoal">{title}</p>
-      <p className="mt-1 text-sm text-graysage">{desc}</p>
-      <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-sage-dark">
-        Abrir <span className="transition group-hover:translate-x-0.5">→</span>
-      </span>
-    </Link>
-  )
-}
-
-// Panel del pastor: hero oscuro + panel claro flotante con métricas reales.
+// Panel del pastor: dashboard de datos por SECCIONES con barra lateral COLAPSABLE
+// (rail de iconos pegado a la izquierda; se amplía con la flecha y se contrae al
+// tocar fuera o al elegir una sección). Scroll-spy resalta la sección visible.
 export default function Dashboard() {
   const { membership, membershipLoading } = useAuth()
-  const [church, setChurch] = useState<Church | null>(null)
-  const [metrics, setMetrics] = useState<Metrics | null>(null)
+  const [church, setChurch] = useState<{ name: string; code: string } | null>(null)
+  const [avgAttendance, setAvgAttendance] = useState(0)
+  const [active, setActive] = useState('iglesia')
+  const [expanded, setExpanded] = useState(false)
+  const navRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     if (!membership) return
     const id = membership.churchId
-    supabase.from('churches').select('name, code, plan, country').eq('id', id).maybeSingle().then(({ data }) => setChurch(data))
-    supabase.from('church_dashboard').select('total_members, active_members, active_pct, avg_attendance').eq('church_id', id).maybeSingle().then(({ data }) => setMetrics(data))
+    supabase.from('churches').select('name, code').eq('id', id).maybeSingle().then(({ data }) => setChurch(data as { name: string; code: string } | null))
+    supabase.from('church_dashboard').select('avg_attendance').eq('church_id', id).maybeSingle().then(({ data }) => setAvgAttendance((data as { avg_attendance?: number } | null)?.avg_attendance ?? 0))
   }, [membership])
 
-  // Stack vertical: CALENDARIO arriba · PRINCIPAL (hero) en medio · DASHBOARD
-  // abajo. Arrancamos en el medio (la principal). Scroll abajo → sube el
-  // dashboard (de abajo hacia arriba); scroll arriba → baja el calendario (de
-  // arriba hacia abajo). Ambos cubren la principal; en el medio no se ve ninguno.
-  const [dashY, setDashY] = useState(100) // 100 oculto abajo → 0 cubriendo
-  const [calY, setCalY] = useState(-100) // -100 oculto arriba → 0 cubriendo
+  // Scroll-spy.
   useEffect(() => {
-    if (membershipLoading || !membership) return // esperar a que exista la pista de scroll
-    const vh = () => window.innerHeight
-    // Banda neutral de MEDIA pantalla [h, 1.5h] donde se ve SOLO la principal
-    // (fácil de encuadrar). Debajo de h → baja el calendario; por encima de 1.5h → sube el dashboard.
-    const onScroll = () => {
-      const h = vh()
-      const y = window.scrollY
-      if (y <= h) { const p = Math.min(1, (h - y) / h); setCalY(-100 + p * 100); setDashY(100) }
-      else if (y >= 1.5 * h) { const p = Math.min(1, (y - 1.5 * h) / h); setDashY(100 - p * 100); setCalY(-100) }
-      else { setCalY(-100); setDashY(100) } // zona neutral: la principal
-    }
-    window.scrollTo(0, vh() * 1.25) // arrancar en el centro de la banda neutral
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    window.addEventListener('resize', onScroll)
-    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll) }
-  }, [membershipLoading, membership])
+    if (!membership) return
+    const io = new IntersectionObserver(
+      (entries) => entries.forEach((e) => { if (e.isIntersecting) setActive(e.target.id) }),
+      { rootMargin: '-25% 0px -65% 0px' },
+    )
+    SECTIONS.forEach((s) => { const el = document.getElementById(s.id); if (el) io.observe(el) })
+    return () => io.disconnect()
+  }, [membership])
+
+  // Contrae la barra al hacer clic fuera de ella.
+  useEffect(() => {
+    if (!expanded) return
+    const onDown = (e: MouseEvent) => { if (navRef.current && !navRef.current.contains(e.target as Node)) setExpanded(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [expanded])
 
   if (membershipLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#383835]">
-        <p className="text-sm text-white/60">Cargando…</p>
-      </div>
-    )
+    return <div className="flex min-h-screen items-center justify-center bg-cream"><p className="text-sm text-graysage">Cargando…</p></div>
   }
   if (!membership) return <Navigate to="/onboarding" replace />
 
+  const go = (id: string) => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setExpanded(false) }
+
   return (
-    <>
-      {/* Pista de scroll: calendario [0,1] · neutral [1,1.5] · dashboard [1.5,2.5] (+1 viewport) */}
-      <div className="h-[350vh]" aria-hidden />
+    <div className="min-h-screen bg-cream">
+      <div className="sticky top-0 z-40"><AppHeader /></div>
 
-      {/* PRINCIPAL (hero) — en el medio, fija detrás; foto + capa oscura translúcida */}
-      <section className="fixed inset-0 z-0 flex flex-col overflow-hidden text-white">
-        <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('/hero-bg.webp')" }} aria-hidden />
-        <div className="absolute inset-0 bg-[#383835]/[0.88]" aria-hidden />
-        <div className="pointer-events-none absolute -right-32 -top-40 h-[32rem] w-[32rem] rounded-full bg-sage/20 blur-[130px]" aria-hidden />
-        <div className="pointer-events-none absolute -left-40 bottom-10 h-[26rem] w-[26rem] rounded-full bg-sage-dark/25 blur-[130px]" aria-hidden />
-
-        <div className="relative">
-          <AppHeader dark />
-        </div>
-        <div className="relative flex flex-1 items-center justify-center px-6 pb-16">
-          <div className="max-w-3xl text-center">
-            <span className="inline-block rounded-full bg-sage-dark px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wider text-white">
-              Panel del pastor
-            </span>
-            <h1 className="mt-5 font-serif text-4xl font-semibold leading-tight text-white sm:text-5xl">
-              {church ? church.name : 'Bienvenido'}
-            </h1>
-            <p className="mx-auto mt-3 max-w-md text-white/70">Tu comunidad, en un vistazo.</p>
-            <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
-              <Link to="/miembros" className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-charcoal transition hover:bg-white/90">
-                Ver miembros
-              </Link>
-              <Link to="/calendario" className="rounded-full border border-white/25 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-white/10">
-                Calendario
-              </Link>
-            </div>
-            {church && (
-              <p className="mt-5 text-sm text-sage">
-                <span className="font-mono">{church.code}</span>
-                {church.plan && <span className="capitalize text-white/50"> · {church.plan.replace('_', ' ')}</span>}
-                {church.country && <span className="text-white/50"> · {church.country}</span>}
-              </p>
-            )}
-            <p className="mt-10 text-xs text-white/40">↑ Calendario&nbsp;&nbsp;·&nbsp;&nbsp;Resumen ↓</p>
-          </div>
-        </div>
-      </section>
-
-      {/* CALENDARIO — arriba; BAJA al hacer scroll hacia arriba (fondo blanco) */}
-      <section
-        style={{ transform: `translateY(${calY}%)`, pointerEvents: calY <= -99 ? 'none' : 'auto' }}
-        className="fixed inset-0 z-10 flex items-center justify-center overflow-hidden rounded-b-[2.5rem] bg-white shadow-[0_14px_40px_-14px_rgba(0,0,0,0.4)] will-change-transform"
+      {/* Barra lateral colapsable (rail de iconos) */}
+      <aside
+        ref={navRef}
+        className={`fixed bottom-0 left-0 top-[57px] z-30 flex flex-col gap-1 border-r border-black/5 bg-white p-2 transition-[width] duration-300 ease-out ${expanded ? 'w-52 shadow-2xl' : 'w-16'}`}
       >
-        <div className="max-w-2xl px-6 py-16 text-center">
-          <span className="inline-block rounded-full bg-sage-dark px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wider text-white">
-            Calendario
-          </span>
-          <h2 className="mt-5 font-serif text-3xl font-semibold leading-tight text-charcoal sm:text-4xl">
-            El ritmo de la iglesia
-          </h2>
-          <p className="mx-auto mt-3 max-w-md text-graysage">
-            Define tus actividades una vez y el sistema proyecta la semana, con encargados y ciclos.
-          </p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-5 text-sm text-graysage">
-            <span>Semana · Día · Mes</span>
-            <span className="text-sage-dark">Encargados</span>
-            <span>Ciclos</span>
-          </div>
-          <Link to="/calendario" className="mt-8 inline-block rounded-full bg-sage-dark px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-95">
-            Abrir calendario
-          </Link>
-        </div>
-      </section>
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          aria-label={expanded ? 'Contraer menú' : 'Ampliar menú'}
+          className="mb-1 flex h-10 items-center gap-2 rounded-lg px-3 text-graysage transition hover:bg-cream"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            {expanded ? <path d="M15 6l-6 6 6 6" /> : <path d="M9 6l6 6-6 6" />}
+          </svg>
+          {expanded && <span className="whitespace-nowrap text-[0.65rem] font-semibold uppercase tracking-wider">En esta página</span>}
+        </button>
+        {SECTIONS.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => go(s.id)}
+            title={s.label}
+            className={`flex h-11 items-center gap-3 rounded-lg px-3 transition ${active === s.id ? 'bg-sage-light text-sage-dark' : 'text-graysage hover:bg-sage-light/50 hover:text-sage-dark'}`}
+          >
+            {s.icon}
+            {expanded && <span className="truncate text-sm font-medium">{s.label}</span>}
+          </button>
+        ))}
+      </aside>
 
-      {/* DASHBOARD (resumen) — abajo; SUBE al hacer scroll hacia abajo */}
-      <section
-        style={{ transform: `translateY(${dashY}%)`, pointerEvents: dashY >= 99 ? 'none' : 'auto' }}
-        className="fixed inset-0 z-10 flex items-start overflow-y-auto overscroll-contain rounded-t-[2.5rem] bg-cream shadow-[0_-14px_40px_-14px_rgba(0,0,0,0.4)] will-change-transform [scrollbar-width:thin]"
-      >
-        <div className="mx-auto w-full max-w-6xl px-6 py-9">
-          {/* Cabecera estilo hero: pastilla + titular + degradado verde suave con
-              halos difuminados (lenguaje aireado y moderno). */}
-          <div className="relative mb-7 overflow-hidden rounded-3xl bg-gradient-to-br from-sage-light/60 via-white to-beige/40 p-7 ring-1 ring-black/5 sm:p-9">
-            <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-sage/20 blur-3xl" aria-hidden />
-            <div className="pointer-events-none absolute -bottom-24 left-8 h-56 w-56 rounded-full bg-sage-dark/10 blur-3xl" aria-hidden />
-            <div className="relative">
-              <span className="inline-block rounded-full bg-sage-dark px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-wider text-white">Resumen · Personas</span>
-              <h2 className="mt-4 max-w-2xl font-serif text-3xl font-semibold leading-tight text-charcoal sm:text-4xl">Tu congregación, con claridad</h2>
-              <p className="mt-2.5 max-w-lg text-graysage">Totales y segmentación de las personas de la iglesia: estado, bautismo, género, edad, equipos y roles.</p>
-            </div>
-          </div>
-          {membership && <MembersOverview churchId={membership.churchId} avgAttendance={metrics?.avg_attendance ?? 0} />}
-          <div className="mt-5 grid gap-4 sm:grid-cols-3">
-            <QuickLink to="/miembros" tone="beige" title="Miembros" desc="Agrega personas, asigna roles y equipos, y aprueba prospectos." />
-            <QuickLink to="/calendario" tone="sage" title="Calendario" desc="El ritmo de la iglesia: actividades, encargados y ciclos." />
-            <QuickLink to="/ajustes" title="Ajustes" desc="Datos de la iglesia, equipos, roles y reglas." />
+      {/* Contenido (deja libre el rail de 64px; la barra ampliada flota encima) */}
+      <div className="ml-16">
+        <div className="mx-auto w-full max-w-5xl px-6 py-8">
+          <header className="mb-8">
+            <p className="text-xs font-semibold uppercase tracking-wider text-sage-dark">Panel del pastor</p>
+            <h1 className="mt-1 font-serif text-3xl font-semibold text-charcoal sm:text-4xl">{church?.name ?? 'Tu congregación'}</h1>
+            <p className="mt-1 text-sm text-graysage">Una lectura clara del estado de la iglesia, semana tras semana.{church?.code && <span className="ml-2 font-mono text-graysage/70">{church.code}</span>}</p>
+          </header>
+
+          <div className="space-y-14">
+            <section id="iglesia" className="scroll-mt-20"><ChurchHealth churchId={membership.churchId} /></section>
+            <section id="miembros" className="scroll-mt-20"><MembersOverview churchId={membership.churchId} avgAttendance={avgAttendance} /></section>
+            <section id="actividades" className="scroll-mt-20"><ActivityMetrics churchId={membership.churchId} /></section>
+            <section id="equipos" className="scroll-mt-20"><TeamRoleMetrics churchId={membership.churchId} /></section>
+            <section id="mejores" className="scroll-mt-20"><BestNumbers churchId={membership.churchId} /></section>
           </div>
         </div>
-      </section>
-    </>
+      </div>
+    </div>
   )
 }

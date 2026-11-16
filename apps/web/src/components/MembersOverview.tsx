@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
-import { displayAgeRange, readAgeRanges, DEFAULT_AGE_RANGES, type AgeRangeDef } from '../lib/member'
+import { ageFromBirth, displayAgeRange, readAgeRanges, DEFAULT_AGE_RANGES, type AgeRangeDef } from '../lib/member'
+import Insight from './Insight'
 
 // Base de SEGMENTACIÓN de personas (Pilar A) para el panel: totales + desglose por
 // estado, bautismo, género, edad, roles y equipos. Vista por defecto en BARRAS
@@ -9,6 +10,7 @@ import { displayAgeRange, readAgeRanges, DEFAULT_AGE_RANGES, type AgeRangeDef } 
 
 interface Cat { id: string; name: string }
 interface M {
+  id: string
   status: string
   sex: string | null
   isBaptized: boolean
@@ -18,6 +20,7 @@ interface M {
   teamIds: string[]
 }
 interface RawMember {
+  id: string
   status: string
   sex: string | null
   is_baptized: boolean
@@ -182,8 +185,6 @@ function Kpi({ label, value, sub, strong, tint }: { label: string; value: string
   )
 }
 
-const STATUS_LABEL: Record<string, string> = { active: 'Activos', inactive: 'Inactivos', prospect: 'Prospectos' }
-const STATUS_COLOR: Record<string, string> = { active: C.green, inactive: C.gray, prospect: C.grayL }
 const SEX_LABEL: Record<string, string> = { M: 'Hombres', masculino: 'Hombres', F: 'Mujeres', femenino: 'Mujeres' }
 
 export default function MembersOverview({ churchId, avgAttendance = 0 }: { churchId: string; avgAttendance?: number }) {
@@ -191,6 +192,8 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
   const [roles, setRoles] = useState<Cat[]>([])
   const [teams, setTeams] = useState<Cat[]>([])
   const [ageRanges, setAgeRanges] = useState<AgeRangeDef[]>(DEFAULT_AGE_RANGES)
+  const [attMap, setAttMap] = useState<Map<string, string | null>>(new Map())
+  const [minBaptAge, setMinBaptAge] = useState(12)
   // Tarjeta fijada (clic) + tarjeta bajo el cursor. La activa se amplía; las demás
   // se reducen. Un clic fuera de cualquier tarjeta suelta la fijada.
   const [selected, setSelected] = useState<string | null>(null)
@@ -204,18 +207,22 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const [rolesRes, teamsRes, membersRes, churchRes] = await Promise.all([
+      const [rolesRes, teamsRes, membersRes, churchRes, attRes] = await Promise.all([
         supabase.from('roles').select('id, name').order('name'),
         supabase.from('teams').select('id, name').order('name'),
-        supabase.from('members').select('status, sex, is_baptized, birth_date, age_group, member_roles(role_id), member_teams(team_id)'),
+        supabase.from('members').select('id, status, sex, is_baptized, birth_date, age_group, member_roles(role_id), member_teams(team_id)'),
         supabase.from('churches').select('settings').eq('id', churchId).maybeSingle(),
+        supabase.from('member_attendance').select('member_id, last_attended'),
       ])
       if (!alive) return
       setRoles((rolesRes.data ?? []) as Cat[])
       setTeams((teamsRes.data ?? []) as Cat[])
       setAgeRanges(readAgeRanges(churchRes.data?.settings))
+      setMinBaptAge((churchRes.data?.settings as { min_baptism_age?: number } | null)?.min_baptism_age ?? 12)
+      setAttMap(new Map(((attRes.data ?? []) as { member_id: string; last_attended: string | null }[]).map((r) => [r.member_id, r.last_attended])))
       setMembers(
         ((membersRes.data ?? []) as unknown as RawMember[]).map((m) => ({
+          id: m.id,
           status: m.status,
           sex: m.sex,
           isBaptized: Boolean(m.is_baptized),
@@ -235,10 +242,14 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
     const active = list.filter((m) => m.status === 'active').length
     const baptized = list.filter((m) => m.isBaptized).length
 
-    const byStatus: Item[] = ['active', 'inactive', 'prospect'].map((s) => ({ label: STATUS_LABEL[s], value: list.filter((m) => m.status === s).length, color: STATUS_COLOR[s] }))
+    // Bautismo según la edad mínima: entre los no bautizados, separar a los
+    // menores de la edad mínima (a quienes aún no aplica) de los "por bautizar".
+    const nonBapt = list.filter((m) => !m.isBaptized)
+    const minors = nonBapt.filter((m) => { const a = ageFromBirth(m.birthDate); return a != null && a < minBaptAge }).length
     const baptism: Item[] = [
       { label: 'Bautizados', value: baptized, color: C.green },
-      { label: 'No bautizados', value: total - baptized, color: C.grayL },
+      { label: 'Por bautizar', value: nonBapt.length - minors, color: C.gold },
+      { label: `Menores de ${minBaptAge}`, value: minors, color: C.grayL },
     ]
     const sexNorm = (s: string | null) => (s ? (SEX_LABEL[s] ?? SEX_LABEL[s.toLowerCase()] ?? null) : null)
     const men = list.filter((m) => sexNorm(m.sex) === 'Hombres').length
@@ -253,14 +264,32 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
     for (const m of list) { const r = displayAgeRange(m.birthDate, m.ageGroup, ageRanges) ?? 'Sin dato'; ageCount.set(r, (ageCount.get(r) ?? 0) + 1) }
     const byAge: Item[] = [...ageRanges.map((r) => ({ label: r.name, value: ageCount.get(r.name) ?? 0 })), { label: 'Sin dato', value: ageCount.get('Sin dato') ?? 0 }].filter((x) => x.value > 0)
 
-    const byRole: Item[] = roles.map((r) => ({ label: r.name, value: list.filter((m) => m.roleIds.includes(r.id)).length })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value)
-    const byTeam: Item[] = teams.map((t) => ({ label: t.name, value: list.filter((m) => m.teamIds.includes(t.id)).length })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value)
-
     const inAnyTeam = list.filter((m) => m.teamIds.length > 0).length
     const inAnyRole = list.filter((m) => m.roleIds.length > 0).length
+    const serves = list.filter((m) => m.roleIds.length > 0 || m.teamIds.length > 0).length
+    const byVinculo: Item[] = [
+      { label: 'Sirve (rol o equipo)', value: serves, color: C.green },
+      { label: 'Solo asiste', value: total - serves, color: C.grayL },
+    ]
 
-    return { total, active, baptized, byStatus, baptism, sex, byAge, byRole, byTeam, inAnyTeam, inAnyRole }
-  }, [members, roles, teams, ageRanges])
+    // Nivel 0: estado POR ASISTENCIA (activo = asistió en ≤60 días). Dimensión
+    // derivada de la asistencia, independiente del estado de membresía manual.
+    const nowMs = Date.now()
+    let attActive = 0, attInactive = 0, attNever = 0
+    for (const m of list) {
+      const la = attMap.get(m.id)
+      if (!la) attNever++
+      else if ((nowMs - new Date(la).getTime()) / 86400000 <= 60) attActive++
+      else attInactive++
+    }
+    const byAttendance: Item[] = [
+      { label: 'Activos (≤60 d)', value: attActive, color: C.green },
+      { label: 'Sin asistir (+60 d)', value: attInactive, color: C.gray },
+      { label: 'Sin registro', value: attNever, color: C.grayL },
+    ]
+
+    return { total, active, baptized, baptism, sex, byAge, inAnyTeam, inAnyRole, byAttendance, byVinculo, serves, attActive }
+  }, [members, roles, teams, ageRanges, attMap, minBaptAge])
 
   if (members === null) {
     return <p className="py-8 text-center text-sm text-graysage">Cargando personas…</p>
@@ -272,26 +301,33 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Miembros" value={seg.total} strong />
-        <Kpi label="Activos" value={seg.active} sub={`${pct(seg.active)}% del total`} />
+        <Kpi label="Activos (60 d)" value={seg.attActive} sub={`${pct(seg.attActive)}% asistió`} />
         <Kpi label="Bautizados" value={seg.baptized} sub={`${pct(seg.baptized)}% del total`} />
         <Kpi label="Asistencia prom." value={avgAttendance} sub="últimos 4 cultos" />
       </div>
 
+      {seg.total > 0 && (
+        (seg.total - seg.attActive) / seg.total >= 0.4
+          ? <Insight tone="warn">{seg.total - seg.attActive} de {seg.total} personas no registran asistencia en 60 días ({pct(seg.total - seg.attActive)}%). Conviene hacer seguimiento.</Insight>
+          : (seg.total - seg.serves) / seg.total >= 0.5
+            ? <Insight tone="info">El {pct(seg.total - seg.serves)}% solo asiste: no está en ningún equipo ni rol. Hay margen para integrarlos.</Insight>
+            : <Insight tone="good">{pct(seg.attActive)}% activos por asistencia y {pct(seg.serves)}% sirve en un equipo o rol.</Insight>
+      )}
+
       <div className="pt-1">
-        <h3 className="font-serif text-lg font-semibold text-charcoal">Desglose de la congregación</h3>
-        <p className="text-sm text-graysage">Pasa el cursor por una tarjeta para ver su proporción respecto a la iglesia.</p>
+        <h3 className="font-serif text-lg font-semibold text-charcoal">Miembros</h3>
+        <p className="text-sm text-graysage">Composición de la congregación. Pasa el cursor por una tarjeta para ver su proporción respecto a la iglesia.</p>
       </div>
 
       {/* Bento: tamaños variados (tercios · mitades · ancho completo) y un tinte
           pastel distinto por tarjeta, para dar personalidad sin perder la base. */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
         {([
-          { id: 'estado', title: 'Por estado', items: seg.byStatus, tint: 'bg-white', span: 'md:col-span-2', body: <Stacked parts={seg.byStatus} total={seg.total} /> },
-          { id: 'bautismo', title: 'Bautismo', items: seg.baptism, tint: 'bg-white', span: 'md:col-span-2', body: <Stacked parts={seg.baptism} total={seg.total} /> },
-          { id: 'genero', title: 'Por género', items: seg.sex, tint: 'bg-white', span: 'md:col-span-2', body: <Stacked parts={seg.sex} total={seg.total} /> },
-          { id: 'edad', title: 'Por edad', items: seg.byAge, tint: 'bg-sage-light/45', span: 'md:col-span-3', body: <Bars items={seg.byAge} accent={C.green} empty="Sin fechas de nacimiento" /> },
-          { id: 'rol', title: 'Por rol', items: seg.byRole, tint: 'bg-sage-light/45', span: 'md:col-span-3', caption: `${seg.inAnyRole} de ${seg.total} con algún rol (${pct(seg.inAnyRole)}%)`, body: <Bars items={seg.byRole} accent={C.green} empty="Nadie con rol asignado" /> },
-          { id: 'equipo', title: 'Por equipo', items: seg.byTeam, tint: 'bg-sage-light/55', span: 'md:col-span-6', caption: `${seg.inAnyTeam} de ${seg.total} en algún equipo (${pct(seg.inAnyTeam)}%)`, body: <Bars items={seg.byTeam} accent={C.green} empty="Nadie en equipos" /> },
+          { id: 'asistencia', title: 'Asistencia (60 d)', items: seg.byAttendance, tint: 'bg-sage-light/45', span: 'md:col-span-3', caption: 'Activo = asistió en los últimos 60 días', body: <Stacked parts={seg.byAttendance} total={seg.total} /> },
+          { id: 'vinculo', title: 'Vínculo', items: seg.byVinculo, tint: 'bg-sage-light/45', span: 'md:col-span-3', caption: `${seg.serves} sirven · ${seg.total - seg.serves} solo asisten`, body: <Stacked parts={seg.byVinculo} total={seg.total} /> },
+          { id: 'bautismo', title: 'Bautismo', items: seg.baptism, tint: 'bg-white', span: 'md:col-span-2', caption: `Edad mínima: ${minBaptAge} años`, body: <Stacked parts={seg.baptism} total={seg.total} /> },
+          { id: 'genero', title: 'Género', items: seg.sex, tint: 'bg-white', span: 'md:col-span-2', body: <Stacked parts={seg.sex} total={seg.total} /> },
+          { id: 'edad', title: 'Edad', items: seg.byAge, tint: 'bg-white', span: 'md:col-span-2', body: <Bars items={seg.byAge} accent={C.green} empty="Sin fechas de nacimiento" /> },
         ] as { id: string; title: string; items: Item[]; tint: string; span: string; caption?: string; body: ReactNode }[]).map((c) => {
           const focused = hoverId === c.id || selected === c.id
           const reduced = (hoverId !== null || selected !== null) && !focused

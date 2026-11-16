@@ -32,6 +32,9 @@ export default function AppHeader({ dark = false }: { dark?: boolean }) {
           <NavLink to="/calendario" className={linkCls}>
             Calendario
           </NavLink>
+          <NavLink to="/asistencia" className={linkCls}>
+            Asistencia
+          </NavLink>
           <NavLink to="/ajustes" className={linkCls}>
             Ajustes
           </NavLink>
