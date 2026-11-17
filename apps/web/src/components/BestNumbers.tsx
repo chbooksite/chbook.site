@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
 import { supabase } from '../lib/supabase'
-import { WEEKDAYS, WEEKDAYS_SHORT } from '../lib/activity'
+import { WEEKDAYS, WEEKDAYS_SHORT, readAssignees } from '../lib/activity'
 import Insight from './Insight'
 
 // Sección 4 · MEJORES NÚMEROS. La clave: un horario NO vale igual según el día
@@ -20,13 +20,32 @@ function hourLabel(h: number): string {
 
 export default function BestNumbers({ churchId }: { churchId: string }) {
   const [rows, setRows] = useState<Row[] | null>(null)
+  const [encByName, setEncByName] = useState<Map<string, { enc: string; pred: string | null }>>(new Map())
 
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const { data } = await supabase.from('service_attendance').select('starts_at, total, activity_name, service_name')
+      const [svcRes, schRes, roleRes, memRes, teamRes] = await Promise.all([
+        supabase.from('service_attendance').select('starts_at, total, activity_name, service_name'),
+        supabase.from('activity_schedules').select('name, assignees').eq('church_id', churchId),
+        supabase.from('roles').select('id, name'),
+        supabase.from('members').select('id, full_name'),
+        supabase.from('teams').select('id, name'),
+      ])
       if (!alive) return
-      setRows(((data ?? []) as unknown as Row[]).filter((r) => r.starts_at && Number(r.total) > 0))
+      const roleName = new Map(((roleRes.data ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]))
+      const memberName = new Map(((memRes.data ?? []) as { id: string; full_name: string }[]).map((m) => [m.id, m.full_name]))
+      const teamName = new Map(((teamRes.data ?? []) as { id: string; name: string }[]).map((t) => [t.id, t.name]))
+      const isPred = (x: { kind: string; id: string }) => x.kind === 'role' && (roleName.get(x.id) ?? '').toLowerCase().includes('predicador')
+      const resolveA = (a: { kind: string; id: string }) => a.kind === 'member' ? (memberName.get(a.id) ?? 'Persona') : a.kind === 'team' ? (teamName.get(a.id) ?? 'Equipo') : (roleName.get(a.id) ?? 'Rol')
+      const enc = new Map<string, { enc: string; pred: string | null }>()
+      for (const s of (schRes.data ?? []) as { name: string; assignees: unknown }[]) {
+        const asg = readAssignees(s.assignees); if (!asg.length) continue
+        const pa = asg.find(isPred)
+        enc.set(s.name, { enc: asg.filter((x) => !isPred(x)).map(resolveA).join(' · '), pred: pa ? (pa.memberIds.map((id) => memberName.get(id)).filter(Boolean).join(', ') || 'Predicador') : null })
+      }
+      setEncByName(enc)
+      setRows(((svcRes.data ?? []) as unknown as Row[]).filter((r) => r.starts_at && Number(r.total) > 0))
     })()
     return () => { alive = false }
   }, [churchId])
@@ -61,6 +80,16 @@ export default function BestNumbers({ churchId }: { churchId: string }) {
     }
     return { hours, avgAt, maxAvg, best, bestWD, bestWE, worst, typesWeek: typeByDay(false), typesWeekend: typeByDay(true), any: list.length > 0 }
   }, [rows])
+
+  // Actividades con más asistencia + quién las encabeza (encargado) y quién predica.
+  const topActs = useMemo(() => {
+    const m = new Map<string, { s: number; n: number }>()
+    for (const r of rows ?? []) { const name = r.activity_name ?? r.service_name ?? 'Actividad'; const c = m.get(name) ?? { s: 0, n: 0 }; c.s += Number(r.total); c.n++; m.set(name, c) }
+    return [...m.entries()]
+      .map(([name, v]) => ({ name, avg: Math.round(v.s / v.n), ...(encByName.get(name) ?? { enc: '', pred: null as string | null }) }))
+      .sort((a, b) => b.avg - a.avg)
+      .slice(0, 5)
+  }, [rows, encByName])
 
   if (rows === null) return <p className="py-8 text-center text-sm text-graysage">Cargando…</p>
 
@@ -124,6 +153,24 @@ export default function BestNumbers({ churchId }: { churchId: string }) {
             <TypeBars title="Fin de semana" hint="Asistencia promedio · sábado y domingo" data={model.typesWeekend} />
             <TypeBars title="Entre semana" hint="Asistencia promedio · lunes a viernes" data={model.typesWeek} />
           </div>
+
+          {/* Quién encabeza los servicios con más asistencia */}
+          {topActs.some((a) => a.enc || a.pred) && (
+            <div className="rounded-2xl bg-white p-4 ring-1 ring-black/5 lg:col-span-5">
+              <p className="text-sm font-medium text-charcoal">Encargados de los servicios con más asistencia</p>
+              <p className="mb-3 text-xs text-graysage">Quién dirige y quién lleva la palabra en cada actividad. Los asignas en el Calendario.</p>
+              <div className="space-y-1.5">
+                {topActs.map((a) => (
+                  <div key={a.name} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded-xl bg-cream/60 px-3 py-2 text-xs">
+                    <span className="w-44 shrink-0 font-semibold text-charcoal">{a.name}</span>
+                    <span className="w-16 shrink-0 tabular-nums text-graysage">{a.avg} asist.</span>
+                    {a.enc && <span className="text-graysage">Encargado: <span className="font-medium text-charcoal">{a.enc}</span></span>}
+                    {a.pred && <span className="text-graysage">· Predica: <span className="font-medium text-charcoal">{a.pred}</span></span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
