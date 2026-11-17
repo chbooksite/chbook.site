@@ -39,6 +39,7 @@ interface TeamData {
   teamMembers: Map<string, Set<string>>
   teamName: Map<string, string>
   scheduleTeams: Map<string, string[]>
+  encBySchedule: Map<string, { enc: string; pred: string | null }>
 }
 
 function mapSchedule(r: Record<string, unknown>): Schedule {
@@ -196,12 +197,14 @@ export default function ActivityMetrics({ churchId }: { churchId: string }) {
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const [schRes, svcRes, mtRes, teamRes, stRes] = await Promise.all([
+      const [schRes, svcRes, mtRes, teamRes, stRes, roleRes, memRes] = await Promise.all([
         supabase.from('activity_schedules').select('*').eq('church_id', churchId),
         supabase.from('service_attendance').select('service_id, schedule_id, activity_name, service_name, starts_at, total, online, presencial, gps'),
         supabase.from('member_teams').select('member_id, team_id'),
         supabase.from('teams').select('id, name'),
         supabase.from('schedule_teams').select('schedule_id, team_id').eq('church_id', churchId),
+        supabase.from('roles').select('id, name'),
+        supabase.from('members').select('id, full_name'),
       ])
       const att = await fetchAll<{ service_id: string; checked_at: string | null; member_id: string | null }>(() => supabase.from('attendance').select('service_id, checked_at, member_id'))
       if (!alive) return
@@ -222,7 +225,21 @@ export default function ActivityMetrics({ churchId }: { churchId: string }) {
       for (const r of (stRes.data ?? []) as { schedule_id: string; team_id: string }[]) {
         const a = scheduleTeams.get(r.schedule_id) ?? []; if (!a.includes(r.team_id)) a.push(r.team_id); scheduleTeams.set(r.schedule_id, a)
       }
-      setTeamData({ attendeesBySvc, teamMembers, teamName, scheduleTeams })
+      // Encargado(s) y predicador por actividad (desde activity_schedules.assignees).
+      const roleName = new Map(((roleRes.data ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]))
+      const memberName = new Map(((memRes.data ?? []) as { id: string; full_name: string }[]).map((m) => [m.id, m.full_name]))
+      const isPred = (x: { kind: string; id: string }) => x.kind === 'role' && (roleName.get(x.id) ?? '').toLowerCase().includes('predicador')
+      const resolveA = (a: { kind: string; id: string }) => a.kind === 'member' ? (memberName.get(a.id) ?? 'Persona') : a.kind === 'team' ? (teamName.get(a.id) ?? 'Equipo') : (roleName.get(a.id) ?? 'Rol')
+      const encBySchedule = new Map<string, { enc: string; pred: string | null }>()
+      for (const r of (schRes.data ?? []) as Record<string, unknown>[]) {
+        const asg = readAssignees(r.assignees)
+        if (!asg.length) continue
+        const enc = asg.filter((x) => !isPred(x)).map(resolveA).join(' · ')
+        const pa = asg.find(isPred)
+        const pred = pa ? (pa.memberIds.map((id) => memberName.get(id)).filter(Boolean).join(', ') || 'Predicador') : null
+        encBySchedule.set(r.id as string, { enc, pred })
+      }
+      setTeamData({ attendeesBySvc, teamMembers, teamName, scheduleTeams, encBySchedule })
 
       // Registrados (con asistencia). Clave de slot = scheduleId|ymd (o serviceId si no tiene schedule).
       const byKey = new Map<string, Occ>()
@@ -362,6 +379,13 @@ export default function ActivityMetrics({ churchId }: { churchId: string }) {
                   <div>
                     <p className="font-serif text-base font-semibold text-charcoal">{sel.name}</p>
                     <p className="text-xs text-graysage">{sel.at.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+                    {(() => { const e = sel.scheduleId ? teamData?.encBySchedule.get(sel.scheduleId) : null; return e && (e.enc || e.pred) ? (
+                      <p className="mt-1 text-xs text-graysage">
+                        {e.enc && <>Encargado: <span className="font-medium text-charcoal">{e.enc}</span></>}
+                        {e.enc && e.pred && <span className="text-graysage/50"> · </span>}
+                        {e.pred && <>Predica: <span className="font-medium text-charcoal">{e.pred}</span></>}
+                      </p>
+                    ) : null })()}
                   </div>
                   {sel.registered && esperada != null && (
                     <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${sel.total >= esperada ? 'bg-sage-light text-sage-dark' : 'bg-clay/15 text-clay'}`}>
