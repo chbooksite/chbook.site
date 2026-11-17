@@ -50,11 +50,16 @@ export default function BestNumbers({ churchId }: { churchId: string }) {
     for (const wd of [1, 2, 3, 4, 5]) for (const h of hours) { const a = avgAt(wd, h); if (a != null && (!bestWD || a > bestWD.avg)) bestWD = { wd, h, avg: a } }
     let worst: number | null = null
     for (const wd of [0, 1, 2, 3, 4, 5, 6]) for (const h of hours) { const a = avgAt(wd, h); if (a != null && (worst == null || a < worst)) worst = a }
-    // Mejores tipos
-    const typeMap = new Map<string, { s: number; n: number }>()
-    for (const r of list) { const c = typeMap.get(r.name) ?? { s: 0, n: 0 }; c.s += r.total; c.n++; typeMap.set(r.name, c) }
-    const types = [...typeMap.entries()].map(([name, v]) => ({ name, avg: Math.round(v.s / v.n) })).sort((a, b) => b.avg - a.avg).slice(0, 6)
-    return { hours, avgAt, maxAvg, best, bestWD, worst, types, any: list.length > 0 }
+    // Mejor franja de fin de semana
+    let bestWE: { wd: number; h: number; avg: number } | null = null
+    for (const wd of [0, 6]) for (const h of hours) { const a = avgAt(wd, h); if (a != null && (!bestWE || a > bestWE.avg)) bestWE = { wd, h, avg: a } }
+    // Mejores tipos, separados entre semana (L-V) y fin de semana (S-D)
+    const typeByDay = (weekend: boolean) => {
+      const m = new Map<string, { s: number; n: number }>()
+      for (const r of list) { const wd = r.at.getDay(); if ((wd === 0 || wd === 6) !== weekend) continue; const c = m.get(r.name) ?? { s: 0, n: 0 }; c.s += r.total; c.n++; m.set(r.name, c) }
+      return [...m.entries()].map(([name, v]) => ({ name, avg: Math.round(v.s / v.n) })).sort((a, b) => b.avg - a.avg).slice(0, 5)
+    }
+    return { hours, avgAt, maxAvg, best, bestWD, bestWE, worst, typesWeek: typeByDay(false), typesWeekend: typeByDay(true), any: list.length > 0 }
   }, [rows])
 
   if (rows === null) return <p className="py-8 text-center text-sm text-graysage">Cargando…</p>
@@ -95,6 +100,11 @@ export default function BestNumbers({ churchId }: { churchId: string }) {
                     Entre semana: {WEEKDAYS[model.bestWD.wd]} {hourLabel(model.bestWD.h)}m · {model.bestWD.avg}
                   </span>
                 )}
+                {model.bestWE && (
+                  <span className="rounded-full bg-cream px-3 py-1 text-xs font-semibold text-graysage" title="Mejor día y hora de sábado/domingo">
+                    Fin de semana: {WEEKDAYS[model.bestWE.wd]} {hourLabel(model.bestWE.h)}m · {model.bestWE.avg}
+                  </span>
+                )}
               </div>
             </div>
             <div className="mt-3 overflow-x-auto">
@@ -109,23 +119,36 @@ export default function BestNumbers({ churchId }: { churchId: string }) {
             <p className="mt-3 text-xs text-graysage/70">Color = asistencia promedio. Vacío = sin actividad en esa franja.</p>
           </div>
 
-          {/* Mejores tipos de actividad (Recharts) */}
-          <div className="rounded-2xl bg-white p-4 ring-1 ring-black/5 lg:col-span-2">
-            <p className="text-sm font-medium text-charcoal">Mejores actividades</p>
-            <p className="mb-2 text-xs text-graysage">Asistencia promedio por tipo</p>
-            <ResponsiveContainer width="100%" height={Math.max(120, model.types.length * 38)}>
-              <BarChart data={model.types} layout="vertical" margin={{ left: 4, right: 24, top: 4, bottom: 4 }}>
-                <XAxis type="number" hide />
-                <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fill: '#7E807B' }} axisLine={false} tickLine={false} />
-                <Tooltip cursor={{ fill: 'rgba(0,0,0,0.03)' }} formatter={(v: number) => [`${v} asist.`, 'Promedio']} />
-                <Bar dataKey="avg" radius={[0, 6, 6, 0]} barSize={16}>
-                  {model.types.map((_, i) => <Cell key={i} fill={i === 0 ? GREEN : '#A9C9B6'} />)}
-                  <LabelList dataKey="avg" position="right" style={{ fontSize: 11, fill: '#383835', fontWeight: 600 }} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          {/* Mejores tipos de actividad, entre semana vs fin de semana */}
+          <div className="space-y-3 lg:col-span-2">
+            <TypeBars title="Fin de semana" hint="Asistencia promedio · sábado y domingo" data={model.typesWeekend} />
+            <TypeBars title="Entre semana" hint="Asistencia promedio · lunes a viernes" data={model.typesWeek} />
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function TypeBars({ title, hint, data }: { title: string; hint: string; data: { name: string; avg: number }[] }) {
+  return (
+    <div className="rounded-2xl bg-white p-4 ring-1 ring-black/5">
+      <p className="text-sm font-medium text-charcoal">{title}</p>
+      <p className="mb-2 text-xs text-graysage">{hint}</p>
+      {data.length === 0 ? (
+        <p className="py-3 text-center text-xs text-graysage/60">Sin datos aún</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={Math.max(90, data.length * 34)}>
+          <BarChart data={data} layout="vertical" margin={{ left: 4, right: 28, top: 2, bottom: 2 }}>
+            <XAxis type="number" hide />
+            <YAxis type="category" dataKey="name" width={96} tick={{ fontSize: 11, fill: '#7E807B' }} axisLine={false} tickLine={false} />
+            <Tooltip cursor={{ fill: 'rgba(0,0,0,0.03)' }} formatter={(v: number) => [`${v} asist.`, 'Promedio']} />
+            <Bar dataKey="avg" radius={[0, 6, 6, 0]} barSize={15}>
+              {data.map((_, i) => <Cell key={i} fill={i === 0 ? GREEN : '#A9C9B6'} />)}
+              <LabelList dataKey="avg" position="right" style={{ fontSize: 11, fill: '#383835', fontWeight: 600 }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       )}
     </div>
   )

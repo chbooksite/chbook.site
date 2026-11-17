@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts'
-import { supabase } from '../lib/supabase'
+import { supabase, fetchAll } from '../lib/supabase'
 import Insight from './Insight'
+import RangeControl, { DEFAULT_RANGE, bucketKey, bucketLabel, cutoff, type Range } from './RangeControl'
 
 // Sección 3 · EQUIPOS Y ROLES. Evalúa cada grupo por la PRESENCIA de sus
 // integrantes en los encuentros, NORMALIZADA por el tamaño del grupo (presentes
@@ -11,21 +12,20 @@ import Insight from './Insight'
 // en la misma métrica normalizada.
 
 const GREEN = '#5CA27B'
-const WINDOW = 8 // últimos encuentros considerados
 
 interface Grp { id: string; name: string; members: Set<string>; size: number }
-interface Svc { id: string; at: Date; present: Map<string, number>; teams: Set<string> } // teams = equipos participantes del encuentro
+interface Svc { id: string; at: Date; attendees: Set<string>; teams: Set<string> } // attendees = ids; teams = equipos participantes
 
 function LineTrend({ points }: { points: { label: string; value: number }[] }) {
-  if (points.length < 2) return <p className="py-6 text-center text-xs text-graysage/60">Se necesitan 2+ encuentros para la tendencia.</p>
+  if (points.length < 2) return <p className="py-6 text-center text-xs text-graysage/60">Pocos datos en este rango para la tendencia.</p>
   return (
     <ResponsiveContainer width="100%" height={150}>
-      <AreaChart data={points} margin={{ left: -22, right: 8, top: 6, bottom: 0 }}>
+      <AreaChart data={points} margin={{ left: -18, right: 8, top: 6, bottom: 0 }}>
         <defs><linearGradient id="teamFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={GREEN} stopOpacity={0.22} /><stop offset="100%" stopColor={GREEN} stopOpacity={0} /></linearGradient></defs>
         <CartesianGrid strokeOpacity={0.06} vertical={false} />
-        <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#7E807B' }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fontSize: 10, fill: '#7E807B' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
-        <Tooltip formatter={(v: number) => [`${v} presentes`, '']} />
+        <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#7E807B' }} axisLine={false} tickLine={false} minTickGap={14} />
+        <YAxis tick={{ fontSize: 10, fill: '#7E807B' }} axisLine={false} tickLine={false} width={34} domain={[0, 100]} unit="%" />
+        <Tooltip formatter={(v: number) => [`${v}%`, 'Participación']} />
         <Area type="monotone" dataKey="value" stroke={GREEN} strokeWidth={2.5} fill="url(#teamFill)" dot={{ r: 3 }} />
       </AreaChart>
     </ResponsiveContainer>
@@ -38,72 +38,72 @@ export default function TeamRoleMetrics({ churchId }: { churchId: string }) {
   const [roles, setRoles] = useState<Grp[]>([])
   const [svcs, setSvcs] = useState<Svc[] | null>(null)
   const [sel, setSel] = useState<string | null>(null)
+  const [range, setRange] = useState<Range>(DEFAULT_RANGE)
 
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const [teamRes, roleRes, mtRes, mrRes, svcRes, attRes, schRes] = await Promise.all([
+      const [teamRes, roleRes, mtRes, mrRes, schRes, svcRes] = await Promise.all([
         supabase.from('teams').select('id, name').order('name'),
         supabase.from('roles').select('id, name').order('name'),
         supabase.from('member_teams').select('member_id, team_id'),
         supabase.from('member_roles').select('member_id, role_id'),
-        supabase.from('service_attendance').select('service_id, starts_at, schedule_id').order('starts_at', { ascending: false }).limit(WINDOW),
-        supabase.from('attendance').select('member_id, service_id'),
         supabase.from('schedule_teams').select('schedule_id, team_id'),
+        supabase.from('service_attendance').select('service_id, starts_at, schedule_id'),
       ])
+      const att = await fetchAll<{ member_id: string; service_id: string }>(() => supabase.from('attendance').select('member_id, service_id'))
       if (!alive) return
       const teamMembers = new Map<string, Set<string>>()
-      for (const r of (mtRes.data ?? []) as { member_id: string; team_id: string }[]) { const s = teamMembers.get(r.team_id) ?? new Set(); s.add(r.member_id); teamMembers.set(r.team_id, s) }
+      for (const r of (mtRes.data ?? []) as { member_id: string; team_id: string }[]) { const s = teamMembers.get(r.team_id) ?? new Set<string>(); s.add(r.member_id); teamMembers.set(r.team_id, s) }
       const roleMembers = new Map<string, Set<string>>()
-      for (const r of (mrRes.data ?? []) as { member_id: string; role_id: string }[]) { const s = roleMembers.get(r.role_id) ?? new Set(); s.add(r.member_id); roleMembers.set(r.role_id, s) }
+      for (const r of (mrRes.data ?? []) as { member_id: string; role_id: string }[]) { const s = roleMembers.get(r.role_id) ?? new Set<string>(); s.add(r.member_id); roleMembers.set(r.role_id, s) }
       const mkGrp = (rows: { id: string; name: string }[], mm: Map<string, Set<string>>): Grp[] =>
         rows.map((g) => ({ id: g.id, name: g.name, members: mm.get(g.id) ?? new Set(), size: (mm.get(g.id) ?? new Set()).size })).filter((g) => g.size > 0)
-      const tms = mkGrp((teamRes.data ?? []) as { id: string; name: string }[], teamMembers)
-      const rls = mkGrp((roleRes.data ?? []) as { id: string; name: string }[], roleMembers)
-
-      // Equipos participantes por actividad (cumplimiento = presencia donde el equipo sirve).
       const scheduleTeams = new Map<string, Set<string>>()
       for (const r of (schRes.data ?? []) as { schedule_id: string; team_id: string }[]) { const s = scheduleTeams.get(r.schedule_id) ?? new Set<string>(); s.add(r.team_id); scheduleTeams.set(r.schedule_id, s) }
-
-      // Asistentes por encuentro
       const attBySvc = new Map<string, Set<string>>()
-      for (const a of (attRes.data ?? []) as { member_id: string; service_id: string }[]) { const s = attBySvc.get(a.service_id) ?? new Set(); s.add(a.member_id); attBySvc.set(a.service_id, s) }
+      for (const a of att) { const s = attBySvc.get(a.service_id) ?? new Set<string>(); s.add(a.member_id); attBySvc.set(a.service_id, s) }
       const services = ((svcRes.data ?? []) as { service_id: string; starts_at: string | null; schedule_id: string | null }[])
         .filter((s) => s.starts_at)
-        .map((s) => {
-          const attendees = attBySvc.get(s.service_id) ?? new Set<string>()
-          const present = new Map<string, number>()
-          for (const g of [...tms, ...rls]) { let c = 0; for (const m of g.members) if (attendees.has(m)) c++; present.set(g.id, c) }
-          return { id: s.service_id, at: new Date(s.starts_at as string), present, teams: s.schedule_id ? (scheduleTeams.get(s.schedule_id) ?? new Set<string>()) : new Set<string>() }
-        })
-        .sort((a, b) => a.at.getTime() - b.at.getTime()) // asc para la tendencia
-      setTeams(tms); setRoles(rls); setSvcs(services)
+        .map((s) => ({ id: s.service_id, at: new Date(s.starts_at as string), attendees: attBySvc.get(s.service_id) ?? new Set<string>(), teams: s.schedule_id ? (scheduleTeams.get(s.schedule_id) ?? new Set<string>()) : new Set<string>() }))
+        .sort((a, b) => a.at.getTime() - b.at.getTime())
+      setTeams(mkGrp((teamRes.data ?? []) as { id: string; name: string }[], teamMembers))
+      setRoles(mkGrp((roleRes.data ?? []) as { id: string; name: string }[], roleMembers))
+      setSvcs(services)
     })()
     return () => { alive = false }
   }, [churchId])
 
   const groups = mode === 'teams' ? teams : roles
+  const count = (set: Set<string>, members: Set<string>) => { let c = 0; for (const m of members) if (set.has(m)) c++; return c }
 
-  // Tasa media normalizada por grupo (presentes ÷ tamaño, promediado sobre los encuentros).
+  // Ranking por grupo (presentes ÷ integrantes, promediado) dentro del RANGO elegido.
   const ranking = useMemo(() => {
-    if (!svcs || !svcs.length) return groups.map((g) => ({ ...g, rate: 0, avgPresent: 0, cumpl: null as number | null, nResp: 0 }))
+    const rs = (svcs ?? []).filter((s) => s.at >= cutoff(range))
+    if (!rs.length) return groups.map((g) => ({ ...g, rate: 0, avgPresent: 0, cumpl: null as number | null, nResp: 0 }))
     return groups.map((g) => {
-      const rates = svcs.map((s) => (s.present.get(g.id) ?? 0) / g.size)
-      const pres = svcs.map((s) => s.present.get(g.id) ?? 0)
-      // Cumplimiento: solo encuentros donde este EQUIPO fue el encargado (su gente debía servir).
-      const resp = mode === 'teams' ? svcs.filter((s) => s.teams.has(g.id)) : []
-      const cumpl = resp.length ? Math.round((resp.reduce((a, s) => a + (s.present.get(g.id) ?? 0) / g.size, 0) / resp.length) * 100) : null
+      const pres = rs.map((s) => count(s.attendees, g.members))
+      const rates = pres.map((c) => c / g.size)
+      const resp = mode === 'teams' ? rs.filter((s) => s.teams.has(g.id)) : []
+      const cumpl = resp.length ? Math.round((resp.reduce((a, s) => a + count(s.attendees, g.members) / g.size, 0) / resp.length) * 100) : null
       return { ...g, rate: Math.round((rates.reduce((a, x) => a + x, 0) / rates.length) * 100), avgPresent: Math.round((pres.reduce((a, x) => a + x, 0) / pres.length) * 10) / 10, cumpl, nResp: resp.length }
     }).sort((a, b) => b.rate - a.rate)
-  }, [groups, svcs, mode])
+  }, [groups, svcs, mode, range])
 
   useEffect(() => { if (ranking.length && (!sel || !ranking.find((g) => g.id === sel))) setSel(ranking[0].id) }, [ranking, sel])
 
   const selGrp = ranking.find((g) => g.id === sel) ?? null
+  // Tendencia: % ÚNICO del grupo presente por periodo (semana/mes/año).
   const trend = useMemo(() => {
-    if (!svcs || !selGrp) return []
-    return svcs.map((s) => ({ label: s.at.toLocaleDateString('es', { day: 'numeric', month: 'short' }), value: s.present.get(selGrp.id) ?? 0 }))
-  }, [svcs, selGrp])
+    if (!svcs || !selGrp) return [] as { label: string; value: number }[]
+    const m = new Map<string, { members: Set<string>; last: Date }>()
+    for (const s of svcs.filter((x) => x.at >= cutoff(range))) {
+      const k = bucketKey(s.at, range.unit); const e = m.get(k) ?? { members: new Set<string>(), last: s.at }
+      for (const mem of selGrp.members) if (s.attendees.has(mem)) e.members.add(mem)
+      e.last = s.at; m.set(k, e)
+    }
+    return [...m.keys()].sort().map((k) => { const e = m.get(k)!; const label = range.unit === 'sem' ? e.last.toLocaleDateString('es', { day: 'numeric', month: 'short' }) : bucketLabel(k, range.unit); return { label, value: selGrp.size ? Math.round((e.members.size / selGrp.size) * 100) : 0 } })
+  }, [svcs, selGrp, range])
 
   if (svcs === null) return <p className="py-8 text-center text-sm text-graysage">Cargando equipos…</p>
 
@@ -114,19 +114,22 @@ export default function TeamRoleMetrics({ churchId }: { churchId: string }) {
       <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
         <div>
           <h3 className="font-serif text-lg font-semibold text-charcoal">Equipos y roles</h3>
-          <p className="text-sm text-graysage">Presencia de cada grupo en los encuentros, normalizada por su tamaño (últimos {WINDOW}).</p>
+          <p className="text-sm text-graysage">Participación de cada grupo (presentes ÷ integrantes), normalizada por su tamaño.</p>
         </div>
-        <div className="flex rounded-full bg-cream p-0.5 text-xs">
-          {(['teams', 'roles'] as const).map((m) => (
-            <button key={m} onClick={() => { setSel(null); setMode(m) }} className={`rounded-full px-3 py-1.5 font-medium transition ${mode === m ? 'bg-white text-charcoal shadow-sm' : 'text-graysage hover:text-charcoal'}`}>
-              {m === 'teams' ? 'Equipos' : 'Roles'}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <RangeControl value={range} onChange={setRange} size="sm" />
+          <div className="flex rounded-full bg-cream p-0.5 text-xs">
+            {(['teams', 'roles'] as const).map((m) => (
+              <button key={m} onClick={() => { setSel(null); setMode(m) }} className={`rounded-full px-3 py-1.5 font-medium transition ${mode === m ? 'bg-white text-charcoal shadow-sm' : 'text-graysage hover:text-charcoal'}`}>
+                {m === 'teams' ? 'Equipos' : 'Roles'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {ranking.length >= 2 && ranking[0].rate > 0 && (
-        <Insight tone="info">
+        <Insight tone="info" action={{ label: 'Ver el más bajo', onClick: () => setSel(ranking[ranking.length - 1].id) }}>
           {ranking[0].name} lidera con {ranking[0].rate}% de participación; {ranking[ranking.length - 1].name} es el más bajo ({ranking[ranking.length - 1].rate}%).
         </Insight>
       )}
@@ -172,7 +175,7 @@ export default function TeamRoleMetrics({ churchId }: { churchId: string }) {
                     : <span className="rounded-full bg-cream px-2.5 py-1 text-graysage/70">Sin servicios asignados</span>
                 )}
               </div>
-              <p className="mt-4 mb-1 text-xs font-medium text-graysage">Presencia por encuentro</p>
+              <p className="mt-4 mb-1 text-xs font-medium text-graysage">Participación por {range.unit === 'sem' ? 'semana' : range.unit === 'mes' ? 'mes' : 'año'}</p>
               <LineTrend points={trend} />
             </div>
           )}

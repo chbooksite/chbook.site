@@ -308,9 +308,9 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
 
       {seg.total > 0 && (
         (seg.total - seg.attActive) / seg.total >= 0.4
-          ? <Insight tone="warn">{seg.total - seg.attActive} de {seg.total} personas no registran asistencia en 60 días ({pct(seg.total - seg.attActive)}%). Conviene hacer seguimiento.</Insight>
+          ? <Insight tone="warn" action={{ label: 'Ver miembros', to: '/miembros' }}>{seg.total - seg.attActive} de {seg.total} personas no registran asistencia en 60 días ({pct(seg.total - seg.attActive)}%). Conviene hacer seguimiento.</Insight>
           : (seg.total - seg.serves) / seg.total >= 0.5
-            ? <Insight tone="info">El {pct(seg.total - seg.serves)}% solo asiste: no está en ningún equipo ni rol. Hay margen para integrarlos.</Insight>
+            ? <Insight tone="info" action={{ label: 'Ver miembros', to: '/miembros' }}>El {pct(seg.total - seg.serves)}% solo asiste: no está en ningún equipo ni rol. Hay margen para integrarlos.</Insight>
             : <Insight tone="good">{pct(seg.attActive)}% activos por asistencia y {pct(seg.serves)}% sirve en un equipo o rol.</Insight>
       )}
 

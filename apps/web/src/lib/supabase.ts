@@ -22,3 +22,20 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: true,
   },
 })
+
+// Supabase/PostgREST limita cada consulta a 1000 filas. Para tablas grandes
+// (p. ej. attendance con meses de histórico) se pagina con .range() hasta traer
+// todo. `make` debe devolver una consulta NUEVA (select + filtros, sin range).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function fetchAll<T>(make: () => any): Promise<T[]> {
+  const out: T[] = []
+  const step = 1000
+  for (let from = 0; ; from += step) {
+    const { data, error } = await make().range(from, from + step - 1)
+    if (error) throw error
+    const rows = (data ?? []) as T[]
+    out.push(...rows)
+    if (rows.length < step) break
+  }
+  return out
+}

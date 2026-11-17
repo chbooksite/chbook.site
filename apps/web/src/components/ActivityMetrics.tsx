@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement, type PointerEvent as RPointerEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { ResponsiveContainer, ComposedChart, Area, Line, LineChart, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
-import { supabase } from '../lib/supabase'
+import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
+import { supabase, fetchAll } from '../lib/supabase'
 import { ymd } from '../lib/calendar'
 import { occursOn, weekStart, addDays, readAudience, readAssignees, WEEKDAYS_SHORT, type Schedule, type Freq } from '../lib/activity'
 import Insight from './Insight'
+import RangeControl, { DEFAULT_RANGE, bucketKey, bucketLabel, cutoff, type Range } from './RangeControl'
 
 // Sección 2 del panel · MÉTRICAS DE ACTIVIDADES. Calendario REDUCIDO en carrusel:
 // proyecta las OCURRENCIAS de las actividades recurrentes (como la sección
@@ -15,7 +16,6 @@ import Insight from './Insight'
 // comparativo MULTILÍNEA entre actividades recurrentes.
 
 const C = { green: '#5CA27B', slate: '#7E9AB8', rose: '#C2919E', gold: '#B9A36B', lilac: '#9E8FB5', gray: '#9A9C97' }
-const LINE_COLORS = [C.green, C.slate, C.rose, C.gold, C.lilac, C.gray]
 const WEEKS_BACK = 6 // ventana de proyección hacia atrás
 
 // Una ocurrencia de actividad en un día (registrada o solo proyectada).
@@ -57,7 +57,6 @@ function fmtHour(h: number | null): string {
   const hh = Math.floor(h); const mm = Math.round((h - hh) * 60)
   return `${hh}:${String(mm).padStart(2, '0')}`
 }
-const dayShort = (d: Date) => d.toLocaleDateString('es', { day: 'numeric', month: 'short' })
 const axisTick = { fontSize: 11, fill: '#7E807B' }
 function ChartCard({ children, h = 220 }: { children: ReactElement; h?: number }) {
   return <ResponsiveContainer width="100%" height={h}>{children}</ResponsiveContainer>
@@ -191,19 +190,20 @@ export default function ActivityMetrics({ churchId }: { churchId: string }) {
   const [teamData, setTeamData] = useState<TeamData | null>(null)
   const [selDay, setSelDay] = useState<string | null>(null)
   const [selKey, setSelKey] = useState<string | null>(null)
+  const [range, setRange] = useState<Range>(DEFAULT_RANGE)
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }, [])
 
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const [schRes, svcRes, attRes, mtRes, teamRes, stRes] = await Promise.all([
+      const [schRes, svcRes, mtRes, teamRes, stRes] = await Promise.all([
         supabase.from('activity_schedules').select('*').eq('church_id', churchId),
         supabase.from('service_attendance').select('service_id, schedule_id, activity_name, service_name, starts_at, total, online, presencial, gps'),
-        supabase.from('attendance').select('service_id, checked_at, member_id'),
         supabase.from('member_teams').select('member_id, team_id'),
         supabase.from('teams').select('id, name'),
         supabase.from('schedule_teams').select('schedule_id, team_id').eq('church_id', churchId),
       ])
+      const att = await fetchAll<{ service_id: string; checked_at: string | null; member_id: string | null }>(() => supabase.from('attendance').select('service_id, checked_at, member_id'))
       if (!alive) return
 
       // Contexto de equipos para "equipos en esta actividad".
@@ -211,7 +211,7 @@ export default function ActivityMetrics({ churchId }: { churchId: string }) {
       const teamMembers = new Map<string, Set<string>>()
       const teamName = new Map<string, string>()
       const scheduleTeams = new Map<string, string[]>()
-      for (const a of (attRes.data ?? []) as { service_id: string; member_id: string | null }[]) {
+      for (const a of att) {
         if (!a.member_id) continue
         const s = attendeesBySvc.get(a.service_id) ?? new Set<string>(); s.add(a.member_id); attendeesBySvc.set(a.service_id, s)
       }
@@ -252,7 +252,7 @@ export default function ActivityMetrics({ churchId }: { churchId: string }) {
 
       // Hora de llegada por encuentro.
       const sums = new Map<string, { s: number; n: number }>()
-      for (const a of (attRes.data ?? []) as { service_id: string; checked_at: string | null }[]) {
+      for (const a of att) {
         if (!a.checked_at) continue
         const dt = new Date(a.checked_at); const h = dt.getHours() + dt.getMinutes() / 60
         const cur = sums.get(a.service_id) ?? { s: 0, n: 0 }; cur.s += h; cur.n++; sums.set(a.service_id, cur)
@@ -305,34 +305,24 @@ export default function ActivityMetrics({ churchId }: { churchId: string }) {
     return Math.round(prev.reduce((a, o) => a + o.total, 0) / prev.length)
   }, [sel, registered])
 
+  // Tendencia de la actividad seleccionada vs su propio histórico, agrupada por el
+  // rango elegido (semana/mes/año). esperada = media de los periodos anteriores.
   const history = useMemo(() => {
     if (!sel || !sel.scheduleId) return [] as { label: string; real: number; esp: number | null }[]
-    const occ = registered.filter((o) => o.scheduleId === sel.scheduleId).sort((a, b) => a.at.getTime() - b.at.getTime())
-    return occ.map((o, i) => {
-      const prev = occ.slice(0, i)
-      const esp = prev.length ? Math.round(prev.reduce((a, x) => a + x.total, 0) / prev.length) : null
-      return { label: dayShort(o.at), real: o.total, esp }
+    const cut = cutoff(range)
+    const occ = registered.filter((o) => o.scheduleId === sel.scheduleId && o.at >= cut).sort((a, b) => a.at.getTime() - b.at.getTime())
+    const m = new Map<string, { sum: number; n: number; last: Date }>()
+    for (const o of occ) { const k = bucketKey(o.at, range.unit); const e = m.get(k) ?? { sum: 0, n: 0, last: o.at }; e.sum += o.total; e.n++; e.last = o.at; m.set(k, e) }
+    const keys = [...m.keys()].sort()
+    return keys.map((k, i) => {
+      const e = m.get(k)!
+      const real = Math.round(e.sum / e.n)
+      const prevAvg = keys.slice(0, i).map((pk) => { const pe = m.get(pk)!; return pe.sum / pe.n })
+      const esp = prevAvg.length ? Math.round(prevAvg.reduce((a, x) => a + x, 0) / prevAvg.length) : null
+      const label = range.unit === 'sem' ? e.last.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' }) : bucketLabel(k, range.unit)
+      return { label, real, esp }
     })
-  }, [sel, registered])
-
-  const comparativo = useMemo(() => {
-    const byAct = new Map<string, { name: string; pts: Map<string, number> }>()
-    const dates = new Set<string>()
-    for (const o of registered) {
-      const key = o.scheduleId ?? o.name; const d = ymd(o.at); dates.add(d)
-      const e = byAct.get(key) ?? { name: o.name, pts: new Map() }
-      e.pts.set(d, (e.pts.get(d) ?? 0) + o.total); byAct.set(key, e)
-    }
-    const names = [...byAct.values()].map((a) => a.name)
-    const sortedDates = [...dates].sort()
-    const data = sortedDates.map((d) => {
-      const [y, mo, da] = d.split('-').map(Number)
-      const row: Record<string, number | string | null> = { date: dayShort(new Date(y, mo - 1, da)) }
-      for (const a of byAct.values()) row[a.name] = a.pts.has(d) ? (a.pts.get(d) as number) : null
-      return row
-    })
-    return { data, names }
-  }, [registered])
+  }, [sel, registered, range])
 
   if (occs === null) return <p className="py-8 text-center text-sm text-graysage">Cargando métricas…</p>
 
@@ -435,40 +425,28 @@ export default function ActivityMetrics({ churchId }: { churchId: string }) {
             </div>
           )}
 
-          {sel && history.length >= 2 && (
+          {sel && sel.scheduleId && (
             <div className="rounded-2xl bg-white p-4 ring-1 ring-black/5">
-              <p className="mb-2 text-sm font-medium text-charcoal">Tendencia de {sel.name} — real vs esperada</p>
-              <ChartCard h={200}>
-                <ComposedChart data={history} margin={{ left: -18, right: 8, top: 6, bottom: 0 }}>
-                  <defs><linearGradient id="realFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.green} stopOpacity={0.25} /><stop offset="100%" stopColor={C.green} stopOpacity={0} /></linearGradient></defs>
-                  <CartesianGrid strokeOpacity={0.06} vertical={false} />
-                  <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} />
-                  <YAxis tick={axisTick} axisLine={false} tickLine={false} width={36} allowDecimals={false} />
-                  <Tooltip />
-                  <Area type="monotone" dataKey="real" name="Real" stroke={C.green} strokeWidth={2.5} fill="url(#realFill)" dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="esp" name="Esperada" stroke={C.gray} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </ComposedChart>
-              </ChartCard>
-            </div>
-          )}
-
-          {comparativo.names.length > 0 && (
-            <div className="rounded-2xl bg-white p-4 ring-1 ring-black/5">
-              <p className="text-sm font-medium text-charcoal">Comparativo entre actividades recurrentes</p>
-              <p className="mb-2 text-xs text-graysage">Asistencia de cada actividad a lo largo del tiempo.</p>
-              <ChartCard h={240}>
-                <LineChart data={comparativo.data} margin={{ left: -18, right: 8, top: 6, bottom: 0 }}>
-                  <CartesianGrid strokeOpacity={0.06} vertical={false} />
-                  <XAxis dataKey="date" tick={axisTick} axisLine={false} tickLine={false} />
-                  <YAxis tick={axisTick} axisLine={false} tickLine={false} width={36} allowDecimals={false} />
-                  <Tooltip />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  {comparativo.names.map((n, i) => (
-                    <Line key={n} type="monotone" dataKey={n} stroke={LINE_COLORS[i % LINE_COLORS.length]} strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
-                  ))}
-                </LineChart>
-              </ChartCard>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium text-charcoal">{sel.name}: asistencia real vs esperada</p>
+                <RangeControl value={range} onChange={setRange} size="sm" />
+              </div>
+              {history.length >= 2 ? (
+                <ChartCard h={200}>
+                  <ComposedChart data={history} margin={{ left: -18, right: 8, top: 6, bottom: 0 }}>
+                    <defs><linearGradient id="realFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.green} stopOpacity={0.25} /><stop offset="100%" stopColor={C.green} stopOpacity={0} /></linearGradient></defs>
+                    <CartesianGrid strokeOpacity={0.06} vertical={false} />
+                    <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} minTickGap={16} />
+                    <YAxis tick={axisTick} axisLine={false} tickLine={false} width={36} allowDecimals={false} />
+                    <Tooltip />
+                    <Area type="monotone" dataKey="real" name="Real" stroke={C.green} strokeWidth={2.5} fill="url(#realFill)" dot={{ r: 3 }} />
+                    <Line type="monotone" dataKey="esp" name="Esperada" stroke={C.gray} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                  </ComposedChart>
+                </ChartCard>
+              ) : (
+                <p className="py-8 text-center text-xs text-graysage/60">Pocos datos de esta actividad en el rango elegido.</p>
+              )}
             </div>
           )}
         </>
