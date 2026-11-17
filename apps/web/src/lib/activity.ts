@@ -24,6 +24,7 @@ export const AUDIENCE_ALL: Audience = { all: true, roleIds: [], teamIds: [], age
 // está encendido. (Estado activo/inactivo se quitó: la clasificación por asistencia
 // —Inactivo = +3 meses sin asistir— aún no se calcula; Capacitación tampoco existe.)
 export const AUDIENCE_ATTRS: { cat: string; label: string; options: { key: string; label: string }[] }[] = [
+  { cat: 'sexo', label: 'Sexo', options: [{ key: 'masculino', label: 'Hombres' }, { key: 'femenino', label: 'Mujeres' }] },
   { cat: 'bautismo', label: 'Bautismo', options: [{ key: 'baptized', label: 'Bautizados' }, { key: 'unbaptized', label: 'No bautizados' }] },
 ]
 export function audienceFilterLabel(key: string): string {

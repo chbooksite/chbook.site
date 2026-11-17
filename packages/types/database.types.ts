@@ -528,6 +528,73 @@ export type Database = {
           },
         ]
       }
+      leader_flock: {
+        Row: {
+          audience: Json
+          church_id: string
+          manual_member_ids: string[]
+          member_id: string
+          updated_at: string
+        }
+        Insert: {
+          audience?: Json
+          church_id: string
+          manual_member_ids?: string[]
+          member_id: string
+          updated_at?: string
+        }
+        Update: {
+          audience?: Json
+          church_id?: string
+          manual_member_ids?: string[]
+          member_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leader_flock_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_dashboard"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "leader_flock_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "church_metrics"
+            referencedColumns: ["church_id"]
+          },
+          {
+            foreignKeyName: "leader_flock_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leader_flock_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: true
+            referencedRelation: "member_attendance"
+            referencedColumns: ["member_id"]
+          },
+          {
+            foreignKeyName: "leader_flock_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: true
+            referencedRelation: "member_details"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leader_flock_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: true
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       member_roles: {
         Row: {
           member_id: string

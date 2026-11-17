@@ -24,6 +24,9 @@ import {
   resolveAgeGroup,
   type AgeRangeDef,
 } from '../lib/member'
+import AudiencePicker from '../components/AudiencePicker'
+import { audienceFilterLabel, audienceIsEmpty } from '../lib/activity'
+import { EMPTY_FLOCK, FLOCK_ROLE_KEYS, flockMemberIds, loadFlock, saveFlock, type Flock, type FlockMember } from '../lib/flock'
 
 interface Catalog {
   id: string
@@ -53,6 +56,18 @@ interface Dependent {
   id: string
   full_name: string
   birth_date: string | null
+}
+
+type UniRow = {
+  id: string
+  full_name: string
+  status: string | null
+  sex: string | null
+  is_baptized: boolean | null
+  birth_date: string | null
+  age_group: string | null
+  member_roles: { role_id: string }[] | null
+  member_teams: { team_id: string }[] | null
 }
 
 // Roles que habilitan poder ser "predicador".
@@ -108,6 +123,11 @@ export default function MemberProfile() {
   // Copia original para diferenciar al guardar
   const [origRoleIds, setOrigRoleIds] = useState<string[]>([])
   const [origTeamMap, setOrigTeamMap] = useState<Record<string, boolean>>({})
+
+  // Ovejas a cargo (rebaño) + universo de miembros para resolver segmentos y añadir manuales.
+  const [flock, setFlock] = useState<Flock>(EMPTY_FLOCK)
+  const [universe, setUniverse] = useState<FlockMember[]>([])
+  const [universeNames, setUniverseNames] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     if (!id || !membership) return
@@ -172,6 +192,21 @@ export default function MemberProfile() {
       .order('full_name')
     setDependents((deps ?? []) as Dependent[])
 
+    // Universo de miembros activos (para resolver segmentos de ovejas y añadir manuales).
+    const { data: allM } = await supabase
+      .from('members')
+      .select('id, full_name, status, sex, is_baptized, birth_date, age_group, member_roles(role_id), member_teams(team_id)')
+    const uni: FlockMember[] = []
+    const names: Record<string, string> = {}
+    for (const r of (allM ?? []) as UniRow[]) {
+      if (r.status === 'archived' || r.status === 'cambio_membresia') continue
+      names[r.id] = r.full_name
+      uni.push({ id: r.id, sex: r.sex, is_baptized: r.is_baptized, birth_date: r.birth_date, age_group: r.age_group, roleIds: new Set((r.member_roles ?? []).map((x) => x.role_id)), teamIds: new Set((r.member_teams ?? []).map((x) => x.team_id)) })
+    }
+    setUniverse(uni)
+    setUniverseNames(names)
+    setFlock(await loadFlock(id))
+
     setLoading(false)
   }, [id, membership])
 
@@ -191,6 +226,13 @@ export default function MemberProfile() {
       .filter(Boolean) as string[]
     return PREACH_KEYS.some((k) => selectedKeys.includes(k))
   }, [roleIds, roles])
+
+  // ¿Es una cabeza (líder/pastor) que puede tener ovejas a cargo?
+  const isLeaderRole = useMemo(() => {
+    const keys = roleIds.map((rid) => roles.find((r) => r.id === rid)?.key).filter(Boolean) as string[]
+    return FLOCK_ROLE_KEYS.some((k) => keys.includes(k))
+  }, [roleIds, roles])
+  const flockCount = useMemo(() => flockMemberIds(id ?? '', flock, universe, ageRanges).size, [flock, universe, ageRanges, id])
 
   // Si la regla está activa y deja de ser elegible, quitar "predicador".
   useEffect(() => {
@@ -389,6 +431,12 @@ export default function MemberProfile() {
       await supabase.from('member_teams').update({ is_leader: teamMap[tid] }).eq('member_id', id).eq('team_id', tid)
     }
 
+    // Ovejas a cargo (solo si es líder/pastor).
+    if (isLeaderRole && membership) {
+      const { error: flockErr } = await saveFlock(id, membership.churchId, flock)
+      if (flockErr) { setError(flockErr.message); setSaving(false); return }
+    }
+
     setSaving(false)
     setEditing(false)
     load()
@@ -565,6 +613,22 @@ export default function MemberProfile() {
                 ))}
               </div>
             </div>
+
+            {isLeaderRole && (
+              <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+                <p className="mb-1 text-sm font-medium text-graysage">Ovejas a cargo</p>
+                <p className="font-serif text-2xl text-charcoal">{flockCount} <span className="text-base text-graysage">personas</span></p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {flock.audience.all && <span className="rounded-full bg-sage-light px-2.5 py-0.5 text-xs text-sage-dark">Toda la iglesia</span>}
+                  {flock.audience.ageKeys.map((k) => <span key={k} className="rounded-full bg-sand/60 px-2.5 py-0.5 text-xs text-charcoal">{ageRanges.find((r) => r.key === k)?.name ?? k}</span>)}
+                  {flock.audience.teamIds.map((t) => <span key={t} className="rounded-full bg-clay/10 px-2.5 py-0.5 text-xs text-clay">{teamName(t)}</span>)}
+                  {flock.audience.roleIds.map((r) => <span key={r} className="rounded-full bg-gold/15 px-2.5 py-0.5 text-xs text-charcoal">{roleName(r)}</span>)}
+                  {flock.audience.filters.map((f) => <span key={f} className="rounded-full bg-graysage/10 px-2.5 py-0.5 text-xs text-graysage">{audienceFilterLabel(f)}</span>)}
+                  {flock.manual.length > 0 && <span className="rounded-full bg-sage-water/15 px-2.5 py-0.5 text-xs text-sage-dark">{flock.manual.length} manual{flock.manual.length > 1 ? 'es' : ''}</span>}
+                  {!flock.audience.all && audienceIsEmpty(flock.audience) && flock.manual.length === 0 && <span className="text-sm text-graysage/60">Sin ovejas asignadas todavía.</span>}
+                </div>
+              </div>
+            )}
 
             {/* Dependientes a cargo de este miembro */}
             <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
@@ -821,6 +885,44 @@ export default function MemberProfile() {
                 </p>
               )}
             </div>
+
+            {isLeaderRole && (
+              <div className="rounded-2xl border border-clay-light/40 bg-white p-6">
+                <p className="mb-1 text-sm font-medium text-graysage">Ovejas a cargo</p>
+                <p className="mb-3 text-xs text-graysage/70">A quién pastorea esta persona: un segmento combinable (edad, sexo, bautismo, equipo, rol) o toda la iglesia, y/o personas concretas.</p>
+                <AudiencePicker
+                  value={flock.audience}
+                  onChange={(a) => setFlock((f) => ({ ...f, audience: a }))}
+                  roles={roles.filter((r) => r.key !== 'miembro').map((r) => ({ id: r.id, name: r.name }))}
+                  teams={teams.map((t) => ({ id: t.id, name: t.name }))}
+                  ages={ageRanges.filter((r) => r.enabled).map((r) => ({ key: r.key, name: r.name }))}
+                />
+                <div className="mt-4">
+                  <p className="mb-1.5 text-xs font-medium text-graysage">Personas específicas (manual)</p>
+                  <select
+                    value=""
+                    onChange={(e) => { const v = e.target.value; if (v) setFlock((f) => ({ ...f, manual: [...f.manual, v] })) }}
+                    className={inputCls}
+                  >
+                    <option value="">+ Agregar persona…</option>
+                    {universe.filter((m) => m.id !== id && !flock.manual.includes(m.id)).map((m) => (
+                      <option key={m.id} value={m.id}>{universeNames[m.id]}</option>
+                    ))}
+                  </select>
+                  {flock.manual.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {flock.manual.map((mid) => (
+                        <span key={mid} className="inline-flex items-center gap-1 rounded-full bg-sage-water/15 px-2.5 py-0.5 text-xs text-sage-dark">
+                          {universeNames[mid] ?? '—'}
+                          <button type="button" onClick={() => setFlock((f) => ({ ...f, manual: f.manual.filter((x) => x !== mid) }))} className="text-sage-dark/70 hover:text-sage-dark">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p className="mt-3 text-sm text-charcoal">Alcance actual: <b>{flockCount} personas</b></p>
+              </div>
+            )}
 
             {error && <p className="rounded-lg bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>}
 
