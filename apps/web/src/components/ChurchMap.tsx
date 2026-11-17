@@ -26,8 +26,8 @@ interface Group { key: string; name: string; color: string; count: number }
 interface Occ { id: string; label: string; at: number }
 type Mode = 'equipos' | 'cobertura' | 'asistencia'
 
-export default function ChurchMap({ churchId }: { churchId: string }) {
-  const [mode, setMode] = useState<Mode>('equipos')
+export default function ChurchMap({ churchId, mode: modeProp, compact }: { churchId: string; mode?: Mode; compact?: boolean }) {
+  const [mode, setMode] = useState<Mode>(modeProp ?? 'equipos')
   const [sel, setSel] = useState<string | null>(null)
   const [occId, setOccId] = useState<string>('')
   const [data, setData] = useState<{
@@ -139,6 +139,10 @@ export default function ChurchMap({ churchId }: { churchId: string }) {
     return () => { alive = false }
   }, [churchId])
 
+  // Modo controlado por la sección visible del panel (sticky). Un clic manual en el
+  // toggle lo cambia hasta que el scroll lleve a otra sección.
+  useEffect(() => { if (modeProp) { setMode(modeProp); setSel(null) } }, [modeProp])
+
   const present = useMemo(() => (data ? data.attBySvc.get(occId) ?? new Set<string>() : new Set<string>()), [data, occId])
 
   // Grupo de cada miembro según el modo.
@@ -241,7 +245,7 @@ export default function ChurchMap({ churchId }: { churchId: string }) {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_210px]">
+      <div className={compact ? 'space-y-4' : 'grid gap-4 lg:grid-cols-[1fr_210px]'}>
         <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
           <div className="mb-4 flex flex-col items-center">
             <div className="relative h-4 w-1.5 rounded-sm bg-graysage/70"><span className="absolute left-[-5px] top-1 h-1 w-3.5 rounded-sm bg-graysage/70" /></div>

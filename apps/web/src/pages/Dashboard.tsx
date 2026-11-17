@@ -21,8 +21,12 @@ const SECTIONS: { id: string; label: string; icon: ReactNode }[] = [
   { id: 'equipos', label: 'Equipos', icon: <Ico><circle cx="7" cy="9" r="2.5" /><circle cx="17" cy="9" r="2.5" /><path d="M2 19c0-2.5 2-4 5-4s5 1.5 5 4M12 19c0-2.5 2-4 5-4s5 1.5 5 4" /></Ico> },
   { id: 'lideres', label: 'Líderes', icon: <Ico><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" /><path d="M12 2.5l.9 1.8 2 .3-1.45 1.4.34 2L12 7.1l-1.8.9.34-2L9.1 4.6l2-.3z" /></Ico> },
   { id: 'mejores', label: 'Mejores números', icon: <Ico><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></Ico> },
-  { id: 'mapa', label: 'Mapa de la iglesia', icon: <Ico><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z" /><path d="M9 4v14M15 6v14" /></Ico> },
 ]
+
+// El mapa (panel lateral fijo) cambia de modo según la sección visible.
+const MAP_MODE: Record<string, 'equipos' | 'cobertura' | 'asistencia'> = {
+  iglesia: 'cobertura', miembros: 'cobertura', actividades: 'asistencia', equipos: 'equipos', lideres: 'cobertura', mejores: 'equipos',
+}
 
 // Panel del pastor: dashboard de datos por SECCIONES con barra lateral COLAPSABLE
 // (rail de iconos pegado a la izquierda; se amplía con la flecha y se contrae al
@@ -67,6 +71,7 @@ export default function Dashboard() {
   if (!membership) return <Navigate to="/onboarding" replace />
 
   const go = (id: string) => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setExpanded(false) }
+  const mapMode = MAP_MODE[active] ?? 'cobertura'
 
   return (
     <div className="min-h-screen bg-cream">
@@ -102,21 +107,25 @@ export default function Dashboard() {
 
       {/* Contenido (deja libre el rail de 64px; la barra ampliada flota encima) */}
       <div className="ml-16">
-        <div className="mx-auto w-full max-w-5xl px-6 py-8">
+        <div className="w-full px-6 py-8">
           <header className="mb-8">
             <p className="text-xs font-semibold uppercase tracking-wider text-sage-dark">Panel del pastor</p>
             <h1 className="mt-1 font-serif text-3xl font-semibold text-charcoal sm:text-4xl">{church?.name ?? 'Tu congregación'}</h1>
             <p className="mt-1 text-sm text-graysage">Una lectura clara del estado de la iglesia, semana tras semana.{church?.code && <span className="ml-2 font-mono text-graysage/70">{church.code}</span>}</p>
           </header>
 
-          <div className="space-y-14">
-            <section id="iglesia" className="scroll-mt-20"><ChurchHealth churchId={membership.churchId} /></section>
-            <section id="miembros" className="scroll-mt-20"><MembersOverview churchId={membership.churchId} avgAttendance={avgAttendance} /></section>
-            <section id="actividades" className="scroll-mt-20"><ActivityMetrics churchId={membership.churchId} /></section>
-            <section id="equipos" className="scroll-mt-20"><TeamStats churchId={membership.churchId} /></section>
-            <section id="lideres" className="scroll-mt-20"><LeaderStats churchId={membership.churchId} /></section>
-            <section id="mejores" className="scroll-mt-20"><BestNumbers churchId={membership.churchId} /></section>
-            <section id="mapa" className="scroll-mt-20"><ChurchMap churchId={membership.churchId} /></section>
+          <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_420px]">
+            <div className="min-w-0 space-y-14">
+              <section id="iglesia" className="scroll-mt-20"><ChurchHealth churchId={membership.churchId} /></section>
+              <section id="miembros" className="scroll-mt-20"><MembersOverview churchId={membership.churchId} avgAttendance={avgAttendance} /></section>
+              <section id="actividades" className="scroll-mt-20"><ActivityMetrics churchId={membership.churchId} /></section>
+              <section id="equipos" className="scroll-mt-20"><TeamStats churchId={membership.churchId} /></section>
+              <section id="lideres" className="scroll-mt-20"><LeaderStats churchId={membership.churchId} /></section>
+              <section id="mejores" className="scroll-mt-20"><BestNumbers churchId={membership.churchId} /></section>
+            </div>
+            <div className="min-w-0 xl:sticky xl:top-[65px] xl:self-start xl:max-h-[calc(100vh-84px)] xl:overflow-y-auto xl:pr-1">
+              <ChurchMap churchId={membership.churchId} mode={mapMode} compact />
+            </div>
           </div>
         </div>
       </div>
