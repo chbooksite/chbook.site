@@ -6,7 +6,8 @@ import AppHeader from '../components/AppHeader'
 import ChurchHealth from '../components/ChurchHealth'
 import MembersOverview from '../components/MembersOverview'
 import ActivityMetrics from '../components/ActivityMetrics'
-import TeamRoleMetrics from '../components/TeamRoleMetrics'
+import TeamStats from '../components/TeamStats'
+import LeaderStats from '../components/LeaderStats'
 import BestNumbers from '../components/BestNumbers'
 
 const Ico = ({ children }: { children: ReactNode }) => (
@@ -16,7 +17,8 @@ const SECTIONS: { id: string; label: string; icon: ReactNode }[] = [
   { id: 'iglesia', label: 'Salud', icon: <Ico><path d="M3 12h4l2-6 4 12 2-6h6" /></Ico> },
   { id: 'miembros', label: 'Miembros', icon: <Ico><circle cx="9" cy="8" r="3" /><path d="M15 11a3 3 0 1 0-1-5.8" /><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5" /><path d="M17 15c2.4 0 4 1.7 4 5" /></Ico> },
   { id: 'actividades', label: 'Actividades', icon: <Ico><rect x="3" y="4.5" width="18" height="16" rx="2" /><path d="M3 9h18M8 3v3M16 3v3" /></Ico> },
-  { id: 'equipos', label: 'Liderazgo', icon: <Ico><circle cx="7" cy="9" r="2.5" /><circle cx="17" cy="9" r="2.5" /><path d="M2 19c0-2.5 2-4 5-4s5 1.5 5 4M12 19c0-2.5 2-4 5-4s5 1.5 5 4" /></Ico> },
+  { id: 'equipos', label: 'Equipos', icon: <Ico><circle cx="7" cy="9" r="2.5" /><circle cx="17" cy="9" r="2.5" /><path d="M2 19c0-2.5 2-4 5-4s5 1.5 5 4M12 19c0-2.5 2-4 5-4s5 1.5 5 4" /></Ico> },
+  { id: 'lideres', label: 'Líderes', icon: <Ico><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" /><path d="M12 2.5l.9 1.8 2 .3-1.45 1.4.34 2L12 7.1l-1.8.9.34-2L9.1 4.6l2-.3z" /></Ico> },
   { id: 'mejores', label: 'Mejores números', icon: <Ico><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></Ico> },
 ]
 
@@ -109,7 +111,8 @@ export default function Dashboard() {
             <section id="iglesia" className="scroll-mt-20"><ChurchHealth churchId={membership.churchId} /></section>
             <section id="miembros" className="scroll-mt-20"><MembersOverview churchId={membership.churchId} avgAttendance={avgAttendance} /></section>
             <section id="actividades" className="scroll-mt-20"><ActivityMetrics churchId={membership.churchId} /></section>
-            <section id="equipos" className="scroll-mt-20"><TeamRoleMetrics churchId={membership.churchId} /></section>
+            <section id="equipos" className="scroll-mt-20"><TeamStats churchId={membership.churchId} /></section>
+            <section id="lideres" className="scroll-mt-20"><LeaderStats churchId={membership.churchId} /></section>
             <section id="mejores" className="scroll-mt-20"><BestNumbers churchId={membership.churchId} /></section>
           </div>
         </div>
