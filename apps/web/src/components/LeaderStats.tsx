@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase, fetchAll } from '../lib/supabase'
-import { readAssignees } from '../lib/activity'
+import { readAssignees, readAudience, audienceIsEmpty } from '../lib/activity'
+import { flockMemberIds, type Flock, type FlockMember } from '../lib/flock'
+import { readAgeRanges, type AgeRangeDef } from '../lib/member'
 import Insight from './Insight'
 import RangeControl, { DEFAULT_RANGE, bucketKey, cutoff, type Range } from './RangeControl'
 
@@ -30,10 +32,13 @@ interface Data {
   scheduleTeams: Map<string, Set<string>>
   svcs: Svc[]
   attBySvc: Map<string, Set<string>>
+  ranges: AgeRangeDef[]
+  universe: FlockMember[]
+  flockByLeader: Map<string, Flock>
 }
 interface LeaderRow {
   id: string; name: string; label: string; badges: string[]; tier: number
-  scope: Set<string> | null; scopeKind: 'congregacion' | 'equipo' | 'pendiente' | 'predicador'
+  scope: Set<string> | null; scopeKind: 'congregacion' | 'equipo' | 'pendiente' | 'predicador' | 'rebaño'
   scheduleIds: Set<string>; predScheduleIds: Set<string>; isPred: boolean
 }
 type SortKey = 'tier' | 'scopeN' | 'acts' | 'propia' | 'asignada' | 'area'
@@ -46,8 +51,8 @@ export default function LeaderStats({ churchId }: { churchId: string }) {
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const [memRes, mrRes, roleRes, teamRes, mtRes, schRes, stRes, svcRes] = await Promise.all([
-        supabase.from('members').select('id, full_name, status'),
+      const [memRes, mrRes, roleRes, teamRes, mtRes, schRes, stRes, svcRes, flockRes, churchRes] = await Promise.all([
+        supabase.from('members').select('id, full_name, status, sex, is_baptized, birth_date, age_group'),
         supabase.from('member_roles').select('member_id, role_id'),
         supabase.from('roles').select('id, key'),
         supabase.from('teams').select('id, name'),
@@ -55,6 +60,8 @@ export default function LeaderStats({ churchId }: { churchId: string }) {
         supabase.from('activity_schedules').select('id, assignees').eq('church_id', churchId),
         supabase.from('schedule_teams').select('schedule_id, team_id'),
         supabase.from('service_attendance').select('service_id, starts_at, schedule_id'),
+        supabase.from('leader_flock').select('member_id, audience, manual_member_ids'),
+        supabase.from('churches').select('settings').eq('id', churchId).maybeSingle(),
       ])
       const att = await fetchAll<{ member_id: string; service_id: string }>(() => supabase.from('attendance').select('member_id, service_id'))
       if (!alive) return
@@ -68,17 +75,21 @@ export default function LeaderStats({ churchId }: { churchId: string }) {
         if (m.status !== 'archived' && m.status !== 'cambio_membresia') activeIds.add(m.id)
       }
       const memberRoleKeys = new Map<string, Set<string>>()
+      const memberRoleIds = new Map<string, Set<string>>()
       const predMembersAll = new Set<string>()
       for (const r of (mrRes.data ?? []) as { member_id: string; role_id: string }[]) {
+        const ri = memberRoleIds.get(r.member_id) ?? new Set<string>(); ri.add(r.role_id); memberRoleIds.set(r.member_id, ri)
         const k = roleKeyById.get(r.role_id); if (!k) continue
         const s = memberRoleKeys.get(r.member_id) ?? new Set<string>(); s.add(k); memberRoleKeys.set(r.member_id, s)
         if (k === PRED) predMembersAll.add(r.member_id)
       }
       const teamName = new Map(((teamRes.data ?? []) as { id: string; name: string }[]).map((t) => [t.id, t.name]))
       const teamMembers = new Map<string, Set<string>>()
+      const memberTeamIds = new Map<string, Set<string>>()
       const memberLedTeams = new Map<string, string[]>()
       for (const r of (mtRes.data ?? []) as { member_id: string; team_id: string; is_leader: boolean }[]) {
         const s = teamMembers.get(r.team_id) ?? new Set<string>(); s.add(r.member_id); teamMembers.set(r.team_id, s)
+        const ti = memberTeamIds.get(r.member_id) ?? new Set<string>(); ti.add(r.team_id); memberTeamIds.set(r.member_id, ti)
         if (r.is_leader) { const a = memberLedTeams.get(r.member_id) ?? []; a.push(r.team_id); memberLedTeams.set(r.member_id, a) }
       }
       const scheduleResponsible = new Map<string, Set<string>>()
@@ -104,7 +115,18 @@ export default function LeaderStats({ churchId }: { churchId: string }) {
         .map((s) => ({ id: s.service_id, at: new Date(s.starts_at as string), scheduleId: s.schedule_id }))
         .sort((a, b) => a.at.getTime() - b.at.getTime())
 
-      setRaw({ activeIds, memberName, memberRoleKeys, teamName, teamMembers, memberLedTeams, scheduleResponsible, schedulePred, scheduleTeams, svcs, attBySvc })
+      const ranges = readAgeRanges(churchRes.data?.settings)
+      const universe: FlockMember[] = []
+      for (const m of (memRes.data ?? []) as { id: string; status: string; sex: string | null; is_baptized: boolean | null; birth_date: string | null; age_group: string | null }[]) {
+        if (m.status === 'archived' || m.status === 'cambio_membresia') continue
+        universe.push({ id: m.id, sex: m.sex, is_baptized: m.is_baptized, birth_date: m.birth_date, age_group: m.age_group, roleIds: memberRoleIds.get(m.id) ?? new Set(), teamIds: memberTeamIds.get(m.id) ?? new Set() })
+      }
+      const flockByLeader = new Map<string, Flock>()
+      for (const r of (flockRes.data ?? []) as { member_id: string; audience: unknown; manual_member_ids: string[] | null }[]) {
+        flockByLeader.set(r.member_id, { audience: readAudience(r.audience), manual: r.manual_member_ids ?? [] })
+      }
+
+      setRaw({ activeIds, memberName, memberRoleKeys, teamName, teamMembers, memberLedTeams, scheduleResponsible, schedulePred, scheduleTeams, svcs, attBySvc, ranges, universe, flockByLeader })
     })()
     return () => { alive = false }
   }, [churchId])
@@ -132,6 +154,13 @@ export default function LeaderStats({ churchId }: { churchId: string }) {
         const s = new Set<string>(); for (const t of led) for (const m of raw.teamMembers.get(t) ?? []) s.add(m)
         scope = s; scopeKind = 'equipo'
       } else if (isL) { tier = 3; label = 'Líder'; scopeKind = 'pendiente' }
+
+      // Rebaño explícito (ovejas asignadas) tiene prioridad sobre el alcance por defecto.
+      const fl = raw.flockByLeader.get(id)
+      if (fl && (fl.audience.all || !audienceIsEmpty(fl.audience) || fl.manual.length)) {
+        scope = flockMemberIds(id, fl, raw.universe, raw.ranges)
+        if (scopeKind === 'pendiente' || scopeKind === 'predicador') scopeKind = 'rebaño'
+      }
 
       const scheduleIds = new Set<string>()
       for (const [sid, resp] of raw.scheduleResponsible) if (resp.has(id)) scheduleIds.add(sid)

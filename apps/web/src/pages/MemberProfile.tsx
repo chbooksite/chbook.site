@@ -364,15 +364,17 @@ export default function MemberProfile() {
     setSaving(true)
     setError(null)
 
-    // Regla: un líder debe pertenecer al menos a un equipo.
+    // Regla: un líder debe pertenecer a un equipo O tener ovejas a su cargo.
+    const hasFlock = flock.audience.all || !audienceIsEmpty(flock.audience) || flock.manual.length > 0
     const leaderRole = roleByKey['lider']
     if (
       rules.leader_requires_team &&
       leaderRole &&
       roleIds.includes(leaderRole.id) &&
-      Object.keys(teamMap).length === 0
+      Object.keys(teamMap).length === 0 &&
+      !hasFlock
     ) {
-      setError('Un líder debe pertenecer al menos a un equipo. Asigna un equipo o quita el rol Líder.')
+      setError('Un líder debe liderar un equipo o tener ovejas a su cargo. Asígnale uno u otras.')
       setSaving(false)
       return
     }
