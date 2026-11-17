@@ -9,6 +9,7 @@ import ActivityMetrics from '../components/ActivityMetrics'
 import TeamStats from '../components/TeamStats'
 import LeaderStats from '../components/LeaderStats'
 import BestNumbers from '../components/BestNumbers'
+import ChurchMap from '../components/ChurchMap'
 
 const Ico = ({ children }: { children: ReactNode }) => (
   <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
@@ -20,6 +21,7 @@ const SECTIONS: { id: string; label: string; icon: ReactNode }[] = [
   { id: 'equipos', label: 'Equipos', icon: <Ico><circle cx="7" cy="9" r="2.5" /><circle cx="17" cy="9" r="2.5" /><path d="M2 19c0-2.5 2-4 5-4s5 1.5 5 4M12 19c0-2.5 2-4 5-4s5 1.5 5 4" /></Ico> },
   { id: 'lideres', label: 'Líderes', icon: <Ico><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" /><path d="M12 2.5l.9 1.8 2 .3-1.45 1.4.34 2L12 7.1l-1.8.9.34-2L9.1 4.6l2-.3z" /></Ico> },
   { id: 'mejores', label: 'Mejores números', icon: <Ico><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></Ico> },
+  { id: 'mapa', label: 'Mapa de la iglesia', icon: <Ico><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z" /><path d="M9 4v14M15 6v14" /></Ico> },
 ]
 
 // Panel del pastor: dashboard de datos por SECCIONES con barra lateral COLAPSABLE
@@ -114,6 +116,7 @@ export default function Dashboard() {
             <section id="equipos" className="scroll-mt-20"><TeamStats churchId={membership.churchId} /></section>
             <section id="lideres" className="scroll-mt-20"><LeaderStats churchId={membership.churchId} /></section>
             <section id="mejores" className="scroll-mt-20"><BestNumbers churchId={membership.churchId} /></section>
+            <section id="mapa" className="scroll-mt-20"><ChurchMap churchId={membership.churchId} /></section>
           </div>
         </div>
       </div>
