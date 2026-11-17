@@ -171,18 +171,23 @@ function LeadersView({ raw, range }: { raw: Raw; range: Range }) {
 
   // Quién es "cabeza" y qué tiene a su cargo (no depende del rango).
   const leaders = useMemo<LeaderRow[]>(() => {
+    // Candidatos = quien tiene rol de liderazgo O lidera un equipo (is_leader),
+    // aunque no tenga el rol 'lider' explícito: liderar un equipo ya te hace responsable.
+    const candidates = new Set<string>()
+    for (const [id, keys] of raw.memberRoleKeys) if (keys.has(PASTOR_P) || keys.has(PASTOR_A) || keys.has(LIDER) || keys.has(PRED)) candidates.add(id)
+    for (const id of raw.memberLedTeams.keys()) candidates.add(id)
     const out: LeaderRow[] = []
-    for (const [id, keys] of raw.memberRoleKeys) {
+    for (const id of candidates) {
       if (!raw.activeIds.has(id)) continue
+      const keys = raw.memberRoleKeys.get(id) ?? new Set<string>()
       const isPP = keys.has(PASTOR_P), isPA = keys.has(PASTOR_A), isL = keys.has(LIDER), isPred = keys.has(PRED)
-      if (!isPP && !isPA && !isL && !isPred) continue
       const led = raw.memberLedTeams.get(id) ?? []
       let tier = 4, label = 'Predicador'
       let scope: Set<string> | null = null
       let scopeKind: LeaderRow['scopeKind'] = 'predicador'
       if (isPP) { tier = 0; label = 'Pastor principal'; scope = raw.activeIds; scopeKind = 'congregacion' }
       else if (isPA) { tier = 1; label = 'Pastor afiliado'; scope = raw.activeIds; scopeKind = 'congregacion' }
-      else if (isL && led.length) {
+      else if (led.length) {
         tier = 2
         const names = led.map((t) => raw.teamName.get(t) ?? 'equipo')
         label = 'Líder de ' + (names.length <= 2 ? names.join(' y ') : `${names[0]}, ${names[1]} +${names.length - 2}`)
