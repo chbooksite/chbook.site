@@ -132,7 +132,7 @@ export default function Dashboard() {
               <section id="mejores" className="scroll-mt-20"><BestNumbers churchId={membership.churchId} /></section>
             </div>
             <div className="min-w-0 xl:sticky xl:top-[65px] xl:self-start xl:max-h-[calc(100vh-84px)] xl:overflow-y-auto xl:pr-1">
-              <ChurchMap churchId={membership.churchId} mode={mapMode} occId={mapOcc} highlight={highlight} compact />
+              <ChurchMap churchId={membership.churchId} mode={mapMode} occId={mapOcc} highlight={highlight} />
             </div>
           </div>
         </div>

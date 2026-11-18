@@ -26,7 +26,7 @@ interface Group { key: string; name: string; color: string; count: number }
 interface Occ { id: string; label: string; at: number }
 type Mode = 'equipos' | 'cobertura' | 'asistencia' | 'bautismo' | 'sexo' | 'edad'
 
-export default function ChurchMap({ churchId, mode: modeProp, compact, occId: occIdProp, highlight }: { churchId: string; mode?: Mode; compact?: boolean; occId?: string | null; highlight?: string | null }) {
+export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, highlight }: { churchId: string; mode?: Mode; occId?: string | null; highlight?: string | null }) {
   const [mode, setMode] = useState<Mode>(modeProp ?? 'equipos')
   const [sel, setSel] = useState<string | null>(null)
   const [occId, setOccId] = useState<string>('')
@@ -163,7 +163,7 @@ export default function ChurchMap({ churchId, mode: modeProp, compact, occId: oc
     return (id: string) => { const g = src.get(id) ?? []; return g.length === 0 ? '__sin__' : g.length === 1 ? g[0] : '__varios__' }
   }, [data, mode, present])
 
-  const { groups, colorOf, rankOf } = useMemo(() => {
+  const { groups, colorOf } = useMemo(() => {
     const empty = { groups: [] as Group[], colorOf: (_: string) => SIN, rankOf: (_: string) => 999 }
     if (!data) return empty
     const counts = new Map<string, number>()
@@ -190,46 +190,56 @@ export default function ChurchMap({ churchId, mode: modeProp, compact, occId: oc
     return { groups, colorOf: (k: string) => color.get(k) ?? SIN, rankOf: (k: string) => rank.get(k) ?? 999 }
   }, [data, groupOf, mode])
 
-  const { left, center, right, total } = useMemo(() => {
-    const none = { left: [] as AgeBlock[], center: null as AgeBlock | null, right: [] as AgeBlock[], total: 0 }
-    if (!data) return none
-    const byAge = new Map<string, string[]>()
-    for (const m of data.members) { const k = m.ageKey ?? '__noage__'; const a = byAge.get(k) ?? []; a.push(m.id); byAge.set(k, a) }
-    const order = [...data.ranges.filter((r) => r.enabled).map((r) => r.key), '__noage__']
-    const blocks: AgeBlock[] = order
-      .filter((k) => byAge.get(k)?.length)
-      .map((k) => ({ key: k, name: k === '__noage__' ? 'Sin edad' : data.ranges.find((r) => r.key === k)?.name ?? k, ids: (byAge.get(k) ?? []).slice().sort((a, b) => rankOf(groupOf(a)) - rankOf(groupOf(b))) }))
-    if (!blocks.length) return none
-    let ci = 0; for (let i = 1; i < blocks.length; i++) if (blocks[i].ids.length > blocks[ci].ids.length) ci = i
-    const center = blocks[ci]
-    const rest = blocks.filter((_, i) => i !== ci).sort((a, b) => b.ids.length - a.ids.length)
-    const left: AgeBlock[] = [], right: AgeBlock[] = []
-    rest.forEach((b, i) => (i % 2 === 0 ? left : right).push(b))
-    return { left, center, right, total: data.members.length }
-  }, [data, groupOf, rankOf])
+  // Geometría MEDIA LUNA: altar al centro-derecha; las cuñas (grupos) se reparten
+  // radialmente hacia la izquierda; el anillo exterior es la dona de EDADES.
+  const art = useMemo(() => {
+    if (!data) return null
+    const cx = 150, cy = 160, innerR = 28, outerR = 126, dR0 = 132, dR1 = 150
+    const A0 = Math.PI / 2, A1 = Math.PI * 1.5, span = A1 - A0
+    const total = data.members.length || 1
+    const polar = (r: number, a: number): [number, number] => [cx + r * Math.cos(a), cy + r * Math.sin(a)]
+    const idsByGroup = new Map<string, string[]>()
+    for (const m of data.members) { const g = groupOf(m.id); const a = idsByGroup.get(g) ?? []; a.push(m.id); idsByGroup.set(g, a) }
+    const ordered = groups.map((g) => g.key).filter((k) => idsByGroup.get(k)?.length)
+    const seats: { id: string; x: number; y: number; g: string }[] = []
+    const dr = 15, arcStep = 13.5, pad = 0.02
+    let accA = A0
+    for (const key of ordered) {
+      const ids = idsByGroup.get(key)!
+      const w = (ids.length / total) * span
+      const a0 = accA + pad, a1 = accA + w - pad; accA += w
+      const aw = Math.max(0.0001, a1 - a0)
+      const maxRing = Math.max(0, Math.floor((outerR - innerR) / dr))
+      let placed = 0
+      for (let ring = 0; ring <= maxRing && placed < ids.length; ring++) {
+        const r = innerR + ring * dr
+        const cap = Math.max(1, Math.floor((r * aw) / arcStep))
+        const take = Math.min(cap, ids.length - placed)
+        for (let i = 0; i < take; i++) { const a = take === 1 ? (a0 + a1) / 2 : a0 + (i / (take - 1)) * aw; const [x, y] = polar(r, a); seats.push({ id: ids[placed++], x, y, g: key }) }
+      }
+      if (placed < ids.length) { const leftN = ids.length - placed; for (let i = 0; i < leftN; i++) { const a = a0 + ((i + 0.5) / leftN) * aw; const [x, y] = polar(outerR, a); seats.push({ id: ids[placed++], x, y, g: key }) } }
+    }
+    const sector = (r0: number, r1: number, s0: number, s1: number) => {
+      const [ax, ay] = polar(r0, s0), [bx, by] = polar(r0, s1), [cx2, cy2] = polar(r1, s1), [dx, dy] = polar(r1, s0)
+      return `M ${ax} ${ay} A ${r0} ${r0} 0 0 1 ${bx} ${by} L ${cx2} ${cy2} A ${r1} ${r1} 0 0 0 ${dx} ${dy} Z`
+    }
+    const ageCount = new Map<string, number>()
+    for (const m of data.members) { const k = m.ageKey ?? '__noage__'; ageCount.set(k, (ageCount.get(k) ?? 0) + 1) }
+    const ageOrder = [...data.ranges.filter((r) => r.enabled).map((r) => r.key), '__noage__'].filter((k) => ageCount.get(k))
+    const ageSegs: { key: string; name: string; color: string; d: string; count: number }[] = []
+    let aAcc = A0
+    for (const k of ageOrder) {
+      const frac = (ageCount.get(k)! / total) * span
+      const color = k === '__noage__' ? SIN : (data.ranges.find((r) => r.key === k)?.color ?? SIN)
+      const name = k === '__noage__' ? 'Sin edad' : (data.ranges.find((r) => r.key === k)?.name ?? k)
+      ageSegs.push({ key: k, name, color, count: ageCount.get(k)!, d: sector(dR0, dR1, aAcc + 0.012, aAcc + frac - 0.012) }); aAcc += frac
+    }
+    return { cx, cy, dR1, seats, ageSegs, vbW: cx + 16, vbH: cy * 2 }
+  }, [data, groups, groupOf])
 
   if (!data) return <p className="py-8 text-center text-sm text-graysage">Cargando mapa…</p>
 
-  const dimmed = (id: string) => sel != null && groupOf(id) !== sel
-  const renderBlock = (b: AgeBlock) => (
-    <div key={b.key} className="flex flex-col items-center gap-1.5">
-      <p className="text-[0.65rem] leading-tight text-graysage">{b.name} · <span className="text-graysage/60">{b.ids.length}</span></p>
-      <div className="flex w-[116px] flex-wrap justify-center gap-[3px]">
-        {b.ids.map((id) => {
-          const d = dimmed(id)
-          const ring = mode === 'equipos' && data.inactive.has(id)
-          const color = colorOf(groupOf(id))
-          const style = d
-            ? { backgroundColor: '#e3e4e6', opacity: 0.45 }
-            : ring
-              ? { backgroundColor: 'transparent', border: `2px solid ${color}` }
-              : { backgroundColor: color }
-          return <span key={id} className="h-3 w-3 rounded-full" style={style} />
-        })}
-      </div>
-    </div>
-  )
-
+  const total = data.members.length
   const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0)
   const inactiveCount = data.inactive.size
 
@@ -256,20 +266,9 @@ export default function ChurchMap({ churchId, mode: modeProp, compact, occId: oc
         </div>
       </div>
 
-      <div className={compact ? 'space-y-4' : 'grid gap-4 lg:grid-cols-[1fr_210px]'}>
-        <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
-          <div className="mb-4 flex flex-col items-center">
-            <div className="relative h-4 w-1.5 rounded-sm bg-graysage/70"><span className="absolute left-[-5px] top-1 h-1 w-3.5 rounded-sm bg-graysage/70" /></div>
-            <div className="mt-1.5 w-32 rounded-lg bg-sage-light py-1 text-center text-[0.7rem] font-medium text-sage-dark">Pastor + afiliados · altar</div>
-          </div>
-          <div className="flex flex-wrap items-start justify-center gap-4">
-            <div className="flex flex-col items-center gap-4">{left.map(renderBlock)}</div>
-            {center && renderBlock(center)}
-            <div className="flex flex-col items-center gap-4">{right.map(renderBlock)}</div>
-          </div>
-        </div>
-
-        <div>
+      <div className="flex flex-wrap items-start gap-4">
+        {/* Roster (izquierda) */}
+        <div className="order-2 w-full sm:order-1 sm:w-40">
           <div className="mb-2 flex items-center justify-between text-xs text-graysage">
             <span>{total} miembros</span>
             {sel && <button onClick={() => setSel(null)} className="font-medium text-sage-dark hover:underline">Ver todos</button>}
@@ -294,9 +293,28 @@ export default function ChurchMap({ churchId, mode: modeProp, compact, occId: oc
             </div>
           )}
         </div>
+
+        {/* Auditorio en media luna (derecha): altar al centro, cuñas radiales, anillo de edades */}
+        <div className="order-1 min-w-0 flex-1 rounded-2xl bg-white p-2 ring-1 ring-black/5 sm:order-2">
+          {art && (
+            <svg viewBox={`0 0 ${art.vbW} ${art.vbH}`} className="mx-auto block w-full max-w-[280px]" role="img" aria-label="Mapa de la iglesia en media luna">
+              <line x1={art.cx} y1={art.cy - art.dR1 - 4} x2={art.cx} y2={art.cy + art.dR1 + 4} stroke="#E4E4E0" strokeWidth={1} />
+              {art.ageSegs.map((s) => <path key={s.key} d={s.d} fill={s.color} opacity={0.9}><title>{s.name}: {s.count}</title></path>)}
+              {art.seats.map((s) => {
+                const dim = sel != null && s.g !== sel
+                const ring = mode === 'equipos' && data.inactive.has(s.id)
+                const col = colorOf(s.g)
+                return <circle key={s.id} cx={s.x} cy={s.y} r={4.1} fill={dim ? '#e3e4e6' : ring ? '#ffffff' : col} stroke={!dim && ring ? col : 'none'} strokeWidth={ring ? 1.8 : 0} opacity={dim ? 0.5 : 1} />
+              })}
+              <circle cx={art.cx} cy={art.cy} r={16} fill="#CECBF6" />
+              <rect x={art.cx - 1.5} y={art.cy - 8} width={3} height={16} rx={1} fill="#3C3489" />
+              <rect x={art.cx - 6} y={art.cy - 2.5} width={12} height={3} rx={1} fill="#3C3489" />
+              <text x={art.cx} y={art.cy + 30} textAnchor="middle" fontSize={11} fill="#6b6f6a">altar</text>
+            </svg>
+          )}
+          <p className="mt-1 text-center text-[0.65rem] text-graysage/70">Anillo exterior = edades · cuñas = {mode === 'cobertura' ? 'líderes' : mode === 'equipos' ? 'equipos' : mode === 'asistencia' ? 'asistencia' : 'grupos'}</p>
+        </div>
       </div>
     </div>
   )
 }
-
-interface AgeBlock { key: string; name: string; ids: string[] }
