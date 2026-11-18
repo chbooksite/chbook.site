@@ -196,7 +196,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
   // cada fila (anillo) recibe asientos en proporción a su radio (más fuera, más).
   const art = useMemo(() => {
     if (!data) return null
-    const cx = 150, cy = 150, innerR = 32, outerR = 112
+    const cx = 150, cy = 150, innerR = 32, outerR = 128
     const A0 = Math.PI / 2, A1 = Math.PI * 1.5, span = A1 - A0
     const total = data.members.length || 1
     const polar = (r: number, a: number): [number, number] => [cx + r * Math.cos(a), cy + r * Math.sin(a)]
@@ -229,6 +229,11 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
     for (const m of data.members) { const g = groupOf(m.id); grpSize.set(g, (grpSize.get(g) ?? 0) + 1); if (data.inactive.has(m.id)) grpInact.set(g, (grpInact.get(g) ?? 0) + 1) }
     const dotsByGroup = new Map<string, number[]>() // índices en `seats` por grupo
     const ageSlices: { key: string; name: string; n: number; pct: number; px: number; py: number; rot: number }[] = []
+    // Etiqueta corta por rango numérico (desde el corte de cada rango hasta el del siguiente).
+    const er = data.ranges.filter((r) => r.enabled).sort((a, b) => a.start - b.start)
+    const rangeLabel = new Map<string, string>()
+    er.forEach((r, j) => { const hi = j < er.length - 1 ? er[j + 1].start - 1 : null; rangeLabel.set(r.key, hi == null ? `${r.start}+` : `${r.start}-${hi}`) })
+    rangeLabel.set('__noage__', 's/e')
     let acc = A0, idx = 0
     ageOrder.forEach((ak, ai) => {
       const w = (rawW[ai] / rawSum) * span
@@ -238,7 +243,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
       let rot = (mid * 180) / Math.PI + 90 // tangente al arco
       rot = ((rot % 360) + 360) % 360
       if (rot > 90 && rot < 270) rot -= 180 // mantener el texto derecho
-      ageSlices.push({ key: ak, name: ak === '__noage__' ? 'Sin edad' : (data.ranges.find((r) => r.key === ak)?.name ?? ak), n: ageTotal.get(ak)!, pct: Math.round((ageTotal.get(ak)! / total) * 100), px, py, rot })
+      ageSlices.push({ key: ak, name: rangeLabel.get(ak) ?? ak, n: ageTotal.get(ak)!, pct: Math.round((ageTotal.get(ak)! / total) * 100), px, py, rot })
       const z0 = b0 + sliceGap / 2, z1 = b1 - sliceGap / 2, zw = Math.max(0.02, z1 - z0)
       // sub-bandas por grupo dentro de la rebanada de edad, ∝ composición
       const comp = byAge.get(ak)!
@@ -279,7 +284,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
 
       <div className="rounded-2xl bg-white p-2 ring-1 ring-black/5">
         {art && (
-          <svg viewBox={`-16 -16 ${art.cx + 50} ${art.cy * 2 + 32}`} className="mx-auto block w-full max-w-[380px]" role="img" aria-label="Mapa de la iglesia en media luna, rebanadas por edad">
+          <svg viewBox={`-28 -22 ${art.cx + 70} ${art.cy * 2 + 44}`} className="mx-auto block w-full max-w-[440px]" role="img" aria-label="Mapa de la iglesia en media luna, rebanadas por edad">
             <line x1={art.cx} y1={art.cy - art.outerR - 10} x2={art.cx} y2={art.cy + art.outerR + 10} stroke="#E4E4E0" strokeWidth={1} />
             {art.seats.map((s) => {
               const dim = sel != null && s.g !== sel
@@ -287,7 +292,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
               return <circle key={s.k} cx={s.x} cy={s.y} r={4.3} fill={dim ? '#e3e4e6' : s.ring ? '#ffffff' : col} stroke={!dim && s.ring ? col : 'none'} strokeWidth={s.ring ? 1.6 : 0} opacity={dim ? 0.5 : 1} />
             })}
             {art.ageSlices.map((s) => (
-              <text key={s.key} x={s.px} y={s.py} transform={`rotate(${s.rot} ${s.px} ${s.py})`} textAnchor="middle" dominantBaseline="middle" fontSize={8} fill="#6b6f6a">{s.name}<title>{s.name}: {s.n} · {s.pct}%</title></text>
+              <text key={s.key} x={s.px} y={s.py} transform={`rotate(${s.rot} ${s.px} ${s.py})`} textAnchor="middle" dominantBaseline="middle" fontSize={7} fill="#55585e">{s.name} <tspan fontWeight={600}>{s.pct}%</tspan><title>{s.n} personas · {s.pct}%</title></text>
             ))}
             <circle cx={art.cx} cy={art.cy} r={15} fill="#CECBF6" />
             <rect x={art.cx - 1.5} y={art.cy - 7.5} width={3} height={15} rx={1} fill="#3C3489" />
