@@ -3,6 +3,7 @@ import { supabase, fetchAll } from '../lib/supabase'
 import { readAgeRanges, type AgeRangeDef } from '../lib/member'
 import { readAudience, audienceIsEmpty } from '../lib/activity'
 import { flockMemberIds, memberAgeKey, FLOCK_ROLE_KEYS, type Flock, type FlockMember } from '../lib/flock'
+import { entityColor } from '../lib/mapColors'
 
 // Sección MAPA DE LA IGLESIA. Auditorio tipo mapa de asientos: cada asiento = un
 // miembro activo. Los bloques = rangos de edad (compactos, mismo ancho y mismo
@@ -14,7 +15,6 @@ import { flockMemberIds, memberAgeKey, FLOCK_ROLE_KEYS, type Flock, type FlockMe
 // En equipos/cobertura: 2+ grupos = "Varios"; ninguno = gris. Seleccionar un
 // grupo atenúa los demás y deja ver su proporción por edades.
 
-const PALETTE = ['#2a78d6', '#1baf7a', '#eb6834', '#e34949', '#eda100', '#6250d6', '#0f8a8a', '#b5651d', '#c2185b', '#558b2f', '#7b5e57', '#00897b']
 const VARIOS = '#8e7cc3'
 const SIN = '#a3abb5'
 const PRESENT = '#1baf7a'
@@ -181,7 +181,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
     const nameOf = mode === 'equipos' ? data.teamName : data.leaderName
     const real = [...counts.entries()].filter(([k]) => k !== '__varios__' && k !== '__sin__').sort((a, b) => b[1] - a[1])
     const color = new Map<string, string>(); const rank = new Map<string, number>()
-    real.forEach(([k], i) => { color.set(k, PALETTE[i % PALETTE.length]); rank.set(k, i) })
+    real.forEach(([k], i) => { color.set(k, entityColor(k)); rank.set(k, i) })
     color.set('__varios__', VARIOS); color.set('__sin__', SIN)
     rank.set('__varios__', real.length); rank.set('__sin__', real.length + 1)
     const groups: Group[] = real.map(([k]) => ({ key: k, name: nameOf.get(k) ?? '—', color: color.get(k)!, count: counts.get(k)! }))

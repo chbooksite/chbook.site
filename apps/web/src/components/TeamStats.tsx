@@ -3,6 +3,7 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianG
 import { supabase, fetchAll } from '../lib/supabase'
 import Insight from './Insight'
 import RangeControl, { DEFAULT_RANGE, bucketKey, bucketLabel, cutoff, type Range } from './RangeControl'
+import { entityColor } from '../lib/mapColors'
 
 // Sección EQUIPOS. Evalúa cada equipo por la PRESENCIA de sus integrantes en los
 // encuentros, NORMALIZADA por el tamaño del grupo (presentes ÷ integrantes), para
@@ -14,7 +15,7 @@ const GREEN = '#5CA27B'
 const EMPTY = new Set<string>()
 
 interface Svc { id: string; at: Date; scheduleId: string | null }
-interface Data { teams: { id: string; name: string }[]; teamMembers: Map<string, Set<string>>; scheduleTeams: Map<string, Set<string>>; svcs: Svc[]; attBySvc: Map<string, Set<string>> }
+interface Data { teams: { id: string; name: string }[]; teamMembers: Map<string, Set<string>>; scheduleTeams: Map<string, Set<string>>; svcs: Svc[]; attBySvc: Map<string, Set<string>>; total: number }
 
 function LineTrend({ points }: { points: { label: string; value: number }[] }) {
   if (points.length < 2) return <p className="py-6 text-center text-xs text-graysage/60">Pocos datos en este rango para la tendencia.</p>
@@ -42,14 +43,16 @@ export default function TeamStats({ churchId, onSelect }: { churchId: string; on
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const [teamRes, mtRes, stRes, svcRes] = await Promise.all([
+      const [teamRes, mtRes, stRes, svcRes, memRes] = await Promise.all([
         supabase.from('teams').select('id, name').order('name'),
         supabase.from('member_teams').select('member_id, team_id'),
         supabase.from('schedule_teams').select('schedule_id, team_id'),
         supabase.from('service_attendance').select('service_id, starts_at, schedule_id'),
+        supabase.from('members').select('status'),
       ])
       const att = await fetchAll<{ member_id: string; service_id: string }>(() => supabase.from('attendance').select('member_id, service_id'))
       if (!alive) return
+      const total = ((memRes.data ?? []) as { status: string }[]).filter((m) => m.status !== 'archived' && m.status !== 'cambio_membresia').length
       const teamMembers = new Map<string, Set<string>>()
       for (const r of (mtRes.data ?? []) as { member_id: string; team_id: string }[]) { const s = teamMembers.get(r.team_id) ?? new Set<string>(); s.add(r.member_id); teamMembers.set(r.team_id, s) }
       const scheduleTeams = new Map<string, Set<string>>()
@@ -60,7 +63,7 @@ export default function TeamStats({ churchId, onSelect }: { churchId: string; on
         .filter((s) => s.starts_at)
         .map((s) => ({ id: s.service_id, at: new Date(s.starts_at as string), scheduleId: s.schedule_id }))
         .sort((a, b) => a.at.getTime() - b.at.getTime())
-      setRaw({ teams: (teamRes.data ?? []) as { id: string; name: string }[], teamMembers, scheduleTeams, svcs, attBySvc })
+      setRaw({ teams: (teamRes.data ?? []) as { id: string; name: string }[], teamMembers, scheduleTeams, svcs, attBySvc, total })
     })()
     return () => { alive = false }
   }, [churchId])
@@ -125,7 +128,9 @@ export default function TeamStats({ churchId, onSelect }: { churchId: string; on
               <div className="space-y-2">
                 {ranking.map((g) => (
                   <button key={g.id} onClick={() => pick(g.id)} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition ${sel === g.id ? 'bg-sage-light/60' : 'hover:bg-cream'}`}>
-                    <span className="w-24 shrink-0 truncate text-charcoal" title={g.name}>{g.name}</span>
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: entityColor(g.id) }} title="Color en el mapa" />
+                    <span className="w-20 shrink-0 truncate text-charcoal" title={g.name}>{g.name}</span>
+                    <span className="w-16 shrink-0 text-right tabular-nums text-graysage">{g.size} · {raw.total ? Math.round((g.size / raw.total) * 100) : 0}%</span>
                     <span className="relative h-3 flex-1 overflow-hidden rounded-full bg-cream">
                       <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${(g.rate / maxRate) * 100}%`, backgroundColor: GREEN }} />
                     </span>

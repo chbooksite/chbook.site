@@ -5,6 +5,7 @@ import { flockMemberIds, type Flock, type FlockMember } from '../lib/flock'
 import { readAgeRanges, type AgeRangeDef } from '../lib/member'
 import Insight from './Insight'
 import RangeControl, { DEFAULT_RANGE, bucketKey, cutoff, type Range } from './RangeControl'
+import { entityColor } from '../lib/mapColors'
 
 // Sección LÍDERES. Los roles son las CABEZAS de la iglesia: toda persona con un
 // rol (pastor principal/afiliado, líder general, líder de equipo, predicador) se
@@ -211,6 +212,7 @@ export default function LeaderStats({ churchId, onSelect }: { churchId: string; 
     return r.sort((a, b) => n((b as Record<SortKey, number | null>)[sortKey]) - n((a as Record<SortKey, number | null>)[sortKey]))
   }, [rows, sortKey])
 
+  const churchTotal = raw ? raw.activeIds.size : 0
   const accountable = rows.filter((r) => r.asignada != null && r.ownN >= 3)
   const weakest = accountable.length ? accountable.reduce((a, b) => (b.asignada! < a.asignada! ? b : a)) : null
   const strongest = accountable.length ? accountable.reduce((a, b) => (b.asignada! > a.asignada! ? b : a)) : null
@@ -268,7 +270,10 @@ export default function LeaderStats({ churchId, onSelect }: { churchId: string; 
                       {groupHdr && <tr><td colSpan={6} className="bg-cream/50 px-4 py-1.5 text-[0.7rem] font-semibold uppercase tracking-wide text-graysage">{groupLabel(r.tier)}</td></tr>}
                       <tr onClick={() => pickLeader(r.id)} className={`cursor-pointer border-b border-black/5 last:border-0 ${selId === r.id ? 'bg-sage-light/40' : 'hover:bg-cream/50'}`}>
                         <td className={`sticky left-0 z-10 px-4 py-2.5 ${selId === r.id ? 'bg-sage-light' : 'bg-white'}`}>
-                          <div className="font-medium text-charcoal">{r.name}</div>
+                          <div className="flex items-center gap-1.5 font-medium text-charcoal">
+                            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: entityColor(r.id) }} title="Color en el mapa" />
+                            {r.name}
+                          </div>
                           <div className="flex flex-wrap items-center gap-1 text-xs text-graysage">
                             <span>{r.label}</span>
                             {r.pred != null && r.pred > 0 && <span className="rounded-full bg-sage-light px-1.5 py-0.5 text-[0.65rem] font-medium text-sage-dark">{r.pred} predic.</span>}
@@ -276,7 +281,7 @@ export default function LeaderStats({ churchId, onSelect }: { churchId: string; 
                           </div>
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-charcoal">
-                          {r.scopeN != null ? r.scopeN : <span className="text-graysage/50" title={r.scopeKind === 'pendiente' ? 'Sin personas asignadas todavía' : 'No aplica a este rol'}>{r.scopeKind === 'pendiente' ? '—' : '·'}</span>}
+                          {r.scopeN != null ? <>{r.scopeN} <span className="text-graysage/70">· {churchTotal ? Math.round((r.scopeN / churchTotal) * 100) : 0}%</span></> : <span className="text-graysage/50" title={r.scopeKind === 'pendiente' ? 'Sin personas asignadas todavía' : 'No aplica a este rol'}>{r.scopeKind === 'pendiente' ? '—' : '·'}</span>}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-charcoal">{r.acts || <span className="text-graysage/40">·</span>}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums" style={{ color: sev(r.propia) }}>{r.propia == null ? '·' : `${r.propia}%`}</td>
