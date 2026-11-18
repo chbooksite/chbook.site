@@ -200,47 +200,59 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
     const A0 = Math.PI / 2, A1 = Math.PI * 1.5, span = A1 - A0
     const total = data.members.length || 1
     const polar = (r: number, a: number): [number, number] => [cx + r * Math.cos(a), cy + r * Math.sin(a)]
-    const idsByGroup = new Map<string, string[]>()
-    for (const m of data.members) { const g = groupOf(m.id); const a = idsByGroup.get(g) ?? []; a.push(m.id); idsByGroup.set(g, a) }
-    const ordered = groups.map((g) => g.key).filter((k) => idsByGroup.get(k)?.length)
     const seats: { k: string; x: number; y: number; g: string; ring: boolean }[] = []
-    // PROPORCIONAL (no 1 punto = 1 persona): la media luna se LLENA con una REJILLA
-    // POLAR de separación FIJA en píxeles (SEAT_PX entre asientos, ROW_PX entre
-    // anillos) → por construcción ningún punto se monta sobre otro. Cada grupo es una
-    // cuña radial cuyo ancho ∝ su % (mínimo para que un grupo pequeño no desaparezca);
-    // cada punto de la rejilla se colorea según la cuña donde cae, dejando un margen
-    // junto a cada borde (separador entre zonas). En equipos, una fracción = aro
-    // (% de inactivos del grupo).
-    const SEAT_PX = 10, ROW_PX = 11.5, EDGE = SEAT_PX * 0.3
+    // Las REBANADAS (cuñas tipo torta) son por RANGO DE EDAD: cada rebanada ∝ nº de
+    // personas de esa edad; entre rebanadas, un hueco angular separa. DENTRO de cada
+    // rebanada, los puntos se colorean según el MODO (equipo/líder/…), en sub-bandas
+    // ∝ la composición de esa edad. Se LLENA TODA la media luna con una rejilla polar
+    // de paso fijo en px (SEAT_PX/ROW_PX) → ningún punto se monta.
+    const SEAT_PX = 10, ROW_PX = 11.5, sliceGap = 0.05
     const rings: number[] = []
     for (let r = innerR; r <= outerR + 0.1; r += ROW_PX) rings.push(r)
     const midR = (innerR + outerR) / 2
+    // Composición por edad: miembros por rango y, dentro, por grupo del modo.
+    const byAge = new Map<string, Map<string, number>>()
+    const ageTotal = new Map<string, number>()
+    for (const m of data.members) {
+      const ak = m.ageKey ?? '__noage__'
+      const g = groupOf(m.id)
+      const gm = byAge.get(ak) ?? new Map<string, number>(); gm.set(g, (gm.get(g) ?? 0) + 1); byAge.set(ak, gm)
+      ageTotal.set(ak, (ageTotal.get(ak) ?? 0) + 1)
+    }
+    const ageOrder = [...data.ranges.filter((r) => r.enabled).map((r) => r.key), '__noage__'].filter((k) => ageTotal.get(k))
+    // Ancho de cada rebanada ∝ personas de esa edad (con mínimo visible).
+    const minW = (SEAT_PX * 2) / midR
+    const rawW = ageOrder.map((k) => Math.max(minW, (ageTotal.get(k)! / total) * span))
+    const rawSum = rawW.reduce((a, b) => a + b, 0)
+    // ratio de inactivos por grupo (modo equipos) para marcar aros proporcionalmente.
     const grpSize = new Map<string, number>(), grpInact = new Map<string, number>()
     for (const m of data.members) { const g = groupOf(m.id); grpSize.set(g, (grpSize.get(g) ?? 0) + 1); if (data.inactive.has(m.id)) grpInact.set(g, (grpInact.get(g) ?? 0) + 1) }
-    // Límites angulares de las cuñas: ancho ∝ %, con un mínimo visible.
-    const minW = (SEAT_PX * 1.8) / midR
-    const raw = ordered.map((k) => Math.max(minW, ((idsByGroup.get(k)!.length) / total) * span))
-    const rawSum = raw.reduce((a, b) => a + b, 0)
-    const bounds: { key: string; b0: number; b1: number }[] = []
-    let acc = A0
-    ordered.forEach((k, i) => { const w = (raw[i] / rawSum) * span; bounds.push({ key: k, b0: acc, b1: acc + w }); acc += w })
-    const wedgeDots = new Map<string, { x: number; y: number }[]>()
-    for (const r of rings) {
-      const dA = SEAT_PX / r
-      for (let a = A0 + dA / 2; a <= A1 - dA / 2 + 1e-9; a += dA) {
-        const wb = bounds.find((b) => a >= b.b0 && a < b.b1)
-        if (!wb) continue
-        if ((a - wb.b0) * r < EDGE || (wb.b1 - a) * r < EDGE) continue // margen separador junto al borde
-        const [x, y] = polar(r, a); const arr = wedgeDots.get(wb.key) ?? []; arr.push({ x, y }); wedgeDots.set(wb.key, arr)
+    const dotsByGroup = new Map<string, number[]>() // índices en `seats` por grupo
+    let acc = A0, idx = 0
+    ageOrder.forEach((ak, ai) => {
+      const w = (rawW[ai] / rawSum) * span
+      const b0 = acc, b1 = acc + w; acc += w
+      const z0 = b0 + sliceGap / 2, z1 = b1 - sliceGap / 2, zw = Math.max(0.02, z1 - z0)
+      // sub-bandas por grupo dentro de la rebanada de edad, ∝ composición
+      const comp = byAge.get(ak)!
+      const gl = groups.map((g) => g.key).filter((k) => (comp.get(k) ?? 0) > 0)
+      const at = ageTotal.get(ak)!
+      const subs: { k: string; s0: number; s1: number }[] = []
+      let sacc = z0
+      gl.forEach((k) => { const sw = (comp.get(k)! / at) * zw; subs.push({ k, s0: sacc, s1: sacc + sw }); sacc += sw })
+      const groupAt = (a: number) => (subs.find((s) => a >= s.s0 && a < s.s1) ?? subs[subs.length - 1]).k
+      for (const r of rings) {
+        const dA = SEAT_PX / r
+        for (let a = z0 + dA / 2; a <= z1 - dA / 2 + 1e-9; a += dA) {
+          const g = groupAt(a)
+          const [x, y] = polar(r, a)
+          const arr = dotsByGroup.get(g) ?? []; arr.push(seats.length); dotsByGroup.set(g, arr)
+          seats.push({ k: `${idx++}`, x, y, g, ring: false })
+        }
       }
-    }
-    let idx = 0
-    for (const key of ordered) {
-      const arr = wedgeDots.get(key) ?? []
-      const ratio = mode === 'equipos' ? (grpInact.get(key) ?? 0) / Math.max(1, grpSize.get(key) ?? 1) : 0
-      const ringN = Math.round(ratio * arr.length)
-      arr.forEach((p, i) => seats.push({ k: `${idx++}`, x: p.x, y: p.y, g: key, ring: i < ringN }))
-    }
+    })
+    // Aros (equipos): fracción de cada grupo = % de inactivos del grupo.
+    if (mode === 'equipos') for (const [g, indices] of dotsByGroup) { const ratio = (grpInact.get(g) ?? 0) / Math.max(1, grpSize.get(g) ?? 1); const n = Math.round(ratio * indices.length); for (let i = 0; i < n; i++) seats[indices[i]].ring = true }
     return { cx, cy, outerR, seats, vbW: cx + 16, vbH: cy * 2 + 8 }
   }, [data, groups, groupOf])
 
@@ -317,7 +329,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
               <text x={art.cx} y={art.cy + 28} textAnchor="middle" fontSize={10} fill="#6b6f6a">altar</text>
             </svg>
           )}
-          <p className="mt-1 text-center text-[0.65rem] text-graysage/70">Cada punto es una persona · cuñas = {mode === 'cobertura' ? 'líderes' : mode === 'equipos' ? 'equipos' : mode === 'asistencia' ? 'asistencia' : 'grupos'}</p>
+          <p className="mt-1 text-center text-[0.65rem] text-graysage/70">Rebanadas por edad · color = {mode === 'cobertura' ? 'líder' : mode === 'equipos' ? 'equipo' : mode === 'asistencia' ? 'asistencia' : mode === 'bautismo' ? 'bautismo' : mode === 'sexo' ? 'sexo' : 'edad'}</p>
         </div>
       </div>
     </div>
