@@ -32,10 +32,12 @@ function LineTrend({ points }: { points: { label: string; value: number }[] }) {
   )
 }
 
-export default function TeamStats({ churchId }: { churchId: string }) {
+export default function TeamStats({ churchId, onSelect }: { churchId: string; onSelect?: (teamId: string | null) => void }) {
   const [range, setRange] = useState<Range>(DEFAULT_RANGE)
   const [raw, setRaw] = useState<Data | null>(null)
   const [sel, setSel] = useState<string | null>(null)
+  // Al hacer clic en un equipo se marca su gente en el mapa (no en la autoselección).
+  const pick = (id: string) => { setSel(id); onSelect?.(id) }
 
   useEffect(() => {
     let alive = true
@@ -113,7 +115,7 @@ export default function TeamStats({ churchId }: { churchId: string }) {
       ) : (
         <>
           {ranking.length >= 2 && ranking[0].rate > 0 && (
-            <Insight tone="info" action={{ label: 'Ver el más bajo', onClick: () => setSel(ranking[ranking.length - 1].id) }}>
+            <Insight tone="info" action={{ label: 'Ver el más bajo', onClick: () => pick(ranking[ranking.length - 1].id) }}>
               {ranking[0].name} lidera con {ranking[0].rate}% de participación; {ranking[ranking.length - 1].name} es el más bajo ({ranking[ranking.length - 1].rate}%).
             </Insight>
           )}
@@ -122,7 +124,7 @@ export default function TeamStats({ churchId }: { churchId: string }) {
               <p className="mb-3 text-sm font-medium text-charcoal">Participación (presentes ÷ integrantes)</p>
               <div className="space-y-2">
                 {ranking.map((g) => (
-                  <button key={g.id} onClick={() => setSel(g.id)} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition ${sel === g.id ? 'bg-sage-light/60' : 'hover:bg-cream'}`}>
+                  <button key={g.id} onClick={() => pick(g.id)} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition ${sel === g.id ? 'bg-sage-light/60' : 'hover:bg-cream'}`}>
                     <span className="w-24 shrink-0 truncate text-charcoal" title={g.name}>{g.name}</span>
                     <span className="relative h-3 flex-1 overflow-hidden rounded-full bg-cream">
                       <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${(g.rate / maxRate) * 100}%`, backgroundColor: GREEN }} />

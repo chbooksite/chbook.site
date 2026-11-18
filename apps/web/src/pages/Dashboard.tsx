@@ -39,6 +39,7 @@ export default function Dashboard() {
   const [active, setActive] = useState('iglesia')
   const [overlay, setOverlay] = useState<MapMode | null>(null) // tarjeta seleccionada que controla el mapa
   const [mapOcc, setMapOcc] = useState<string | null>(null) // actividad elegida → asistencia en el mapa
+  const [highlight, setHighlight] = useState<string | null>(null) // equipo/líder seleccionado → aislado en el mapa
   const [expanded, setExpanded] = useState(false)
   const navRef = useRef<HTMLElement>(null)
 
@@ -62,7 +63,7 @@ export default function Dashboard() {
 
   // Al cambiar de sección, el mapa vuelve al modo por defecto de esa sección
   // (se suelta la tarjeta que lo controlaba).
-  useEffect(() => { setOverlay(null) }, [active])
+  useEffect(() => { setOverlay(null); setHighlight(null) }, [active])
 
   // Contrae la barra al hacer clic fuera de ella.
   useEffect(() => {
@@ -126,12 +127,12 @@ export default function Dashboard() {
               <section id="iglesia" className="scroll-mt-20"><ChurchHealth churchId={membership.churchId} /></section>
               <section id="miembros" className="scroll-mt-20"><MembersOverview churchId={membership.churchId} avgAttendance={avgAttendance} onMapView={(m) => setOverlay(m)} /></section>
               <section id="actividades" className="scroll-mt-20"><ActivityMetrics churchId={membership.churchId} onOccurrence={setMapOcc} /></section>
-              <section id="equipos" className="scroll-mt-20"><TeamStats churchId={membership.churchId} /></section>
-              <section id="lideres" className="scroll-mt-20"><LeaderStats churchId={membership.churchId} /></section>
+              <section id="equipos" className="scroll-mt-20"><TeamStats churchId={membership.churchId} onSelect={setHighlight} /></section>
+              <section id="lideres" className="scroll-mt-20"><LeaderStats churchId={membership.churchId} onSelect={setHighlight} /></section>
               <section id="mejores" className="scroll-mt-20"><BestNumbers churchId={membership.churchId} /></section>
             </div>
             <div className="min-w-0 xl:sticky xl:top-[65px] xl:self-start xl:max-h-[calc(100vh-84px)] xl:overflow-y-auto xl:pr-1">
-              <ChurchMap churchId={membership.churchId} mode={mapMode} occId={mapOcc} compact />
+              <ChurchMap churchId={membership.churchId} mode={mapMode} occId={mapOcc} highlight={highlight} compact />
             </div>
           </div>
         </div>

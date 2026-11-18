@@ -43,10 +43,13 @@ interface LeaderRow {
 }
 type SortKey = 'tier' | 'scopeN' | 'acts' | 'propia' | 'asignada' | 'area'
 
-export default function LeaderStats({ churchId }: { churchId: string }) {
+export default function LeaderStats({ churchId, onSelect }: { churchId: string; onSelect?: (leaderId: string | null) => void }) {
   const [range, setRange] = useState<Range>(DEFAULT_RANGE)
   const [raw, setRaw] = useState<Data | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('tier')
+  const [selId, setSelId] = useState<string | null>(null)
+  // Clic en una fila → aísla a ese líder (su gente a cargo) en el mapa.
+  const pickLeader = (id: string) => { const n = selId === id ? null : id; setSelId(n); onSelect?.(n) }
 
   useEffect(() => {
     let alive = true
@@ -263,8 +266,8 @@ export default function LeaderStats({ churchId }: { churchId: string }) {
                   return (
                     <Fragment key={r.id}>
                       {groupHdr && <tr><td colSpan={6} className="bg-cream/50 px-4 py-1.5 text-[0.7rem] font-semibold uppercase tracking-wide text-graysage">{groupLabel(r.tier)}</td></tr>}
-                      <tr className="border-b border-black/5 last:border-0">
-                        <td className="sticky left-0 z-10 bg-white px-4 py-2.5">
+                      <tr onClick={() => pickLeader(r.id)} className={`cursor-pointer border-b border-black/5 last:border-0 ${selId === r.id ? 'bg-sage-light/40' : 'hover:bg-cream/50'}`}>
+                        <td className={`sticky left-0 z-10 px-4 py-2.5 ${selId === r.id ? 'bg-sage-light' : 'bg-white'}`}>
                           <div className="font-medium text-charcoal">{r.name}</div>
                           <div className="flex flex-wrap items-center gap-1 text-xs text-graysage">
                             <span>{r.label}</span>
