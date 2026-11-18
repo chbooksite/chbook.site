@@ -17,6 +17,8 @@ import { entityColor } from '../lib/mapColors'
 
 const VARIOS = '#8e7cc3'
 const SIN = '#a3abb5'
+// Indicación del tipo de dato que muestra el mapa (según la sección activa).
+const MODE_LABEL: Record<string, string> = { equipos: 'Equipos', cobertura: 'Cobertura · líderes', asistencia: 'Asistencia', bautismo: 'Bautismo', sexo: 'Sexo', edad: 'Edad' }
 const PRESENT = '#1baf7a'
 const ABSENT = '#d9dbde'
 const INACTIVE_MS = 30 * 24 * 60 * 60 * 1000
@@ -275,6 +277,9 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
 
   return (
     <div className="w-full">
+      <div className="mb-1.5">
+        <span className="inline-block rounded-full bg-sage-light px-2.5 py-0.5 text-[0.7rem] font-medium text-sage-dark">{MODE_LABEL[mode] ?? 'Mapa'}</span>
+      </div>
       <div className="flex items-start gap-2">
         {/* Leyenda a la IZQUIERDA (esquina superior): solo color · nº · % (sin nombres) */}
         <div className="flex shrink-0 flex-col gap-1 pt-1 text-[0.68rem] tabular-nums text-graysage">
@@ -295,7 +300,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
         </div>
         {/* Mapa pegado al borde derecho */}
         {art && (
-          <svg viewBox={`-30 -22 ${art.cx + 50} ${art.cy * 2 + 44}`} className="block min-w-0 flex-1" role="img" aria-label="Mapa de la iglesia en media luna, rebanadas por edad">
+          <svg viewBox={`-30 -22 ${art.cx + 30} ${art.cy * 2 + 44}`} className="block min-w-0 flex-1" role="img" aria-label="Mapa de la iglesia en media luna, rebanadas por edad">
             <line x1={art.cx} y1={art.cy - art.outerR - 10} x2={art.cx} y2={art.cy + art.outerR + 10} stroke="#E4E4E0" strokeWidth={1} />
             {art.seats.map((s) => {
               const dim = sel != null && s.g !== sel
@@ -308,7 +313,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
             <circle cx={art.cx} cy={art.cy} r={15} fill="#CECBF6" />
             <rect x={art.cx - 1.5} y={art.cy - 7.5} width={3} height={15} rx={1} fill="#3C3489" />
             <rect x={art.cx - 5.5} y={art.cy - 2} width={11} height={3} rx={1} fill="#3C3489" />
-            <text x={art.cx} y={art.cy + 28} textAnchor="middle" fontSize={10} fill="#6b6f6a">altar</text>
+            <text x={art.cx - 3} y={art.cy + 28} textAnchor="end" fontSize={10} fill="#6b6f6a">altar</text>
           </svg>
         )}
       </div>
