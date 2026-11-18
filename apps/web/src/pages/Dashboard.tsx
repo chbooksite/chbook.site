@@ -26,11 +26,11 @@ const SECTIONS: { id: string; label: string; icon: ReactNode }[] = [
 // El mapa (panel lateral fijo) cambia de modo según la sección visible.
 type MapMode = 'equipos' | 'cobertura' | 'asistencia' | 'bautismo' | 'sexo' | 'edad'
 const MAP_MODE: Record<string, MapMode> = {
-  iglesia: 'cobertura', miembros: 'cobertura', actividades: 'asistencia', equipos: 'equipos', lideres: 'cobertura', mejores: 'equipos',
+  iglesia: 'edad', miembros: 'edad', actividades: 'asistencia', equipos: 'equipos', lideres: 'cobertura', mejores: 'equipos',
 }
-// Subtítulo de la franja del mapa: indica qué tipo de dato muestra el color.
+// Subtítulo de la franja del mapa: la sección que está dirigiendo el color.
 const MODE_LABEL: Record<string, string> = {
-  equipos: 'Color por equipo', cobertura: 'Color por líder a cargo', asistencia: 'Asistencia de la actividad elegida', bautismo: 'Color por bautismo', sexo: 'Color por sexo', edad: 'Color por rango de edad',
+  equipos: 'Equipos', cobertura: 'Líderes', asistencia: 'Actividades', bautismo: 'Miembros', sexo: 'Miembros', edad: 'Miembros',
 }
 
 // Panel del pastor: dashboard de datos por SECCIONES con barra lateral COLAPSABLE
