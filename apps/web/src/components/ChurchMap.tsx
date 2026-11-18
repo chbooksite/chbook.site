@@ -196,7 +196,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
   // cada fila (anillo) recibe asientos en proporción a su radio (más fuera, más).
   const art = useMemo(() => {
     if (!data) return null
-    const cx = 150, cy = 158, innerR = 36, outerR = 142
+    const cx = 150, cy = 150, innerR = 32, outerR = 120
     const A0 = Math.PI / 2, A1 = Math.PI * 1.5, span = A1 - A0
     const total = data.members.length || 1
     const polar = (r: number, a: number): [number, number] => [cx + r * Math.cos(a), cy + r * Math.sin(a)]
@@ -228,13 +228,15 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
     const grpSize = new Map<string, number>(), grpInact = new Map<string, number>()
     for (const m of data.members) { const g = groupOf(m.id); grpSize.set(g, (grpSize.get(g) ?? 0) + 1); if (data.inactive.has(m.id)) grpInact.set(g, (grpInact.get(g) ?? 0) + 1) }
     const dotsByGroup = new Map<string, number[]>() // índices en `seats` por grupo
-    const ageSlices: { key: string; name: string; n: number; lx: number; ly: number }[] = []
+    const ageSlices: { key: string; name: string; n: number; pct: number; lx: number; ly: number; anchor: 'start' | 'middle' | 'end' }[] = []
     let acc = A0, idx = 0
     ageOrder.forEach((ak, ai) => {
       const w = (rawW[ai] / rawSum) * span
       const b0 = acc, b1 = acc + w; acc += w
-      const [lx, ly] = polar(outerR + 9, (b0 + b1) / 2)
-      ageSlices.push({ key: ak, name: ak === '__noage__' ? 'Sin edad' : (data.ranges.find((r) => r.key === ak)?.name ?? ak), n: ageTotal.get(ak)!, lx, ly })
+      const mid = (b0 + b1) / 2
+      const [lx, ly] = polar(outerR + 12, mid)
+      const c = Math.cos(mid)
+      ageSlices.push({ key: ak, name: ak === '__noage__' ? 'Sin edad' : (data.ranges.find((r) => r.key === ak)?.name ?? ak), n: ageTotal.get(ak)!, pct: Math.round((ageTotal.get(ak)! / total) * 100), lx, ly, anchor: c < -0.25 ? 'end' : c > 0.25 ? 'start' : 'middle' })
       const z0 = b0 + sliceGap / 2, z1 = b1 - sliceGap / 2, zw = Math.max(0.02, z1 - z0)
       // sub-bandas por grupo dentro de la rebanada de edad, ∝ composición
       const comp = byAge.get(ak)!
@@ -261,95 +263,35 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
 
   if (!data) return <p className="py-8 text-center text-sm text-graysage">Cargando mapa…</p>
 
-  const total = data.members.length
-  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0)
   const inactiveCount = data.inactive.size
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
-        <div>
-          <h3 className="font-serif text-lg font-semibold text-charcoal">Mapa de la iglesia</h3>
-          <p className="text-sm text-graysage">
-            Cada asiento es un miembro, por rango de edad. {mode === 'equipos' ? 'Color = su equipo.' : mode === 'cobertura' ? 'Color = su líder cercano.' : mode === 'asistencia' ? 'Presentes vs ausentes en la actividad elegida.' : mode === 'bautismo' ? 'Color = bautismo.' : mode === 'sexo' ? 'Color = sexo.' : 'Color = rango de edad.'}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {mode === 'asistencia' && (
-            <select value={occId} onChange={(e) => setOccId(e.target.value)} className="rounded-lg border border-graysage/25 bg-cream px-2 py-1 text-xs text-charcoal outline-none">
-              {data.occurrences.slice(0, 40).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
-          )}
-          <div className="flex rounded-full bg-cream p-0.5 text-xs">
-            {(['equipos', 'cobertura', 'asistencia'] as Mode[]).map((m) => (
-              <button key={m} onClick={() => { setSel(null); setMode(m) }} className={`rounded-full px-3 py-1.5 font-medium capitalize transition ${mode === m ? 'bg-white text-charcoal shadow-sm' : 'text-graysage hover:text-charcoal'}`}>{m}</button>
-            ))}
-          </div>
-        </div>
+    <div className="space-y-2">
+      <div className="pt-1">
+        <h3 className="font-serif text-lg font-semibold text-charcoal">Mapa de la iglesia</h3>
+        <p className="text-sm text-graysage">
+          La congregación por rangos de edad. El color refleja {mode === 'equipos' ? 'el equipo' : mode === 'cobertura' ? 'el líder a cargo' : mode === 'asistencia' ? 'la asistencia de la actividad elegida' : mode === 'bautismo' ? 'el bautismo' : mode === 'sexo' ? 'el sexo' : 'el rango de edad'}{mode === 'equipos' && inactiveCount > 0 ? ' · aro = sin asistir ≥1 mes' : ''}.
+        </p>
       </div>
 
-      <div className="flex flex-wrap items-start gap-4">
-        {/* Roster (izquierda) */}
-        <div className="order-2 w-full sm:order-1 sm:w-40">
-          <div className="mb-2 flex items-center justify-between text-xs text-graysage">
-            <span>{total} miembros</span>
-            {sel && <button onClick={() => setSel(null)} className="font-medium text-sage-dark hover:underline">Ver todos</button>}
-          </div>
-          <div className="space-y-0.5">
-            {groups.map((g) => (
-              <button
-                key={g.key}
-                onClick={() => setSel((s) => (s === g.key ? null : g.key))}
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition ${sel === g.key ? 'bg-sage-light/60' : 'hover:bg-cream'}`}
-              >
-                <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: g.color }} />
-                <span className={`flex-1 truncate ${g.key === '__sin__' || g.key === '__varios__' || g.key === '__absent__' ? 'font-medium text-charcoal' : 'text-charcoal'}`} title={g.name}>{g.name}</span>
-                <span className="shrink-0 text-graysage">{g.count} · {pct(g.count)}%</span>
-              </button>
+      <div className="rounded-2xl bg-white p-2 ring-1 ring-black/5">
+        {art && (
+          <svg viewBox={`-82 -8 262 ${art.vbH + 10}`} className="mx-auto block w-full max-w-[420px]" role="img" aria-label="Mapa de la iglesia en media luna, rebanadas por edad">
+            <line x1={art.cx} y1={art.cy - art.outerR - 10} x2={art.cx} y2={art.cy + art.outerR + 10} stroke="#E4E4E0" strokeWidth={1} />
+            {art.seats.map((s) => {
+              const dim = sel != null && s.g !== sel
+              const col = colorOf(s.g)
+              return <circle key={s.k} cx={s.x} cy={s.y} r={4.3} fill={dim ? '#e3e4e6' : s.ring ? '#ffffff' : col} stroke={!dim && s.ring ? col : 'none'} strokeWidth={s.ring ? 1.6 : 0} opacity={dim ? 0.5 : 1} />
+            })}
+            {art.ageSlices.map((s) => (
+              <text key={s.key} x={s.lx} y={s.ly + 3} textAnchor={s.anchor} fontSize={9.5} fill="#6b6f6a">{s.name} <tspan fontWeight={600} fill="#45484d">{s.pct}%</tspan></text>
             ))}
-          </div>
-          {mode === 'equipos' && inactiveCount > 0 && (
-            <div className="mt-3 flex items-center gap-2 border-t border-black/5 pt-2.5 text-[0.7rem] text-graysage">
-              <span className="h-3 w-3 shrink-0 rounded-full border-2 border-graysage" />
-              {inactiveCount} en equipo, sin asistir ≥1 mes
-            </div>
-          )}
-        </div>
-
-        {/* Auditorio en media luna (derecha): altar al centro, cuñas radiales, anillo de edades */}
-        <div className="order-1 min-w-0 flex-1 rounded-2xl bg-white p-2 ring-1 ring-black/5 sm:order-2">
-          {art && (
-            <svg viewBox={`-20 0 ${art.vbW + 22} ${art.vbH}`} className="mx-auto block w-full max-w-[320px]" role="img" aria-label="Mapa de la iglesia en media luna, rebanadas por edad">
-              <line x1={art.cx} y1={art.cy - art.outerR - 10} x2={art.cx} y2={art.cy + art.outerR + 10} stroke="#E4E4E0" strokeWidth={1} />
-              {art.seats.map((s) => {
-                const dim = sel != null && s.g !== sel
-                const col = colorOf(s.g)
-                return <circle key={s.k} cx={s.x} cy={s.y} r={4.5} fill={dim ? '#e3e4e6' : s.ring ? '#ffffff' : col} stroke={!dim && s.ring ? col : 'none'} strokeWidth={s.ring ? 1.6 : 0} opacity={dim ? 0.5 : 1} />
-              })}
-              {art.ageSlices.map((s, i) => (
-                <g key={s.key}>
-                  <circle cx={s.lx} cy={s.ly} r={7} fill="#ffffff" stroke="#C9CBD0" strokeWidth={0.8} />
-                  <text x={s.lx} y={s.ly + 3} textAnchor="middle" fontSize={9} fontWeight={600} fill="#55585e">{i + 1}</text>
-                </g>
-              ))}
-              <circle cx={art.cx} cy={art.cy} r={15} fill="#CECBF6" />
-              <rect x={art.cx - 1.5} y={art.cy - 7.5} width={3} height={15} rx={1} fill="#3C3489" />
-              <rect x={art.cx - 5.5} y={art.cy - 2} width={11} height={3} rx={1} fill="#3C3489" />
-              <text x={art.cx} y={art.cy + 28} textAnchor="middle" fontSize={10} fill="#6b6f6a">altar</text>
-            </svg>
-          )}
-          <div className="mt-2">
-            <p className="mb-1 text-center text-[0.65rem] text-graysage/70">Rebanadas por edad · color = {mode === 'cobertura' ? 'líder' : mode === 'equipos' ? 'equipo' : mode === 'asistencia' ? 'asistencia' : mode === 'bautismo' ? 'bautismo' : mode === 'sexo' ? 'sexo' : 'edad'}</p>
-            <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-[0.68rem] text-graysage">
-              {(art?.ageSlices ?? []).map((s, i) => (
-                <span key={s.key} className="inline-flex items-center gap-1">
-                  <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-cream text-[0.6rem] font-semibold text-charcoal">{i + 1}</span>
-                  {s.name} <span className="text-graysage/60">· {s.n}</span>
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
+            <circle cx={art.cx} cy={art.cy} r={15} fill="#CECBF6" />
+            <rect x={art.cx - 1.5} y={art.cy - 7.5} width={3} height={15} rx={1} fill="#3C3489" />
+            <rect x={art.cx - 5.5} y={art.cy - 2} width={11} height={3} rx={1} fill="#3C3489" />
+            <text x={art.cx} y={art.cy + 28} textAnchor="middle" fontSize={10} fill="#6b6f6a">altar</text>
+          </svg>
+        )}
       </div>
     </div>
   )
