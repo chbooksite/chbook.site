@@ -28,6 +28,10 @@ type MapMode = 'equipos' | 'cobertura' | 'asistencia' | 'bautismo' | 'sexo' | 'e
 const MAP_MODE: Record<string, MapMode> = {
   iglesia: 'cobertura', miembros: 'cobertura', actividades: 'asistencia', equipos: 'equipos', lideres: 'cobertura', mejores: 'equipos',
 }
+// Subtítulo de la franja del mapa: indica qué tipo de dato muestra el color.
+const MODE_LABEL: Record<string, string> = {
+  equipos: 'Color por equipo', cobertura: 'Color por líder a cargo', asistencia: 'Asistencia de la actividad elegida', bautismo: 'Color por bautismo', sexo: 'Color por sexo', edad: 'Color por rango de edad',
+}
 
 // Panel del pastor: dashboard de datos por SECCIONES con barra lateral COLAPSABLE
 // (rail de iconos pegado a la izquierda; se amplía con la flecha y se contrae al
@@ -115,8 +119,8 @@ export default function Dashboard() {
 
       {/* Contenido (deja libre el rail de 64px; la barra ampliada flota encima) */}
       <div className="ml-16">
-        <div className="mx-auto w-full max-w-[1240px] px-8 py-8">
-          <div className="grid grid-cols-1 gap-10 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="w-full px-8 py-8 xl:pl-[106px] xl:pr-5">
+          <div className="grid grid-cols-1 gap-10 xl:grid-cols-[minmax(0,1fr)_334px]">
             <div className="min-w-0 space-y-14">
               <section id="iglesia" className="scroll-mt-20"><ChurchHealth churchId={membership.churchId} /></section>
               <section id="miembros" className="scroll-mt-20"><MembersOverview churchId={membership.churchId} avgAttendance={avgAttendance} onMapView={(m) => setOverlay(m)} /></section>
@@ -127,10 +131,11 @@ export default function Dashboard() {
             </div>
             {/* Franja del mapa: nombre de la iglesia arriba + mapa centrado y estático */}
             <div className="min-w-0 xl:sticky xl:top-[91px] xl:flex xl:h-[calc(100vh-91px)] xl:flex-col">
-              <div className="pt-6">
+              <div className="pt-6 text-center">
                 <p className="text-xs font-semibold uppercase tracking-wider text-sage-dark">Panel del pastor</p>
                 <h1 className="mt-0.5 font-serif text-2xl font-semibold text-charcoal">{church?.name ?? 'Tu congregación'}</h1>
-                {church?.code && <p className="mt-0.5 font-mono text-xs text-graysage/70">{church.code}</p>}
+                <p className="mt-1 text-sm font-medium text-sage-dark">{MODE_LABEL[mapMode] ?? ''}</p>
+                {church?.code && <p className="mt-1 font-mono text-xs text-graysage/70">{church.code}</p>}
               </div>
               <div className="flex flex-1 items-center">
                 <ChurchMap churchId={membership.churchId} mode={mapMode} occId={mapOcc} highlight={highlight} />
