@@ -26,7 +26,7 @@ interface Group { key: string; name: string; color: string; count: number }
 interface Occ { id: string; label: string; at: number }
 type Mode = 'equipos' | 'cobertura' | 'asistencia' | 'bautismo' | 'sexo' | 'edad'
 
-export default function ChurchMap({ churchId, mode: modeProp, compact }: { churchId: string; mode?: Mode; compact?: boolean }) {
+export default function ChurchMap({ churchId, mode: modeProp, compact, occId: occIdProp }: { churchId: string; mode?: Mode; compact?: boolean; occId?: string | null }) {
   const [mode, setMode] = useState<Mode>(modeProp ?? 'equipos')
   const [sel, setSel] = useState<string | null>(null)
   const [occId, setOccId] = useState<string>('')
@@ -142,6 +142,8 @@ export default function ChurchMap({ churchId, mode: modeProp, compact }: { churc
   // Modo controlado por la sección visible del panel (sticky). Un clic manual en el
   // toggle lo cambia hasta que el scroll lleve a otra sección.
   useEffect(() => { if (modeProp) { setMode(modeProp); setSel(null) } }, [modeProp])
+  // Ocurrencia controlada por la actividad elegida en la sección Actividades.
+  useEffect(() => { if (occIdProp) setOccId(occIdProp) }, [occIdProp])
 
   const present = useMemo(() => (data ? data.attBySvc.get(occId) ?? new Set<string>() : new Set<string>()), [data, occId])
 

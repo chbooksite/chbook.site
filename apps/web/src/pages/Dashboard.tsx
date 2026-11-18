@@ -38,6 +38,7 @@ export default function Dashboard() {
   const [avgAttendance, setAvgAttendance] = useState(0)
   const [active, setActive] = useState('iglesia')
   const [overlay, setOverlay] = useState<MapMode | null>(null) // tarjeta seleccionada que controla el mapa
+  const [mapOcc, setMapOcc] = useState<string | null>(null) // actividad elegida → asistencia en el mapa
   const [expanded, setExpanded] = useState(false)
   const navRef = useRef<HTMLElement>(null)
 
@@ -124,13 +125,13 @@ export default function Dashboard() {
             <div className="min-w-0 space-y-14">
               <section id="iglesia" className="scroll-mt-20"><ChurchHealth churchId={membership.churchId} /></section>
               <section id="miembros" className="scroll-mt-20"><MembersOverview churchId={membership.churchId} avgAttendance={avgAttendance} onMapView={(m) => setOverlay(m)} /></section>
-              <section id="actividades" className="scroll-mt-20"><ActivityMetrics churchId={membership.churchId} /></section>
+              <section id="actividades" className="scroll-mt-20"><ActivityMetrics churchId={membership.churchId} onOccurrence={setMapOcc} /></section>
               <section id="equipos" className="scroll-mt-20"><TeamStats churchId={membership.churchId} /></section>
               <section id="lideres" className="scroll-mt-20"><LeaderStats churchId={membership.churchId} /></section>
               <section id="mejores" className="scroll-mt-20"><BestNumbers churchId={membership.churchId} /></section>
             </div>
             <div className="min-w-0 xl:sticky xl:top-[65px] xl:self-start xl:max-h-[calc(100vh-84px)] xl:overflow-y-auto xl:pr-1">
-              <ChurchMap churchId={membership.churchId} mode={mapMode} compact />
+              <ChurchMap churchId={membership.churchId} mode={mapMode} occId={mapOcc} compact />
             </div>
           </div>
         </div>

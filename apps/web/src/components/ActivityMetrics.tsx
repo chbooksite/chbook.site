@@ -185,7 +185,7 @@ function ActivityDayStrip({ days, selDay, selKey, today, onSelectDay, onSelectOc
   )
 }
 
-export default function ActivityMetrics({ churchId }: { churchId: string }) {
+export default function ActivityMetrics({ churchId, onOccurrence }: { churchId: string; onOccurrence?: (serviceId: string | null) => void }) {
   const [occs, setOccs] = useState<Occ[] | null>(null)
   const [arrival, setArrival] = useState<Map<string, number | null>>(new Map())
   const [teamData, setTeamData] = useState<TeamData | null>(null)
@@ -301,6 +301,8 @@ export default function ActivityMetrics({ churchId }: { churchId: string }) {
   }, [days, selDay, today])
 
   const sel = useMemo(() => (occs ?? []).find((o) => o.key === selKey) ?? null, [occs, selKey])
+  // Refleja en el mapa lateral la asistencia de la ocurrencia elegida (si está registrada).
+  useEffect(() => { onOccurrence?.(sel && sel.registered ? sel.serviceId : null) }, [sel, onOccurrence])
 
   // Equipos participantes en la actividad seleccionada y su presencia.
   const selTeams = useMemo(() => {
