@@ -215,13 +215,16 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
     const capacity = rings.reduce((s, r) => s + Math.max(1, Math.round((r * span) / arcStep)), 0)
     const grpSize = new Map<string, number>(), grpInact = new Map<string, number>()
     for (const m of data.members) { const g = groupOf(m.id); grpSize.set(g, (grpSize.get(g) ?? 0) + 1); if (data.inactive.has(m.id)) grpInact.set(g, (grpInact.get(g) ?? 0) + 1) }
+    // Paso 1: asientos por grupo ∝ %, pero MÍNIMO una fila radial (nº de anillos).
+    const nByKey = new Map<string, number>()
+    let totalN = 0
+    for (const key of ordered) { const n = Math.max(rings.length, Math.round(((idsByGroup.get(key)!.length) / total) * capacity)); nByKey.set(key, n); totalN += n }
+    // Paso 2: el ANCHO de cada cuña es ∝ sus puntos (no al % crudo), así nunca queda
+    // más angosta que sus propios puntos → sin solapamientos.
     let accA = A0, idx = 0
     for (const key of ordered) {
-      const share = (idsByGroup.get(key)!.length) / total
-      // Asientos ∝ %, pero mínimo UNA fila radial completa (nº de anillos) para que
-      // un grupo pequeño no desaparezca: se le suman puntos hasta llenar una fila.
-      const n = Math.max(rings.length, Math.round(share * capacity))
-      const w = share * span
+      const n = nByKey.get(key)!
+      const w = (n / totalN) * span
       const a0 = accA + gap / 2, a1 = accA + w - gap / 2; accA += w
       const aw = Math.max(0.03, a1 - a0)
       const cap = rings.map((r) => Math.max(1, Math.round((r * aw) / arcStep)))
