@@ -126,7 +126,7 @@ export default function Dashboard() {
               <section id="mejores" className="scroll-mt-20"><BestNumbers churchId={membership.churchId} /></section>
             </div>
             {/* Franja del mapa: nombre de la iglesia arriba + mapa centrado y estático */}
-            <div className="min-w-0 xl:sticky xl:top-[57px] xl:flex xl:h-[calc(100vh-57px)] xl:flex-col">
+            <div className="min-w-0 xl:sticky xl:top-[91px] xl:flex xl:h-[calc(100vh-91px)] xl:flex-col">
               <div className="pt-6">
                 <p className="text-xs font-semibold uppercase tracking-wider text-sage-dark">Panel del pastor</p>
                 <h1 className="mt-0.5 font-serif text-2xl font-semibold text-charcoal">{church?.name ?? 'Tu congregación'}</h1>
