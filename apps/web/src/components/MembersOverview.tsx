@@ -186,8 +186,10 @@ function Kpi({ label, value, sub, strong, tint }: { label: string; value: string
 }
 
 const SEX_LABEL: Record<string, string> = { M: 'Hombres', masculino: 'Hombres', F: 'Mujeres', femenino: 'Mujeres' }
+// Tarjetas que pintan su dato en el mapa lateral al seleccionarlas.
+const CARD_MAP: Record<string, 'bautismo' | 'sexo' | 'edad'> = { bautismo: 'bautismo', genero: 'sexo', edad: 'edad' }
 
-export default function MembersOverview({ churchId, avgAttendance = 0 }: { churchId: string; avgAttendance?: number }) {
+export default function MembersOverview({ churchId, avgAttendance = 0, onMapView }: { churchId: string; avgAttendance?: number; onMapView?: (mode: 'bautismo' | 'sexo' | 'edad') => void }) {
   const [members, setMembers] = useState<M[] | null>(null)
   const [roles, setRoles] = useState<Cat[]>([])
   const [teams, setTeams] = useState<Cat[]>([])
@@ -316,7 +318,7 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
 
       <div className="pt-1">
         <h3 className="font-serif text-lg font-semibold text-charcoal">Miembros</h3>
-        <p className="text-sm text-graysage">Composición de la congregación. Pasa el cursor por una tarjeta para ver su proporción respecto a la iglesia.</p>
+        <p className="text-sm text-graysage">Composición de la congregación. Toca <b>Bautismo</b>, <b>Género</b> o <b>Edad</b> para pintarlo en el mapa.</p>
       </div>
 
       {/* Bento: tamaños variados (tercios · mitades · ancho completo) y un tinte
@@ -331,7 +333,8 @@ export default function MembersOverview({ churchId, avgAttendance = 0 }: { churc
         ] as { id: string; title: string; items: Item[]; tint: string; span: string; caption?: string; body: ReactNode }[]).map((c) => {
           const focused = hoverId === c.id || selected === c.id
           const reduced = (hoverId !== null || selected !== null) && !focused
-          return <Card key={c.id} id={c.id} title={c.title} items={c.items} total={seg.total} caption={c.caption} tint={c.tint} spanCls={c.span} open={focused} reduced={reduced} onSelect={setSelected} onHover={setHoverId}>{c.body}</Card>
+          const onSel = (sid: string) => { setSelected(sid); const mv = CARD_MAP[sid]; if (mv && onMapView) onMapView(mv) }
+          return <Card key={c.id} id={c.id} title={c.title} items={c.items} total={seg.total} caption={c.caption} tint={c.tint} spanCls={c.span} open={focused} reduced={reduced} onSelect={onSel} onHover={setHoverId}>{c.body}</Card>
         })}
       </div>
     </div>

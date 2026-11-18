@@ -21,10 +21,10 @@ const PRESENT = '#1baf7a'
 const ABSENT = '#d9dbde'
 const INACTIVE_MS = 30 * 24 * 60 * 60 * 1000
 
-interface M { id: string; ageKey: string | null }
+interface M { id: string; ageKey: string | null; sex: string | null; baptized: boolean }
 interface Group { key: string; name: string; color: string; count: number }
 interface Occ { id: string; label: string; at: number }
-type Mode = 'equipos' | 'cobertura' | 'asistencia'
+type Mode = 'equipos' | 'cobertura' | 'asistencia' | 'bautismo' | 'sexo' | 'edad'
 
 export default function ChurchMap({ churchId, mode: modeProp, compact }: { churchId: string; mode?: Mode; compact?: boolean }) {
   const [mode, setMode] = useState<Mode>(modeProp ?? 'equipos')
@@ -129,7 +129,7 @@ export default function ChurchMap({ churchId, mode: modeProp, compact }: { churc
       const inactive = new Set<string>()
       for (const [mid, teams] of memberTeams) if (teams.length && (lastAtt.get(mid) ?? 0) < cutoff) inactive.add(mid)
 
-      const members: M[] = universe.map((u) => ({ id: u.id, ageKey: memberAgeKey(u, ranges) }))
+      const members: M[] = universe.map((u) => ({ id: u.id, ageKey: memberAgeKey(u, ranges), sex: u.sex, baptized: !!u.is_baptized }))
       setData({ members, ranges, teamName, leaderName, memberTeams, memberLeaders, inactive, occurrences, attBySvc })
       // Default: la ocurrencia más concurrida (más representativa que la más reciente).
       let bestId = occurrences[0]?.id ?? '', bestN = -1
@@ -149,6 +149,12 @@ export default function ChurchMap({ churchId, mode: modeProp, compact }: { churc
   const groupOf = useMemo(() => {
     if (!data) return (_: string) => '__sin__'
     if (mode === 'asistencia') return (id: string) => (present.has(id) ? '__present__' : '__absent__')
+    if (mode === 'bautismo' || mode === 'sexo' || mode === 'edad') {
+      const attr = new Map(data.members.map((m) => [m.id, m]))
+      if (mode === 'bautismo') return (id: string) => (attr.get(id)?.baptized ? '__bapt__' : '__nobapt__')
+      if (mode === 'sexo') return (id: string) => { const s = attr.get(id)?.sex; return s === 'masculino' ? '__m__' : s === 'femenino' ? '__f__' : '__nosex__' }
+      return (id: string) => attr.get(id)?.ageKey ?? '__noage__'
+    }
     const src = mode === 'equipos' ? data.memberTeams : data.memberLeaders
     return (id: string) => { const g = src.get(id) ?? []; return g.length === 0 ? '__sin__' : g.length === 1 ? g[0] : '__varios__' }
   }, [data, mode, present])
@@ -158,15 +164,16 @@ export default function ChurchMap({ churchId, mode: modeProp, compact }: { churc
     if (!data) return empty
     const counts = new Map<string, number>()
     for (const m of data.members) { const g = groupOf(m.id); counts.set(g, (counts.get(g) ?? 0) + 1) }
-    if (mode === 'asistencia') {
-      const color = new Map([['__present__', PRESENT], ['__absent__', ABSENT]])
-      const rank = new Map([['__present__', 0], ['__absent__', 1]])
-      const groups: Group[] = [
-        { key: '__present__', name: 'Presentes', color: PRESENT, count: counts.get('__present__') ?? 0 },
-        { key: '__absent__', name: 'Ausentes', color: ABSENT, count: counts.get('__absent__') ?? 0 },
-      ]
-      return { groups, colorOf: (k: string) => color.get(k) ?? ABSENT, rankOf: (k: string) => rank.get(k) ?? 9 }
+    const build = (defs: [string, string, string][]) => {
+      const color = new Map<string, string>(), rank = new Map<string, number>()
+      defs.forEach(([k, , c], i) => { color.set(k, c); rank.set(k, i) })
+      const groups: Group[] = defs.filter(([k]) => counts.get(k)).map(([k, name]) => ({ key: k, name, color: color.get(k)!, count: counts.get(k)! }))
+      return { groups, colorOf: (k: string) => color.get(k) ?? SIN, rankOf: (k: string) => rank.get(k) ?? 999 }
     }
+    if (mode === 'asistencia') return build([['__present__', 'Presentes', PRESENT], ['__absent__', 'Ausentes', ABSENT]])
+    if (mode === 'bautismo') return build([['__bapt__', 'Bautizados', '#1baf7a'], ['__nobapt__', 'No bautizados', '#eb6834']])
+    if (mode === 'sexo') return build([['__m__', 'Hombres', '#2a78d6'], ['__f__', 'Mujeres', '#e87ba4'], ['__nosex__', 'Sin dato', SIN]])
+    if (mode === 'edad') return build([...data.ranges.filter((r) => r.enabled).map((r) => [r.key, r.name, r.color] as [string, string, string]), ['__noage__', 'Sin edad', SIN]])
     const nameOf = mode === 'equipos' ? data.teamName : data.leaderName
     const real = [...counts.entries()].filter(([k]) => k !== '__varios__' && k !== '__sin__').sort((a, b) => b[1] - a[1])
     const color = new Map<string, string>(); const rank = new Map<string, number>()
@@ -228,7 +235,7 @@ export default function ChurchMap({ churchId, mode: modeProp, compact }: { churc
         <div>
           <h3 className="font-serif text-lg font-semibold text-charcoal">Mapa de la iglesia</h3>
           <p className="text-sm text-graysage">
-            Cada asiento es un miembro, por rango de edad. {mode === 'equipos' ? 'Color = su equipo.' : mode === 'cobertura' ? 'Color = su líder cercano.' : 'Presentes vs ausentes en la actividad elegida.'}
+            Cada asiento es un miembro, por rango de edad. {mode === 'equipos' ? 'Color = su equipo.' : mode === 'cobertura' ? 'Color = su líder cercano.' : mode === 'asistencia' ? 'Presentes vs ausentes en la actividad elegida.' : mode === 'bautismo' ? 'Color = bautismo.' : mode === 'sexo' ? 'Color = sexo.' : 'Color = rango de edad.'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

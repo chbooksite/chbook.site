@@ -24,7 +24,8 @@ const SECTIONS: { id: string; label: string; icon: ReactNode }[] = [
 ]
 
 // El mapa (panel lateral fijo) cambia de modo según la sección visible.
-const MAP_MODE: Record<string, 'equipos' | 'cobertura' | 'asistencia'> = {
+type MapMode = 'equipos' | 'cobertura' | 'asistencia' | 'bautismo' | 'sexo' | 'edad'
+const MAP_MODE: Record<string, MapMode> = {
   iglesia: 'cobertura', miembros: 'cobertura', actividades: 'asistencia', equipos: 'equipos', lideres: 'cobertura', mejores: 'equipos',
 }
 
@@ -36,6 +37,7 @@ export default function Dashboard() {
   const [church, setChurch] = useState<{ name: string; code: string } | null>(null)
   const [avgAttendance, setAvgAttendance] = useState(0)
   const [active, setActive] = useState('iglesia')
+  const [overlay, setOverlay] = useState<MapMode | null>(null) // tarjeta seleccionada que controla el mapa
   const [expanded, setExpanded] = useState(false)
   const navRef = useRef<HTMLElement>(null)
 
@@ -57,6 +59,10 @@ export default function Dashboard() {
     return () => io.disconnect()
   }, [membership])
 
+  // Al cambiar de sección, el mapa vuelve al modo por defecto de esa sección
+  // (se suelta la tarjeta que lo controlaba).
+  useEffect(() => { setOverlay(null) }, [active])
+
   // Contrae la barra al hacer clic fuera de ella.
   useEffect(() => {
     if (!expanded) return
@@ -71,7 +77,7 @@ export default function Dashboard() {
   if (!membership) return <Navigate to="/onboarding" replace />
 
   const go = (id: string) => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setExpanded(false) }
-  const mapMode = MAP_MODE[active] ?? 'cobertura'
+  const mapMode = overlay ?? MAP_MODE[active] ?? 'cobertura'
 
   return (
     <div className="min-h-screen bg-cream">
@@ -117,7 +123,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_420px]">
             <div className="min-w-0 space-y-14">
               <section id="iglesia" className="scroll-mt-20"><ChurchHealth churchId={membership.churchId} /></section>
-              <section id="miembros" className="scroll-mt-20"><MembersOverview churchId={membership.churchId} avgAttendance={avgAttendance} /></section>
+              <section id="miembros" className="scroll-mt-20"><MembersOverview churchId={membership.churchId} avgAttendance={avgAttendance} onMapView={(m) => setOverlay(m)} /></section>
               <section id="actividades" className="scroll-mt-20"><ActivityMetrics churchId={membership.churchId} /></section>
               <section id="equipos" className="scroll-mt-20"><TeamStats churchId={membership.churchId} /></section>
               <section id="lideres" className="scroll-mt-20"><LeaderStats churchId={membership.churchId} /></section>
