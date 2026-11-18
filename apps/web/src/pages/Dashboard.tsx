@@ -115,14 +115,8 @@ export default function Dashboard() {
 
       {/* Contenido (deja libre el rail de 64px; la barra ampliada flota encima) */}
       <div className="ml-16">
-        <div className="w-full px-6 py-8">
-          <header className="mb-8">
-            <p className="text-xs font-semibold uppercase tracking-wider text-sage-dark">Panel del pastor</p>
-            <h1 className="mt-1 font-serif text-3xl font-semibold text-charcoal sm:text-4xl">{church?.name ?? 'Tu congregación'}</h1>
-            <p className="mt-1 text-sm text-graysage">Una lectura clara del estado de la iglesia, semana tras semana.{church?.code && <span className="ml-2 font-mono text-graysage/70">{church.code}</span>}</p>
-          </header>
-
-          <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="mx-auto w-full max-w-[1200px] px-6 py-8">
+          <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className="min-w-0 space-y-14">
               <section id="iglesia" className="scroll-mt-20"><ChurchHealth churchId={membership.churchId} /></section>
               <section id="miembros" className="scroll-mt-20"><MembersOverview churchId={membership.churchId} avgAttendance={avgAttendance} onMapView={(m) => setOverlay(m)} /></section>
@@ -131,8 +125,16 @@ export default function Dashboard() {
               <section id="lideres" className="scroll-mt-20"><LeaderStats churchId={membership.churchId} onSelect={setHighlight} /></section>
               <section id="mejores" className="scroll-mt-20"><BestNumbers churchId={membership.churchId} /></section>
             </div>
-            <div className="min-w-0 xl:sticky xl:top-[65px] xl:self-start xl:max-h-[calc(100vh-84px)] xl:overflow-y-auto xl:pr-1">
-              <ChurchMap churchId={membership.churchId} mode={mapMode} occId={mapOcc} highlight={highlight} />
+            {/* Franja del mapa: nombre de la iglesia arriba + mapa centrado y estático */}
+            <div className="min-w-0 xl:sticky xl:top-[57px] xl:flex xl:h-[calc(100vh-57px)] xl:flex-col">
+              <div className="pt-6">
+                <p className="text-xs font-semibold uppercase tracking-wider text-sage-dark">Panel del pastor</p>
+                <h1 className="mt-0.5 font-serif text-2xl font-semibold text-charcoal">{church?.name ?? 'Tu congregación'}</h1>
+                {church?.code && <p className="mt-0.5 font-mono text-xs text-graysage/70">{church.code}</p>}
+              </div>
+              <div className="flex flex-1 items-center">
+                <ChurchMap churchId={membership.churchId} mode={mapMode} occId={mapOcc} highlight={highlight} />
+              </div>
             </div>
           </div>
         </div>

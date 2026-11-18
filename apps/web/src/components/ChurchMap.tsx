@@ -274,14 +274,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
   const total = data.members.length
 
   return (
-    <div className="space-y-2">
-      <div className="pt-1">
-        <h3 className="font-serif text-lg font-semibold text-charcoal">Mapa de la iglesia</h3>
-        <p className="text-sm text-graysage">
-          La congregación por rangos de edad. El color refleja {mode === 'equipos' ? 'el equipo' : mode === 'cobertura' ? 'el líder a cargo' : mode === 'asistencia' ? 'la asistencia de la actividad elegida' : mode === 'bautismo' ? 'el bautismo' : mode === 'sexo' ? 'el sexo' : 'el rango de edad'}.
-        </p>
-      </div>
-
+    <div className="w-full">
       <div className="flex items-start gap-2">
         {/* Leyenda a la IZQUIERDA (esquina superior): solo color · nº · % (sin nombres) */}
         <div className="flex shrink-0 flex-col gap-1 pt-1 text-[0.68rem] tabular-nums text-graysage">
