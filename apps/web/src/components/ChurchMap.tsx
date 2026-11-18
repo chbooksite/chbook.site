@@ -16,7 +16,7 @@ import { flockMemberIds, memberAgeKey, FLOCK_ROLE_KEYS, type Flock, type FlockMe
 
 const PALETTE = ['#2a78d6', '#1baf7a', '#eb6834', '#e34949', '#eda100', '#6250d6', '#0f8a8a', '#b5651d', '#c2185b', '#558b2f', '#7b5e57', '#00897b']
 const VARIOS = '#8e7cc3'
-const SIN = '#c7c9cd'
+const SIN = '#a3abb5'
 const PRESENT = '#1baf7a'
 const ABSENT = '#d9dbde'
 const INACTIVE_MS = 30 * 24 * 60 * 60 * 1000
@@ -211,7 +211,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
     // cada punto de la rejilla se colorea según la cuña donde cae, dejando un margen
     // junto a cada borde (separador entre zonas). En equipos, una fracción = aro
     // (% de inactivos del grupo).
-    const SEAT_PX = 10.5, ROW_PX = 12, EDGE = SEAT_PX * 0.35
+    const SEAT_PX = 10, ROW_PX = 11.5, EDGE = SEAT_PX * 0.3
     const rings: number[] = []
     for (let r = innerR; r <= outerR + 0.1; r += ROW_PX) rings.push(r)
     const midR = (innerR + outerR) / 2
@@ -309,7 +309,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
               {art.seats.map((s) => {
                 const dim = sel != null && s.g !== sel
                 const col = colorOf(s.g)
-                return <circle key={s.k} cx={s.x} cy={s.y} r={4.2} fill={dim ? '#e3e4e6' : s.ring ? '#ffffff' : col} stroke={!dim && s.ring ? col : 'none'} strokeWidth={s.ring ? 1.6 : 0} opacity={dim ? 0.5 : 1} />
+                return <circle key={s.k} cx={s.x} cy={s.y} r={4.5} fill={dim ? '#e3e4e6' : s.ring ? '#ffffff' : col} stroke={!dim && s.ring ? col : 'none'} strokeWidth={s.ring ? 1.6 : 0} opacity={dim ? 0.5 : 1} />
               })}
               <circle cx={art.cx} cy={art.cy} r={15} fill="#CECBF6" />
               <rect x={art.cx - 1.5} y={art.cy - 7.5} width={3} height={15} rx={1} fill="#3C3489" />
