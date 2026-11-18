@@ -115,8 +115,8 @@ export default function Dashboard() {
 
       {/* Contenido (deja libre el rail de 64px; la barra ampliada flota encima) */}
       <div className="ml-16">
-        <div className="w-full px-8 py-8 xl:pr-10">
-          <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="mx-auto w-full max-w-[1240px] px-8 py-8">
+          <div className="grid grid-cols-1 gap-10 xl:grid-cols-[minmax(0,1fr)_300px]">
             <div className="min-w-0 space-y-14">
               <section id="iglesia" className="scroll-mt-20"><ChurchHealth churchId={membership.churchId} /></section>
               <section id="miembros" className="scroll-mt-20"><MembersOverview churchId={membership.churchId} avgAttendance={avgAttendance} onMapView={(m) => setOverlay(m)} /></section>
