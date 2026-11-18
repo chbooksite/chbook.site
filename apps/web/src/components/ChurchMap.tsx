@@ -196,7 +196,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
   // cada fila (anillo) recibe asientos en proporción a su radio (más fuera, más).
   const art = useMemo(() => {
     if (!data) return null
-    const cx = 150, cy = 158, innerR = 42, outerR = 140
+    const cx = 150, cy = 158, innerR = 36, outerR = 142
     const A0 = Math.PI / 2, A1 = Math.PI * 1.5, span = A1 - A0
     const total = data.members.length || 1
     const polar = (r: number, a: number): [number, number] => [cx + r * Math.cos(a), cy + r * Math.sin(a)]
@@ -211,7 +211,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
     // cada punto de la rejilla se colorea según la cuña donde cae, dejando un margen
     // junto a cada borde (separador entre zonas). En equipos, una fracción = aro
     // (% de inactivos del grupo).
-    const SEAT_PX = 12, ROW_PX = 15, EDGE = SEAT_PX * 0.7
+    const SEAT_PX = 10.5, ROW_PX = 12, EDGE = SEAT_PX * 0.35
     const rings: number[] = []
     for (let r = innerR; r <= outerR + 0.1; r += ROW_PX) rings.push(r)
     const midR = (innerR + outerR) / 2
@@ -309,7 +309,7 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
               {art.seats.map((s) => {
                 const dim = sel != null && s.g !== sel
                 const col = colorOf(s.g)
-                return <circle key={s.k} cx={s.x} cy={s.y} r={4.6} fill={dim ? '#e3e4e6' : s.ring ? '#ffffff' : col} stroke={!dim && s.ring ? col : 'none'} strokeWidth={s.ring ? 1.7 : 0} opacity={dim ? 0.5 : 1} />
+                return <circle key={s.k} cx={s.x} cy={s.y} r={4.2} fill={dim ? '#e3e4e6' : s.ring ? '#ffffff' : col} stroke={!dim && s.ring ? col : 'none'} strokeWidth={s.ring ? 1.6 : 0} opacity={dim ? 0.5 : 1} />
               })}
               <circle cx={art.cx} cy={art.cy} r={15} fill="#CECBF6" />
               <rect x={art.cx - 1.5} y={art.cy - 7.5} width={3} height={15} rx={1} fill="#3C3489" />
