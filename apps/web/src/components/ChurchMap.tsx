@@ -203,25 +203,39 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
     const idsByGroup = new Map<string, string[]>()
     for (const m of data.members) { const g = groupOf(m.id); const a = idsByGroup.get(g) ?? []; a.push(m.id); idsByGroup.set(g, a) }
     const ordered = groups.map((g) => g.key).filter((k) => idsByGroup.get(k)?.length)
-    const seats: { id: string; x: number; y: number; g: string }[] = []
-    const rowGap = 13, arcStep = 12, pad = 0.03
-    const rows: number[] = []
-    for (let r = innerR; r <= outerR + 0.1; r += rowGap) rows.push(r)
-    const wsum = rows.reduce((a, b) => a + b, 0)
-    let accA = A0
+    const seats: { k: string; x: number; y: number; g: string; ring: boolean }[] = []
+    // PROPORCIONAL (no 1 punto = 1 persona): la media luna tiene una CAPACIDAD fija de
+    // asientos que se LLENA toda; cada grupo recibe asientos ∝ su % (cuña radial tipo
+    // torta). Entre cuñas, un hueco angular (línea radial vacía) separa las zonas. En
+    // modo equipos, una fracción de cada cuña se marca como aro = % de inactivos.
+    const gap = 0.09, arcStep = 14
+    const rings: number[] = []
+    for (let r = innerR; r <= outerR + 0.1; r += 18) rings.push(r)
+    const rsum = rings.reduce((a, b) => a + b, 0)
+    const capacity = rings.reduce((s, r) => s + Math.max(1, Math.round((r * span) / arcStep)), 0)
+    const grpSize = new Map<string, number>(), grpInact = new Map<string, number>()
+    for (const m of data.members) { const g = groupOf(m.id); grpSize.set(g, (grpSize.get(g) ?? 0) + 1); if (data.inactive.has(m.id)) grpInact.set(g, (grpInact.get(g) ?? 0) + 1) }
+    let accA = A0, idx = 0
     for (const key of ordered) {
-      const ids = idsByGroup.get(key)!
-      const n = ids.length
-      const w = (n / total) * span
-      const a0 = accA + pad, a1 = accA + w - pad; accA += w
-      const aw = Math.max(0.0001, a1 - a0)
-      const cap = rows.map((r) => Math.max(1, Math.floor((r * aw) / arcStep)))
-      const alloc = rows.map((r, i) => Math.min(cap[i], Math.floor((n * r) / wsum)))
+      const share = (idsByGroup.get(key)!.length) / total
+      // Asientos ∝ %, pero mínimo UNA fila radial completa (nº de anillos) para que
+      // un grupo pequeño no desaparezca: se le suman puntos hasta llenar una fila.
+      const n = Math.max(rings.length, Math.round(share * capacity))
+      const w = share * span
+      const a0 = accA + gap / 2, a1 = accA + w - gap / 2; accA += w
+      const aw = Math.max(0.03, a1 - a0)
+      const cap = rings.map((r) => Math.max(1, Math.round((r * aw) / arcStep)))
+      const alloc = rings.map((r, i) => Math.min(cap[i], Math.round((n * r) / rsum)))
       let rem = n - alloc.reduce((a, b) => a + b, 0)
-      for (let i = rows.length - 1; i >= 0 && rem > 0; i--) { const add = Math.min(cap[i] - alloc[i], rem); alloc[i] += add; rem -= add }
-      let placed = 0
-      rows.forEach((r, i) => { const cnt = Math.min(alloc[i], n - placed); for (let j = 0; j < cnt; j++) { const a = cnt === 1 ? (a0 + a1) / 2 : a0 + (j / (cnt - 1)) * aw; const [x, y] = polar(r, a); seats.push({ id: ids[placed++], x, y, g: key }) } })
-      if (placed < n) { const left = n - placed; for (let j = 0; j < left; j++) { const a = a0 + ((j + 0.5) / left) * aw; const [x, y] = polar(outerR + rowGap, a); seats.push({ id: ids[placed++], x, y, g: key }) } }
+      for (let guard = 0; rem !== 0 && guard < 500; guard++) {
+        if (rem > 0) { let did = false; for (let i = rings.length - 1; i >= 0; i--) if (alloc[i] < cap[i]) { alloc[i]++; rem--; did = true; break } if (!did) break }
+        else { let did = false; for (let i = 0; i < rings.length; i++) if (alloc[i] > 0) { alloc[i]--; rem++; did = true; break } if (!did) break }
+      }
+      const wedge: { x: number; y: number }[] = []
+      rings.forEach((r, i) => { const cnt = alloc[i]; for (let j = 0; j < cnt; j++) { const a = cnt === 1 ? (a0 + a1) / 2 : a0 + (j / (cnt - 1)) * aw; const [x, y] = polar(r, a); wedge.push({ x, y }) } })
+      const ratio = mode === 'equipos' ? (grpInact.get(key) ?? 0) / Math.max(1, grpSize.get(key) ?? 1) : 0
+      const ringN = Math.round(ratio * wedge.length)
+      wedge.forEach((p, i) => seats.push({ k: `${idx++}`, x: p.x, y: p.y, g: key, ring: i < ringN }))
     }
     return { cx, cy, outerR, seats, vbW: cx + 16, vbH: cy * 2 + 8 }
   }, [data, groups, groupOf])
@@ -290,9 +304,8 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
               <line x1={art.cx} y1={art.cy - art.outerR - 10} x2={art.cx} y2={art.cy + art.outerR + 10} stroke="#E4E4E0" strokeWidth={1} />
               {art.seats.map((s) => {
                 const dim = sel != null && s.g !== sel
-                const ring = mode === 'equipos' && data.inactive.has(s.id)
                 const col = colorOf(s.g)
-                return <circle key={s.id} cx={s.x} cy={s.y} r={4.3} fill={dim ? '#e3e4e6' : ring ? '#ffffff' : col} stroke={!dim && ring ? col : 'none'} strokeWidth={ring ? 1.8 : 0} opacity={dim ? 0.5 : 1} />
+                return <circle key={s.k} cx={s.x} cy={s.y} r={4.6} fill={dim ? '#e3e4e6' : s.ring ? '#ffffff' : col} stroke={!dim && s.ring ? col : 'none'} strokeWidth={s.ring ? 1.7 : 0} opacity={dim ? 0.5 : 1} />
               })}
               <circle cx={art.cx} cy={art.cy} r={15} fill="#CECBF6" />
               <rect x={art.cx - 1.5} y={art.cy - 7.5} width={3} height={15} rx={1} fill="#3C3489" />
