@@ -282,9 +282,9 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
         </p>
       </div>
 
-      <div className="rounded-2xl bg-white p-2 ring-1 ring-black/5">
+      <div className="flex items-center gap-1">
         {art && (
-          <svg viewBox={`-28 -22 ${art.cx + 70} ${art.cy * 2 + 44}`} className="mx-auto block w-full max-w-[440px]" role="img" aria-label="Mapa de la iglesia en media luna, rebanadas por edad">
+          <svg viewBox={`-30 -22 ${art.cx + 52} ${art.cy * 2 + 44}`} className="block min-w-0 flex-1" role="img" aria-label="Mapa de la iglesia en media luna, rebanadas por edad">
             <line x1={art.cx} y1={art.cy - art.outerR - 10} x2={art.cx} y2={art.cy + art.outerR + 10} stroke="#E4E4E0" strokeWidth={1} />
             {art.seats.map((s) => {
               const dim = sel != null && s.g !== sel
@@ -300,18 +300,20 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
             <text x={art.cx} y={art.cy + 28} textAnchor="middle" fontSize={10} fill="#6b6f6a">altar</text>
           </svg>
         )}
-        {/* Leyenda simple de referencia: color · nº · % del total */}
-        <div className="mt-1 flex flex-wrap justify-center gap-x-3 gap-y-0.5 px-1 text-[0.68rem] text-graysage">
+        {/* Leyenda a la DERECHA del semicírculo: solo color · nº · % (sin nombres) */}
+        <div className="flex shrink-0 flex-col gap-1 py-1 text-[0.68rem] tabular-nums text-graysage">
           {groups.map((g) => (
-            <span key={g.key} className="inline-flex items-center gap-1">
+            <span key={g.key} className="inline-flex items-center gap-1.5" title={g.name}>
               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: g.color }} />
-              {g.name} <span className="text-graysage/60">{g.count} · {total ? Math.round((g.count / total) * 100) : 0}%</span>
+              <span className="text-charcoal">{g.count}</span>
+              <span className="text-graysage/60">{total ? Math.round((g.count / total) * 100) : 0}%</span>
             </span>
           ))}
           {mode === 'equipos' && inactiveCount > 0 && (
-            <span className="inline-flex items-center gap-1">
+            <span className="inline-flex items-center gap-1.5" title="Sin asistir ≥1 mes">
               <span className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-graysage bg-transparent" />
-              sin asistir ≥1 mes
+              <span className="text-charcoal">{inactiveCount}</span>
+              <span className="text-graysage/60">{total ? Math.round((inactiveCount / total) * 100) : 0}%</span>
             </span>
           )}
         </div>
