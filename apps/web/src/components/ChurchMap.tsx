@@ -282,26 +282,9 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
         </p>
       </div>
 
-      <div className="flex items-center gap-1">
-        {art && (
-          <svg viewBox={`-30 -22 ${art.cx + 52} ${art.cy * 2 + 44}`} className="block min-w-0 flex-1" role="img" aria-label="Mapa de la iglesia en media luna, rebanadas por edad">
-            <line x1={art.cx} y1={art.cy - art.outerR - 10} x2={art.cx} y2={art.cy + art.outerR + 10} stroke="#E4E4E0" strokeWidth={1} />
-            {art.seats.map((s) => {
-              const dim = sel != null && s.g !== sel
-              const col = colorOf(s.g)
-              return <circle key={s.k} cx={s.x} cy={s.y} r={4.3} fill={dim ? '#e3e4e6' : s.ring ? '#ffffff' : col} stroke={!dim && s.ring ? col : 'none'} strokeWidth={s.ring ? 1.6 : 0} opacity={dim ? 0.5 : 1} />
-            })}
-            {art.ageSlices.map((s) => (
-              <text key={s.key} x={s.px} y={s.py} transform={`rotate(${s.rot} ${s.px} ${s.py})`} textAnchor="middle" dominantBaseline="middle" fontSize={7} fill="#55585e">{s.name} <tspan fontWeight={600}>{s.pct}%</tspan><title>{s.n} personas · {s.pct}%</title></text>
-            ))}
-            <circle cx={art.cx} cy={art.cy} r={15} fill="#CECBF6" />
-            <rect x={art.cx - 1.5} y={art.cy - 7.5} width={3} height={15} rx={1} fill="#3C3489" />
-            <rect x={art.cx - 5.5} y={art.cy - 2} width={11} height={3} rx={1} fill="#3C3489" />
-            <text x={art.cx} y={art.cy + 28} textAnchor="middle" fontSize={10} fill="#6b6f6a">altar</text>
-          </svg>
-        )}
-        {/* Leyenda a la DERECHA del semicírculo: solo color · nº · % (sin nombres) */}
-        <div className="flex shrink-0 flex-col gap-1 py-1 text-[0.68rem] tabular-nums text-graysage">
+      <div className="flex items-start gap-2">
+        {/* Leyenda a la IZQUIERDA (esquina superior): solo color · nº · % (sin nombres) */}
+        <div className="flex shrink-0 flex-col gap-1 pt-1 text-[0.68rem] tabular-nums text-graysage">
           {groups.map((g) => (
             <span key={g.key} className="inline-flex items-center gap-1.5" title={g.name}>
               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: g.color }} />
@@ -317,6 +300,24 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
             </span>
           )}
         </div>
+        {/* Mapa pegado al borde derecho */}
+        {art && (
+          <svg viewBox={`-30 -22 ${art.cx + 50} ${art.cy * 2 + 44}`} className="block min-w-0 flex-1" role="img" aria-label="Mapa de la iglesia en media luna, rebanadas por edad">
+            <line x1={art.cx} y1={art.cy - art.outerR - 10} x2={art.cx} y2={art.cy + art.outerR + 10} stroke="#E4E4E0" strokeWidth={1} />
+            {art.seats.map((s) => {
+              const dim = sel != null && s.g !== sel
+              const col = colorOf(s.g)
+              return <circle key={s.k} cx={s.x} cy={s.y} r={4.3} fill={dim ? '#e3e4e6' : s.ring ? '#ffffff' : col} stroke={!dim && s.ring ? col : 'none'} strokeWidth={s.ring ? 1.6 : 0} opacity={dim ? 0.5 : 1} />
+            })}
+            {art.ageSlices.map((s) => (
+              <text key={s.key} x={s.px} y={s.py} transform={`rotate(${s.rot} ${s.px} ${s.py})`} textAnchor="middle" dominantBaseline="middle" fontSize={7} fill="#55585e">{s.name} <tspan fontWeight={600}>{s.pct}%</tspan><title>{s.n} personas · {s.pct}%</title></text>
+            ))}
+            <circle cx={art.cx} cy={art.cy} r={15} fill="#CECBF6" />
+            <rect x={art.cx - 1.5} y={art.cy - 7.5} width={3} height={15} rx={1} fill="#3C3489" />
+            <rect x={art.cx - 5.5} y={art.cy - 2} width={11} height={3} rx={1} fill="#3C3489" />
+            <text x={art.cx} y={art.cy + 28} textAnchor="middle" fontSize={10} fill="#6b6f6a">altar</text>
+          </svg>
+        )}
       </div>
     </div>
   )
