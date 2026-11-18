@@ -204,41 +204,42 @@ export default function ChurchMap({ churchId, mode: modeProp, occId: occIdProp, 
     for (const m of data.members) { const g = groupOf(m.id); const a = idsByGroup.get(g) ?? []; a.push(m.id); idsByGroup.set(g, a) }
     const ordered = groups.map((g) => g.key).filter((k) => idsByGroup.get(k)?.length)
     const seats: { k: string; x: number; y: number; g: string; ring: boolean }[] = []
-    // PROPORCIONAL (no 1 punto = 1 persona): la media luna tiene una CAPACIDAD fija de
-    // asientos que se LLENA toda; cada grupo recibe asientos ∝ su % (cuña radial tipo
-    // torta). Entre cuñas, un hueco angular (línea radial vacía) separa las zonas. En
-    // modo equipos, una fracción de cada cuña se marca como aro = % de inactivos.
-    const gap = 0.09, arcStep = 14
+    // PROPORCIONAL (no 1 punto = 1 persona): la media luna se LLENA con una REJILLA
+    // POLAR de separación FIJA en píxeles (SEAT_PX entre asientos, ROW_PX entre
+    // anillos) → por construcción ningún punto se monta sobre otro. Cada grupo es una
+    // cuña radial cuyo ancho ∝ su % (mínimo para que un grupo pequeño no desaparezca);
+    // cada punto de la rejilla se colorea según la cuña donde cae, dejando un margen
+    // junto a cada borde (separador entre zonas). En equipos, una fracción = aro
+    // (% de inactivos del grupo).
+    const SEAT_PX = 12, ROW_PX = 15, EDGE = SEAT_PX * 0.7
     const rings: number[] = []
-    for (let r = innerR; r <= outerR + 0.1; r += 18) rings.push(r)
-    const rsum = rings.reduce((a, b) => a + b, 0)
-    const capacity = rings.reduce((s, r) => s + Math.max(1, Math.round((r * span) / arcStep)), 0)
+    for (let r = innerR; r <= outerR + 0.1; r += ROW_PX) rings.push(r)
+    const midR = (innerR + outerR) / 2
     const grpSize = new Map<string, number>(), grpInact = new Map<string, number>()
     for (const m of data.members) { const g = groupOf(m.id); grpSize.set(g, (grpSize.get(g) ?? 0) + 1); if (data.inactive.has(m.id)) grpInact.set(g, (grpInact.get(g) ?? 0) + 1) }
-    // Paso 1: asientos por grupo ∝ %, pero MÍNIMO una fila radial (nº de anillos).
-    const nByKey = new Map<string, number>()
-    let totalN = 0
-    for (const key of ordered) { const n = Math.max(rings.length, Math.round(((idsByGroup.get(key)!.length) / total) * capacity)); nByKey.set(key, n); totalN += n }
-    // Paso 2: el ANCHO de cada cuña es ∝ sus puntos (no al % crudo), así nunca queda
-    // más angosta que sus propios puntos → sin solapamientos.
-    let accA = A0, idx = 0
-    for (const key of ordered) {
-      const n = nByKey.get(key)!
-      const w = (n / totalN) * span
-      const a0 = accA + gap / 2, a1 = accA + w - gap / 2; accA += w
-      const aw = Math.max(0.03, a1 - a0)
-      const cap = rings.map((r) => Math.max(1, Math.round((r * aw) / arcStep)))
-      const alloc = rings.map((r, i) => Math.min(cap[i], Math.round((n * r) / rsum)))
-      let rem = n - alloc.reduce((a, b) => a + b, 0)
-      for (let guard = 0; rem !== 0 && guard < 500; guard++) {
-        if (rem > 0) { let did = false; for (let i = rings.length - 1; i >= 0; i--) if (alloc[i] < cap[i]) { alloc[i]++; rem--; did = true; break } if (!did) break }
-        else { let did = false; for (let i = 0; i < rings.length; i++) if (alloc[i] > 0) { alloc[i]--; rem++; did = true; break } if (!did) break }
+    // Límites angulares de las cuñas: ancho ∝ %, con un mínimo visible.
+    const minW = (SEAT_PX * 1.8) / midR
+    const raw = ordered.map((k) => Math.max(minW, ((idsByGroup.get(k)!.length) / total) * span))
+    const rawSum = raw.reduce((a, b) => a + b, 0)
+    const bounds: { key: string; b0: number; b1: number }[] = []
+    let acc = A0
+    ordered.forEach((k, i) => { const w = (raw[i] / rawSum) * span; bounds.push({ key: k, b0: acc, b1: acc + w }); acc += w })
+    const wedgeDots = new Map<string, { x: number; y: number }[]>()
+    for (const r of rings) {
+      const dA = SEAT_PX / r
+      for (let a = A0 + dA / 2; a <= A1 - dA / 2 + 1e-9; a += dA) {
+        const wb = bounds.find((b) => a >= b.b0 && a < b.b1)
+        if (!wb) continue
+        if ((a - wb.b0) * r < EDGE || (wb.b1 - a) * r < EDGE) continue // margen separador junto al borde
+        const [x, y] = polar(r, a); const arr = wedgeDots.get(wb.key) ?? []; arr.push({ x, y }); wedgeDots.set(wb.key, arr)
       }
-      const wedge: { x: number; y: number }[] = []
-      rings.forEach((r, i) => { const cnt = alloc[i]; for (let j = 0; j < cnt; j++) { const a = cnt === 1 ? (a0 + a1) / 2 : a0 + (j / (cnt - 1)) * aw; const [x, y] = polar(r, a); wedge.push({ x, y }) } })
+    }
+    let idx = 0
+    for (const key of ordered) {
+      const arr = wedgeDots.get(key) ?? []
       const ratio = mode === 'equipos' ? (grpInact.get(key) ?? 0) / Math.max(1, grpSize.get(key) ?? 1) : 0
-      const ringN = Math.round(ratio * wedge.length)
-      wedge.forEach((p, i) => seats.push({ k: `${idx++}`, x: p.x, y: p.y, g: key, ring: i < ringN }))
+      const ringN = Math.round(ratio * arr.length)
+      arr.forEach((p, i) => seats.push({ k: `${idx++}`, x: p.x, y: p.y, g: key, ring: i < ringN }))
     }
     return { cx, cy, outerR, seats, vbW: cx + 16, vbH: cy * 2 + 8 }
   }, [data, groups, groupOf])
